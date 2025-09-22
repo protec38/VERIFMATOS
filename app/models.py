@@ -9,6 +9,8 @@ ROLE_CHEF = 'chef'
 ROLE_SECOURISTE = 'secouriste'
 
 class User(UserMixin, db.Model):
+    __tablename__ = 'users'
+
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
@@ -47,19 +49,21 @@ class Item(db.Model):
     parent = db.relationship('Item', remote_side=[id], backref='children')
 
 class Event(db.Model):
+    __tablename__ = 'events'
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(180), nullable=False)
     date = db.Column(db.DateTime, default=datetime.utcnow)
     location = db.Column(db.String(180), nullable=True)
-    chef_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    chef_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     token = db.Column(db.String(32), unique=True, default=lambda: secrets.token_hex(8))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     chef = db.relationship('User', backref='events')
 
 class EventItem(db.Model):
+    __tablename__ = 'event_items'
     id = db.Column(db.Integer, primary_key=True)
-    event_id = db.Column(db.Integer, db.ForeignKey('event.id'), nullable=False)
+    event_id = db.Column(db.Integer, db.ForeignKey('events.id'), nullable=False)
     item_id = db.Column(db.Integer, db.ForeignKey('items.id'), nullable=False)
     loaded = db.Column(db.Boolean, default=False)
 
@@ -67,8 +71,9 @@ class EventItem(db.Model):
     item = db.relationship('Item')
 
 class Verification(db.Model):
+    __tablename__ = 'verifications'
     id = db.Column(db.Integer, primary_key=True)
-    event_id = db.Column(db.Integer, db.ForeignKey('event.id'), nullable=False)
+    event_id = db.Column(db.Integer, db.ForeignKey('events.id'), nullable=False)
     item_id = db.Column(db.Integer, db.ForeignKey('items.id'), nullable=False)
     verified_by = db.Column(db.String(120), nullable=False)
     verified_at = db.Column(db.DateTime, default=datetime.utcnow)
