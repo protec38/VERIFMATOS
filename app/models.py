@@ -1,4 +1,3 @@
-# app/models.py
 from datetime import datetime
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -212,20 +211,17 @@ class EventLog(db.Model):
 
 # ============================================================
 # ALIASES RÉTRO-COMPAT
-# (pour d'anciens imports dans events.py)
 # ============================================================
 EventItem = EventChild
 EventInclude = EventChild
 EventLeaf = EventChild
 EventCheck = EventChild
-Verification = EventChild  # ✅ nouvel alias pour corriger l'import
+Verification = EventChild
+Activity = EventLog  # ✅ nouvel alias pour corriger l'import Activity
 
 __all__ = [
-    # consts
     "ROLE_ADMIN", "ROLE_CHEF", "ROLE_VIEWER",
-    # models
     "User", "Item", "Event", "EventParent", "EventChild",
     "EventLoad", "EventPresence", "EventLog",
-    # retro aliases
-    "EventItem", "EventInclude", "EventLeaf", "EventCheck", "Verification",
+    "EventItem", "EventInclude", "EventLeaf", "EventCheck", "Verification", "Activity",
 ]
