@@ -117,3 +117,9 @@ class EventLog(db.Model):
     at = db.Column(db.DateTime, default=datetime.utcnow)
 
     event = db.relationship("Event", backref=db.backref("logs", cascade="all, delete-orphan"))
+
+
+
+# --- alias rétro-compat pour l'ancien nom ---
+EventItem = EventChild
+
