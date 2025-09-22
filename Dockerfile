@@ -1,8 +1,8 @@
 # Single Dockerfile: build React then run FastAPI (port 7000)
 FROM node:20-alpine AS webbuild
 WORKDIR /web
-COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+COPY frontend/package.json ./
+RUN npm install --no-audit --no-fund
 COPY frontend ./
 ARG VITE_API_BASE=/api
 ENV VITE_API_BASE=$VITE_API_BASE
