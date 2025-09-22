@@ -1,9 +1,9 @@
-from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from datetime import datetime
 import secrets
 
-db = SQLAlchemy()
+# IMPORTANT : on importe l'instance 'db' créée dans app/__init__.py
+from . import db
 
 # ---------------------------------------------------------------------
 # Constantes pour les rôles
