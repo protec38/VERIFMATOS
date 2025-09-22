@@ -267,23 +267,34 @@ def api_verify(token):
     ev = Event.query.filter_by(token=token).first_or_404()
     if ev.state == 'closed':
         return jsonify({'ok': False, 'error': 'closed'}), 400
+
     name = session.get('volunteer_name')
     if not name:
         return jsonify({'ok': False, 'error': 'auth'}), 401
+
     data = request.get_json() or {}
     item_id = int(data.get('item_id'))
     state = bool(data.get('verified'))
+
     v = Verification.query.filter_by(event_id=ev.id, item_id=item_id).first()
     if not v:
-        v = Verification(event_id=ev.id, item_id=item_id, verified=state, last_by=name, last_at=datetime.utcnow())
+        v = Verification(event_id=ev.id, item_id=item_id, verified=state, by=name, timestamp=datetime.utcnow())
         db.session.add(v)
     else:
         v.verified = state
-        v.last_by = name
-        v.last_at = datetime.utcnow()
-    db.session.add(Activity(event_id=ev.id, actor=name, action='verify' if state else 'unverify', item_id=item_id))
+        v.by = name
+        v.timestamp = datetime.utcnow()
+
+    # journal
+    db.session.add(Activity(
+        event_id=ev.id,
+        actor=name,
+        action=('verify' if state else 'unverify'),
+        item_id=item_id
+    ))
     db.session.commit()
     return jsonify({'ok': True})
+
 
 @events_bp.route('/api/<int:event_id>/load', methods=['POST'])
 @login_required
