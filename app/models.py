@@ -1,26 +1,35 @@
+# app/models.py
 from datetime import datetime
 from flask_login import UserMixin
-from . import db, login_manager
 from werkzeug.security import generate_password_hash, check_password_hash
 
-# ------------------------------------------------------------------
-# Rôles (constants) — pour compatibilité avec des imports existants
-# ------------------------------------------------------------------
+from . import db, login_manager
+
+# ============================================================
+# RÔLES (constants)
+# ============================================================
 ROLE_ADMIN = "admin"
 ROLE_CHEF = "chef"
 ROLE_VIEWER = "viewer"
 
-# ------------------------------------------------------------------
-# MODELES avec noms de tables sûrs (prefixe app_)
-# ------------------------------------------------------------------
+# ============================================================
+# UTIL
+# ============================================================
+def utcnow():
+    # simple helper pour éviter de capturer l'heure au moment de l'import
+    return datetime.utcnow()
 
+# ============================================================
+# USER
+# ============================================================
 class User(UserMixin, db.Model):
     __tablename__ = "app_users"
+
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
+    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), default=ROLE_ADMIN)  # admin / chef / viewer
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     def set_password(self, raw: str):
         self.password_hash = generate_password_hash(raw)
@@ -28,100 +37,214 @@ class User(UserMixin, db.Model):
     def check_password(self, raw: str) -> bool:
         return check_password_hash(self.password_hash, raw)
 
+    def __repr__(self) -> str:
+        return f"<User {self.username} ({self.role})>"
+
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    try:
+        return User.query.get(int(user_id))
+    except Exception:
+        return None
 
-
+# ============================================================
+# ITEM (hiérarchie multi-niveaux)
+# - kind: "parent" ou "leaf"
+# - parent_id: permet les sous-parents en cascade
+# - expected_qty: quantité attendue (pertinent pour les feuilles)
+# ============================================================
 class Item(db.Model):
     __tablename__ = "app_items"
+
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(200), nullable=False)
-    # kind: parent / leaf
+    name = db.Column(db.String(200), nullable=False, index=True)
     kind = db.Column(db.String(10), nullable=False, default="leaf")
-    # hiérarchie multi-niveaux : parent -> sous-parent -> leaf
     parent_id = db.Column(db.Integer, db.ForeignKey("app_items.id"), nullable=True)
-    # quantité attendue pour vérification (seulement pour les feuilles)
     expected_qty = db.Column(db.Integer, nullable=False, default=1)
-    # optionnel: icône FontAwesome (ex: "fa-kit-medical")
-    icon = db.Column(db.String(64), nullable=True)
+    icon = db.Column(db.String(64), nullable=True)  # ex: "fa-kit-medical"
 
-    parent = db.relationship("Item", remote_side=[id], backref=db.backref("children", lazy="dynamic"))
+    parent = db.relationship(
+        "Item",
+        remote_side=[id],
+        backref=db.backref("children", lazy="dynamic", cascade="all")
+    )
 
-    def is_parent(self):
+    def is_parent(self) -> bool:
         return self.kind == "parent"
 
+    def __repr__(self) -> str:
+        return f"<Item {self.id} {self.name} kind={self.kind} parent_id={self.parent_id}>"
 
+# ============================================================
+# EVENT
+# - token: lien partageable pour secouristes (unique)
+# - state: draft / active / closed (exploitable côté app si besoin)
+# ============================================================
 class Event(db.Model):
     __tablename__ = "app_events"
+
     id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(200), nullable=False)
-    date = db.Column(db.DateTime, default=datetime.utcnow)
+    title = db.Column(db.String(200), nullable=False, index=True)
+    date = db.Column(db.DateTime, default=utcnow, index=True)
     location = db.Column(db.String(255))
     state = db.Column(db.String(20), default="draft")
-    token = db.Column(db.String(36), unique=True, index=True)  # lien partageable
+    token = db.Column(db.String(64), unique=True, index=True)  # 36+ ok
 
+    __table_args__ = (
+        db.Index("ix_app_events_state_date", "state", "date"),
+    )
 
+    def __repr__(self) -> str:
+        return f"<Event {self.id} {self.title} ({self.state})>"
+
+# ============================================================
+# EVENT ↔ PARENTS ASSOCIÉS
+# - Un parent (sac, module, caisse...) sélectionné pour l'évènement
+# - Unicité (event_id, parent_id)
+# ============================================================
 class EventParent(db.Model):
     __tablename__ = "app_event_parents"
+
     id = db.Column(db.Integer, primary_key=True)
     event_id = db.Column(db.Integer, db.ForeignKey("app_events.id"), nullable=False, index=True)
     parent_id = db.Column(db.Integer, db.ForeignKey("app_items.id"), nullable=False, index=True)
 
-    event = db.relationship("Event", backref=db.backref("event_parents", cascade="all, delete-orphan"))
+    event = db.relationship(
+        "Event",
+        backref=db.backref("event_parents", cascade="all, delete-orphan", lazy="dynamic")
+    )
     parent = db.relationship("Item")
 
+    __table_args__ = (
+        db.UniqueConstraint("event_id", "parent_id", name="uq_app_event_parents_event_parent"),
+    )
 
+    def __repr__(self) -> str:
+        return f"<EventParent ev={self.event_id} parent={self.parent_id}>"
+
+# ============================================================
+# EVENT ↔ FEUILLES (CHILDREN) INCLUSES
+# - included: permet d'exclure certaines feuilles d'un parent
+# - verified / verified_by / verified_at: suivi live
+# - Unicité (event_id, child_id)
+# ============================================================
 class EventChild(db.Model):
     __tablename__ = "app_event_children"
+
     id = db.Column(db.Integer, primary_key=True)
     event_id = db.Column(db.Integer, db.ForeignKey("app_events.id"), nullable=False, index=True)
     child_id = db.Column(db.Integer, db.ForeignKey("app_items.id"), nullable=False, index=True)
 
-    # inclusion (le chef peut décocher certaines feuilles dans un parent)
     included = db.Column(db.Boolean, default=True)
 
-    # vérification live
     verified = db.Column(db.Boolean, default=False)
     verified_by = db.Column(db.String(120))
     verified_at = db.Column(db.DateTime)
 
-    event = db.relationship("Event", backref=db.backref("event_children", cascade="all, delete-orphan"))
+    event = db.relationship(
+        "Event",
+        backref=db.backref("event_children", cascade="all, delete-orphan", lazy="dynamic")
+    )
     child = db.relationship("Item")
 
+    __table_args__ = (
+        db.UniqueConstraint("event_id", "child_id", name="uq_app_event_children_event_child"),
+    )
 
+    def __repr__(self) -> str:
+        return (
+            f"<EventChild ev={self.event_id} child={self.child_id} "
+            f"included={self.included} verified={self.verified}>"
+        )
+
+# ============================================================
+# EVENT LOAD (chargement des PARENTS dans le véhicule)
+# - loaded: True/False (contrôlé après vérif complète des enfants)
+# - Unicité (event_id, parent_id)
+# ============================================================
 class EventLoad(db.Model):
     __tablename__ = "app_event_loads"
+
     id = db.Column(db.Integer, primary_key=True)
     event_id = db.Column(db.Integer, db.ForeignKey("app_events.id"), nullable=False, index=True)
     parent_id = db.Column(db.Integer, db.ForeignKey("app_items.id"), nullable=False, index=True)
     loaded = db.Column(db.Boolean, default=False)
 
+    event = db.relationship(
+        "Event",
+        backref=db.backref("loads", cascade="all, delete-orphan", lazy="dynamic")
+    )
 
+    __table_args__ = (
+        db.UniqueConstraint("event_id", "parent_id", name="uq_app_event_loads_event_parent"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<EventLoad ev={self.event_id} parent={self.parent_id} loaded={self.loaded}>"
+
+# ============================================================
+# EVENT PRESENCE (qui bosse sur quel parent en ce moment)
+# - last_seen mis à jour pour l'affichage "En cours: Alice, Bob..."
+# ============================================================
 class EventPresence(db.Model):
     __tablename__ = "app_event_presence"
+
     id = db.Column(db.Integer, primary_key=True)
     event_id = db.Column(db.Integer, db.ForeignKey("app_events.id"), nullable=False, index=True)
     parent_id = db.Column(db.Integer, db.ForeignKey("app_items.id"), nullable=False, index=True)
-    actor = db.Column(db.String(120), nullable=False)
-    last_seen = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    actor = db.Column(db.String(120), nullable=False, index=True)
+    last_seen = db.Column(db.DateTime, default=utcnow, onupdate=utcnow, index=True)
 
+    event = db.relationship(
+        "Event",
+        backref=db.backref("presence", cascade="all, delete-orphan", lazy="dynamic")
+    )
 
+    __table_args__ = (
+        db.Index("ix_app_event_presence_actor_parent", "actor", "parent_id"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<Presence ev={self.event_id} parent={self.parent_id} {self.actor} at={self.last_seen}>"
+
+# ============================================================
+# JOURNAL (logs)
+# ============================================================
 class EventLog(db.Model):
     __tablename__ = "app_event_logs"
+
     id = db.Column(db.Integer, primary_key=True)
     event_id = db.Column(db.Integer, db.ForeignKey("app_events.id"), nullable=False, index=True)
     actor = db.Column(db.String(120))
     action = db.Column(db.String(255))
-    at = db.Column(db.DateTime, default=datetime.utcnow)
+    at = db.Column(db.DateTime, default=utcnow, index=True)
 
-    event = db.relationship("Event", backref=db.backref("logs", cascade="all, delete-orphan"))
+    event = db.relationship(
+        "Event",
+        backref=db.backref("logs", cascade="all, delete-orphan", lazy="dynamic")
+    )
 
+    def __repr__(self) -> str:
+        return f"<Log ev={self.event_id} {self.actor} {self.action} at={self.at}>"
 
-
-# --- Aliases rétro-compat pour ancien code ---
+# ============================================================
+# ALIASES RÉTRO-COMPAT (anciens noms utilisés dans certains fichiers)
+# ============================================================
+# Ex-anciens modèles référençant les feuilles incluses dans un event
 EventItem = EventChild
 EventInclude = EventChild
 
+# Parfois on a vu passer ces alias aussi — on les fournit au cas où :
+EventLeaf = EventChild
+EventCheck = EventChild
 
+__all__ = [
+    # consts
+    "ROLE_ADMIN", "ROLE_CHEF", "ROLE_VIEWER",
+    # models
+    "User", "Item", "Event", "EventParent", "EventChild", "EventLoad",
+    "EventPresence", "EventLog",
+    # retro aliases
+    "EventItem", "EventInclude", "EventLeaf", "EventCheck",
+]
