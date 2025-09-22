@@ -28,7 +28,7 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "7000:8000"
     volumes:
       - ./app:/app/app
       - ./.env:/app/.env
