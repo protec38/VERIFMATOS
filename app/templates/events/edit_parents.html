@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block title %}Modifier les parents{% endblock %}
+{% block content %}
+<h1>Modifier les parents — {{ ev.title }}</h1>
+<form method="post">
+  <div class="chips">{% for p in parents %}
+    <label class="chip"><input type="checkbox" name="parent_ids" value="{{ p.id }}" {% if p.id in selected %}checked{% endif %}> {{ p.name }}</label>
+  {% endfor %}</div>
+  <button class="btn" type="submit"><i class="fa-solid fa-floppy-disk"></i> Enregistrer</button>
+</form>
+{% endblock %}

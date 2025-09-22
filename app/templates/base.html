@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}PC38 Inventaire{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <script defer src="{{ url_for('static', filename='js/app.js') }}"></script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="brand"><i class="fa-solid fa-shield-heart"></i> Protection Civile Isère</div>
+    <div class="links">
+      {% if current_user.is_authenticated %}
+        <a href="{{ url_for('index') }}"><i class="fa-solid fa-gauge"></i> Tableau</a>
+        <a href="{{ url_for('events.list_events') }}"><i class="fa-solid fa-calendar-check"></i> Évènements</a>
+        <a href="{{ url_for('inventory.index') }}"><i class="fa-solid fa-boxes-stacked"></i> Stock</a>
+        {% if current_user.role == 'admin' %}
+          <a href="{{ url_for('auth.users') }}"><i class="fa-solid fa-users-gear"></i> Utilisateurs</a>
+        {% endif %}
+        <a class="logout" href="{{ url_for('auth.logout') }}"><i class="fa-solid fa-right-from-bracket"></i> Déconnexion</a>
+      {% endif %}
+    </div>
+  </nav>
+  <main class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-area">{% for cat,msg in messages %}<div class="flash {{ cat }}">{{ msg }}</div>{% endfor %}</div>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="footer">© 2025 Protection Civile de l'Isère</footer>
+</body>
+</html>

@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% block title %}Évènement{% endblock %}
+{% block content %}
+<div class="header-row">
+  <div>
+    <h1>{{ ev.title }}</h1>
+    <p class="muted">Le {{ ev.date.strftime('%d/%m/%Y %H:%M') }} — {{ ev.location or '—' }}</p>
+  </div>
+  <form method="post" action="{{ url_for('events.change_state', event_id=ev.id) }}">
+    <select name="state">
+      <option value="draft" {% if ev.state=='draft' %}selected{% endif %}>Brouillon</option>
+      <option value="in_progress" {% if ev.state=='in_progress' %}selected{% endif %}>En cours</option>
+      <option value="closed" {% if ev.state=='closed' %}selected{% endif %}>Clôturé</option>
+    </select>
+    <button class="btn" type="submit"><i class="fa-solid fa-toggle-on"></i> Changer</button>
+  </form>
+</div>
+<p><a class="btn" href="{{ url_for('events.event_link', event_id=ev.id) }}"><i class="fa-solid fa-share-nodes"></i> Lien pour les secouristes</a></p>
+
+<div id="stats" class="sticky">
+  <span id="stat-progress">—</span>
+</div>
+
+<div id="live" data-event="{{ ev.id }}">
+  <div class="grid">
+    {% for p in parents %}
+    <div class="card parent-card" id="parent-{{ p.id }}">
+      <div class="row-between">
+        <h3 class="parent-title">{{ p.name }}</h3>
+        <label class="switch">
+          <input type="checkbox" onchange="toggleLoaded({{ ev.id }}, {{ p.id }}, this.checked)">
+          <span>Chargé</span>
+        </label>
+      </div>
+      <ul class="list children" id="children-{{ p.id }}">
+        {% for c in p.children %}
+          {% set ec = (EventChild.query.filter_by(event_id=ev.id, child_id=c.id).first()) %}
+          {% if ec and ec.included %}
+          <li data-item="{{ c.id }}">
+            <label><input type="checkbox" disabled> {{ c.name }} <span class="muted">x{{ c.expected_qty }}</span></label>
+            <div class="byline muted small">par <span class="who" data-who="{{ c.id }}">—</span> <span class="when" data-when="{{ c.id }}"></span></div>
+          </li>
+          {% endif %}
+        {% endfor %}
+      </ul>
+      <div class="muted small busy" id="busy-{{ p.id }}"></div>
+    </div>
+    {% endfor %}
+  </div>
+  <h3>Historique</h3>
+  <ul id="history" class="list"></ul>
+</div>
+<script>startLive(1000);</script>
+{% endblock %}

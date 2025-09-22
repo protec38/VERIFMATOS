@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% block title %}Vérification{% endblock %}
+{% block content %}
+<h1>{{ ev.title }} — Vérification</h1>
+<p class="muted">Connecté : <strong>{{ session['volunteer_name'] }}</strong>. Les changements se synchronisent automatiquement (1 s).</p>
+<input id="filter" placeholder="Rechercher un élément…" oninput="applyFilter()" />
+<div id="verify-live" data-token="{{ ev.token }}">
+  <div class="grid">
+  {% for parent, children in data %}
+    <div class="card parent-card" id="parent-{{ parent.id }}" onmouseenter="pingBusy('{{ ev.token }}', {{ parent.id }})">
+      <h3>{{ parent.name }}</h3>
+      <ul class="list children">
+      {% for c in children %}
+        <li data-item="{{ c.id }}">
+          <label class="child-line">
+            <span>
+              <input type="checkbox" onchange="markVerified('{{ ev.token }}', {{ c.id }}, this.checked)">
+              <span class="child-name">{{ c.name }}</span> <span class="qty">x{{ c.expected_qty }}</span>
+            </span>
+            <span class="muted small who" data-who="{{ c.id }}">—</span>
+          </label>
+        </li>
+      {% endfor %}
+      </ul>
+      <div class="muted small busy" id="busy-{{ parent.id }}"></div>
+    </div>
+  {% endfor %}
+  </div>
+</div>
+<script>startVerifyLive(1000);</script>
+{% endblock %}

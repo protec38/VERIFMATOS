@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block title %}Modifier les enfants{% endblock %}
+{% block content %}
+<h1>Modifier les enfants — {{ ev.title }}</h1>
+<form method="post">
+  {% for parent, rows in tree %}
+    <div class="card">
+      <h3>{{ parent.name }}</h3>
+      <div class="chips">
+        {% for child, included in rows %}
+          <label class="chip"><input type="checkbox" name="child_ids" value="{{ child.id }}" {% if included %}checked{% endif %}> {{ child.name }} (x{{ child.expected_qty }})</label>
+        {% endfor %}
+      </div>
+    </div>
+  {% endfor %}
+  <button class="btn" type="submit"><i class="fa-solid fa-floppy-disk"></i> Enregistrer</button>
+</form>
+{% endblock %}
