@@ -152,9 +152,10 @@ def event_link(event_id):
     ev = Event.query.get_or_404(event_id)
     if not is_admin_or_chef():
         return redirect(url_for('events.list_events'))
-    # URL absolue prête à copier
+    # URL absolue (http/https + hôte) prête à copier
     share_url = url_for('events.token_entry', token=ev.token, _external=True)
     return render_template('events/link.html', ev=ev, share_url=share_url)
+
 
 
 # ---------------- LIFECYCLE ----------------
