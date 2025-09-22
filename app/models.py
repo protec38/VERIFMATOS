@@ -4,6 +4,13 @@ from . import db, login_manager
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # ------------------------------------------------------------------
+# Rôles (constants) — pour compatibilité avec des imports existants
+# ------------------------------------------------------------------
+ROLE_ADMIN = "admin"
+ROLE_CHEF = "chef"
+ROLE_VIEWER = "viewer"
+
+# ------------------------------------------------------------------
 # MODELES avec noms de tables sûrs (prefixe app_)
 # ------------------------------------------------------------------
 
@@ -12,7 +19,7 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(20), default="admin")  # admin / chef / viewer
+    role = db.Column(db.String(20), default=ROLE_ADMIN)  # admin / chef / viewer
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def set_password(self, raw: str):
