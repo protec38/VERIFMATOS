@@ -23,27 +23,27 @@
 
 <div id="live" data-event="{{ ev.id }}">
   <div class="grid">
-    {% for p in parents %}
-    <div class="card parent-card" id="parent-{{ p.id }}">
+    {% for parent, children in tree %}
+    <div class="card parent-card" id="parent-{{ parent.id }}">
       <div class="row-between">
-        <h3 class="parent-title">{{ p.name }}</h3>
+        <h3 class="parent-title">{{ parent.name }}</h3>
         <label class="switch">
-          <input type="checkbox" onchange="toggleLoaded({{ ev.id }}, {{ p.id }}, this.checked)">
+          <input type="checkbox" onchange="toggleLoaded({{ ev.id }}, {{ parent.id }}, this.checked)">
           <span>Chargé</span>
         </label>
       </div>
-      <ul class="list children" id="children-{{ p.id }}">
-        {% for c in p.children %}
-          {% set ec = (EventChild.query.filter_by(event_id=ev.id, child_id=c.id).first()) %}
-          {% if ec and ec.included %}
+      <ul class="list children" id="children-{{ parent.id }}">
+        {% for c in children %}
           <li data-item="{{ c.id }}">
             <label><input type="checkbox" disabled> {{ c.name }} <span class="muted">x{{ c.expected_qty }}</span></label>
             <div class="byline muted small">par <span class="who" data-who="{{ c.id }}">—</span> <span class="when" data-when="{{ c.id }}"></span></div>
           </li>
-          {% endif %}
         {% endfor %}
+        {% if not children %}
+          <li class="muted">Aucun élément enfant inclus pour ce parent.</li>
+        {% endif %}
       </ul>
-      <div class="muted small busy" id="busy-{{ p.id }}"></div>
+      <div class="muted small busy" id="busy-{{ parent.id }}"></div>
     </div>
     {% endfor %}
   </div>
