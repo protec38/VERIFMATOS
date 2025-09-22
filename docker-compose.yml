@@ -1,14 +1,17 @@
 version: "3.9"
+
 services:
   db:
     image: postgres:16
+    container_name: pcis_db
     environment:
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: pcis
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pcis"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -17,18 +20,25 @@ services:
 
   web:
     build: .
-    ports:
-      - "7000:8000"
-    environment:
-      - DATABASE_URL=${DATABASE_URL}
-      - SECRET_KEY=${SECRET_KEY}
-      - PYTHONUNBUFFERED=1
+    container_name: pcis_web
     depends_on:
       db:
         condition: service_healthy
-    command: [ "bash", "-lc", "python wait_for_db.py && gunicorn -w 4 -b 0.0.0.0:8000 wsgi:app" ]
+    environment:
+      # alimente Flask/SQLAlchemy directement, sans .env
+      SECRET_KEY: "zeokfgjoiegzjoizge"
+      DATABASE_URL: "postgresql+psycopg2://postgres:postgres@db:5432/pcis"
+      PYTHONUNBUFFERED: "1"
+    ports:
+      - "7000:8000"
+    # si tu veux du live reload pendant le dev, garde le volume. En prod, tu peux l’enlever.
     volumes:
       - .:/app
+    command: >
+      bash -lc "
+        echo 'Attente DB healthy…' &&
+        gunicorn -w 4 -b 0.0.0.0:8000 wsgi:app
+      "
 
 volumes:
   dbdata:
