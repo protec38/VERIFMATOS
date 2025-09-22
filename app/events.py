@@ -38,8 +38,7 @@ def create_event():
             chef_id=current_user.id,
             state='in_progress'
         )
-        db.session.add(ev)
-        db.session.flush()
+        db.session.add(ev); db.session.flush()
 
         for pid in parent_ids:
             p = Item.query.get(pid)
@@ -84,8 +83,7 @@ def edit_event(event_id):
         # remove
         for pid in old_parents - new_parents:
             ei = EventItem.query.filter_by(event_id=ev.id, item_id=pid).first()
-            if ei:
-                db.session.delete(ei)
+            if ei: db.session.delete(ei)
             for ec in EventChild.query.filter_by(event_id=ev.id, parent_id=pid).all():
                 db.session.delete(ec)
 
@@ -124,8 +122,7 @@ def edit_children(event_id):
             ec = EventChild.query.filter_by(event_id=ev.id, child_id=c.id).first()
             if not ec:
                 ec = EventChild(event_id=ev.id, parent_id=p.id, child_id=c.id, included=True)
-                db.session.add(ec)
-                db.session.commit()
+                db.session.add(ec); db.session.commit()
             rows.append((c, ec.included))
         tree.append((p, rows))
     return render_template('events/edit_children.html', ev=ev, tree=tree)
@@ -152,11 +149,8 @@ def event_link(event_id):
     ev = Event.query.get_or_404(event_id)
     if not is_admin_or_chef():
         return redirect(url_for('events.list_events'))
-    # URL absolue (http/https + hôte) prête à copier
     share_url = url_for('events.token_entry', token=ev.token, _external=True)
     return render_template('events/link.html', ev=ev, share_url=share_url)
-
-
 
 # ---------------- LIFECYCLE ----------------
 @events_bp.route('/<int:event_id>/state', methods=['POST'])
@@ -168,170 +162,211 @@ def change_state(event_id):
     target = request.form.get('state')
     if target not in ('draft', 'in_progress', 'closed'):
         return redirect(url_for('events.view_event', event_id=ev.id))
-    ev.state = target
-    db.session.commit()
+    ev.state = target; db.session.commit()
     flash(f"État passé à {target}", 'success')
     return redirect(url_for('events.view_event', event_id=ev.id))
 
-# ---------------- VOLUNTEER (TOKEN) ----------------
-@events_bp.route('/token/<string:token>', methods=['GET'])
+# ---------------- VOLONTAIRES (TOKEN) ----------------
+@events_bp.route('/token/<token>', methods=['GET','POST'])
 def token_entry(token):
     ev = Event.query.filter_by(token=token).first_or_404()
-    session['volunteer_name'] = session.get('volunteer_name')
-    if not session['volunteer_name']:
+    if ev.state == 'closed':
+        flash('Évènement clôturé', 'warning')
         return render_template('events/token_entry.html', ev=ev)
-    return redirect(url_for('events.verify', token=token))
 
-@events_bp.route('/token/<string:token>', methods=['POST'])
-def token_entry_post(token):
-    ev = Event.query.filter_by(token=token).first_or_404()
-    name = request.form.get('name')
-    if not name:
-        flash("Nom requis", 'danger')
-        return render_template('events/token_entry.html', ev=ev)
-    session['volunteer_name'] = name
-    return redirect(url_for('events.verify', token=token))
+    if request.method == 'POST':
+        full_name = request.form.get('full_name', '').strip()
+        if not full_name:
+            flash('Nom requis', 'danger')
+            return render_template('events/token_entry.html', ev=ev)
+        session['volunteer_name'] = full_name
+        session['event_token'] = token
+        return redirect(url_for('events.verify', token=token))
 
-@events_bp.route('/verify/<string:token>')
+    return render_template('events/token_entry.html', ev=ev)
+
+@events_bp.route('/token/<token>/verify')
 def verify(token):
     ev = Event.query.filter_by(token=token).first_or_404()
+    if session.get('event_token') != token or not session.get('volunteer_name'):
+        return redirect(url_for('events.token_entry', token=token))
     if ev.state != 'in_progress':
         return "Évènement non disponible.", 403
     parents = [ei.item for ei in ev.event_items]
-    tree = []
+    data = []
     for p in parents:
-        included_children = []
+        children = []
         for c in p.children:
             ec = EventChild.query.filter_by(event_id=ev.id, child_id=c.id).first()
             if ec and ec.included:
-                included_children.append(c)
-        tree.append((p, included_children))
-    return render_template('events/verify.html', ev=ev, tree=tree, token=token)
+                children.append(c)
+        data.append((p, children))
+    return render_template('events/verify.html', ev=ev, data=data)
 
 # ---------------- PRESENCE ----------------
-@events_bp.route('/api/token/<string:token>/presence', methods=['POST'])
-def presence(token):
+@events_bp.route('/api/token/<token>/presence', methods=['POST'])
+def ping_presence(token):
     ev = Event.query.filter_by(token=token).first_or_404()
     name = session.get('volunteer_name')
+    parent_id = int((request.get_json() or {}).get('parent_id') or 0)
     if not name:
-        return jsonify({'error': 'no_name'}), 400
-    data = request.get_json()
-    pid = data.get('parent_id')
-    p = Presence.query.filter_by(event_id=ev.id, parent_id=pid, name=name).first()
-    if not p:
-        p = Presence(event_id=ev.id, parent_id=pid, name=name, last_seen=datetime.utcnow())
-        db.session.add(p)
-    else:
-        p.last_seen = datetime.utcnow()
+        return jsonify({'ok': False}), 401
+    pr = Presence.query.filter_by(event_id=ev.id, parent_id=parent_id, volunteer=name).first()
+    if not pr:
+        pr = Presence(event_id=ev.id, parent_id=parent_id, volunteer=name)
+        db.session.add(pr)
+    pr.ping_at = datetime.utcnow()
     db.session.commit()
     return jsonify({'ok': True})
 
-# ---------------- API STATUS / VERIFY / LOAD ----------------
-@events_bp.route('/events/api/<int:event_id>/status')
-@login_required
+# ---------------- STATUS / VERIFY / LOAD ----------------
+def _status_payload(ev):
+    verifs = Verification.query.filter_by(event_id=ev.id).all()
+    vmap = {v.item_id: v for v in verifs}
+    parents = [ei.item for ei in ev.event_items]
+    parents_status = {}
+    for p in parents:
+        child_ids = [
+            c.id for c in p.children
+            if (EventChild.query.filter_by(event_id=ev.id, child_id=c.id).first()
+                and EventChild.query.filter_by(event_id=ev.id, child_id=c.id).first().included)
+        ]
+        parents_status[p.id] = all(vmap.get(cid) and vmap[cid].verified for cid in child_ids) if child_ids else False
+    loaded = {ei.item_id: ei.loaded for ei in ev.event_items}
+    cutoff = datetime.utcnow() - timedelta(seconds=5)
+    presence = Presence.query.filter(Presence.event_id == ev.id, Presence.ping_at >= cutoff).all()
+    busy = {}
+    for pr in presence:
+        busy.setdefault(pr.parent_id, set()).add(pr.volunteer)
+    busy = {k: list(v) for k, v in busy.items()}
+    return {
+        'verifications': {
+            str(v.item_id): {
+                'verified': v.verified,
+                'by': v.last_by,
+                'at': v.last_at.isoformat() if v.last_at else None
+            } for v in verifs
+        },
+        'parents_complete': parents_status,
+        'loaded': loaded,
+        'busy': busy
+    }
+
+@events_bp.route('/api/<int:event_id>/status')
 def api_status(event_id):
     ev = Event.query.get_or_404(event_id)
-    verifs = Verification.query.filter_by(event_id=ev.id).all()
-    vmap = {v.item_id: {'verified': v.verified, 'by': v.by, 'at': v.timestamp.isoformat() if v.timestamp else None} for v in verifs}
-    parents_complete = {}
-    for ei in ev.event_items:
-        children = [ec.child for ec in EventChild.query.filter_by(event_id=ev.id, parent_id=ei.item_id, included=True).all()]
-        parents_complete[ei.item_id] = all(vmap.get(c.id, {}).get('verified') for c in children) if children else False
-    loaded = {ei.item_id: ei.loaded for ei in ev.event_items}
-    busy = {}
-    for ei in ev.event_items:
-        pres = Presence.query.filter(Presence.event_id==ev.id, Presence.parent_id==ei.item_id,
-                                     Presence.last_seen >= datetime.utcnow()-timedelta(seconds=10)).all()
-        busy[ei.item_id] = [p.name for p in pres]
-    return jsonify({'verifications': vmap, 'parents_complete': parents_complete, 'loaded': loaded, 'busy': busy})
+    return jsonify(_status_payload(ev))
 
-@events_bp.route('/events/api/token/<string:token>/status')
+@events_bp.route('/api/token/<token>/status')
 def api_status_token(token):
     ev = Event.query.filter_by(token=token).first_or_404()
-    verifs = Verification.query.filter_by(event_id=ev.id).all()
-    vmap = {v.item_id: {'verified': v.verified, 'by': v.by, 'at': v.timestamp.isoformat() if v.timestamp else None} for v in verifs}
-    parents_complete = {}
-    for ei in ev.event_items:
-        children = [ec.child for ec in EventChild.query.filter_by(event_id=ev.id, parent_id=ei.item_id, included=True).all()]
-        parents_complete[ei.item_id] = all(vmap.get(c.id, {}).get('verified') for c in children) if children else False
-    loaded = {ei.item_id: ei.loaded for ei in ev.event_items}
-    busy = {}
-    for ei in ev.event_items:
-        pres = Presence.query.filter(Presence.event_id==ev.id, Presence.parent_id==ei.item_id,
-                                     Presence.last_seen >= datetime.utcnow()-timedelta(seconds=10)).all()
-        busy[ei.item_id] = [p.name for p in pres]
-    return jsonify({'verifications': vmap, 'parents_complete': parents_complete, 'loaded': loaded, 'busy': busy})
+    return jsonify(_status_payload(ev))
 
-@events_bp.route('/events/api/<string:token>/verify', methods=['POST'])
+@events_bp.route('/api/<token>/verify', methods=['POST'])
 def api_verify(token):
     ev = Event.query.filter_by(token=token).first_or_404()
-    if ev.state != 'in_progress':
-        return jsonify({'error': 'not_in_progress'}), 400
-    data = request.get_json()
-    iid = data.get('item_id'); state = data.get('verified')
-    v = Verification.query.filter_by(event_id=ev.id, item_id=iid).first()
-    if not v: return jsonify({'error':'no_item'}),400
-    v.verified=bool(state); v.by=session.get('volunteer_name'); v.timestamp=datetime.utcnow()
-    db.session.commit()
-    db.session.add(Activity(event_id=ev.id, message=f"{v.by or '???'} a {'coché' if v.verified else 'décoché'} {Item.query.get(iid).name}"))
+    if ev.state == 'closed':
+        return jsonify({'ok': False, 'error': 'closed'}), 400
+    name = session.get('volunteer_name')
+    if not name:
+        return jsonify({'ok': False, 'error': 'auth'}), 401
+    data = request.get_json() or {}
+    item_id = int(data.get('item_id'))
+    state = bool(data.get('verified'))
+    v = Verification.query.filter_by(event_id=ev.id, item_id=item_id).first()
+    if not v:
+        v = Verification(event_id=ev.id, item_id=item_id, verified=state, last_by=name, last_at=datetime.utcnow())
+        db.session.add(v)
+    else:
+        v.verified = state
+        v.last_by = name
+        v.last_at = datetime.utcnow()
+    db.session.add(Activity(event_id=ev.id, actor=name, action='verify' if state else 'unverify', item_id=item_id))
     db.session.commit()
     return jsonify({'ok': True})
 
-@events_bp.route('/events/api/<int:event_id>/load', methods=['POST'])
+@events_bp.route('/api/<int:event_id>/load', methods=['POST'])
 @login_required
 def api_load(event_id):
     ev = Event.query.get_or_404(event_id)
-    data = request.get_json()
-    pid = data.get('item_id'); state = data.get('loaded')
-    ei = EventItem.query.filter_by(event_id=ev.id, item_id=pid).first()
-    if not ei: return jsonify({'error':'no_parent'}),400
-    children = [ec.child for ec in EventChild.query.filter_by(event_id=ev.id, parent_id=pid, included=True).all()]
-    verifs = Verification.query.filter_by(event_id=ev.id).all()
-    vmap = {v.item_id: v.verified for v in verifs}
-    if state and not all(vmap.get(c.id) for c in children):
-        return jsonify({'error': 'not_all_children_verified'}),400
-    ei.loaded=bool(state); db.session.commit()
-    return jsonify({'ok': True})
+    if not is_admin_or_chef():
+        return jsonify({'ok': False, 'error': 'forbidden'}), 403
+    data = request.get_json() or {}
+    item_id = int(data.get('item_id'))
+    loaded = bool(data.get('loaded'))
+    status = _status_payload(ev)
+    if loaded and not status['parents_complete'].get(item_id, False):
+        return jsonify({'ok': False, 'error': 'not_all_children_verified'}), 400
+    ei = EventItem.query.filter_by(event_id=ev.id, item_id=item_id).first()
+    if not ei:
+        return jsonify({'ok': False, 'error': 'not_in_event'}), 400
+    ei.loaded = loaded
+    db.session.add(Activity(event_id=ev.id, actor=current_user.username, action='load' if loaded else 'unload', item_id=item_id))
+    db.session.commit()
+    return jsonify({'ok': True, 'loaded': loaded})
 
-# ---------------- EXPORT ----------------
-@events_bp.route('/<int:event_id>/export/csv')
+# ---------------- EXPORTS ----------------
+@events_bp.route('/<int:event_id>/export.csv')
 @login_required
 def export_csv(event_id):
     ev = Event.query.get_or_404(event_id)
-    si = io.StringIO(); cw = csv.writer(si)
-    cw.writerow(['Parent','Enfant','Vérifié','Par','Heure'])
-    for ec in EventChild.query.filter_by(event_id=ev.id, included=True).all():
-        v = Verification.query.filter_by(event_id=ev.id, item_id=ec.child_id).first()
-        cw.writerow([Item.query.get(ec.parent_id).name, ec.child.name, v.verified, v.by, v.timestamp])
-    output = io.BytesIO(); output.write(si.getvalue().encode('utf-8')); output.seek(0)
-    return send_file(output, mimetype='text/csv', as_attachment=True, download_name=f"event_{ev.id}.csv")
+    si = io.StringIO(); cw = csv.writer(si, delimiter=';')
+    cw.writerow(['Event', ev.title, ev.date.isoformat(), ev.location or '', ev.state])
+    cw.writerow([])
+    cw.writerow(['ItemID','Parent','Child','ExpectedQty','Verified','By','At','LoadedParent'])
+    loaded_map = {ei.item_id: ei.loaded for ei in ev.event_items}
+    parents = [ei.item for ei in ev.event_items]
+    for p in parents:
+        for c in p.children:
+            ec = EventChild.query.filter_by(event_id=ev.id, child_id=c.id).first()
+            if not ec or not ec.included:
+                continue
+            v = Verification.query.filter_by(event_id=ev.id, item_id=c.id).first()
+            cw.writerow([
+                c.id, p.name, c.name, c.expected_qty,
+                (v.verified if v else False),
+                (v.last_by if v else ''),
+                (v.last_at.isoformat() if v and v.last_at else ''),
+                loaded_map.get(p.id, False)
+            ])
+    mem = io.BytesIO(si.getvalue().encode('utf-8')); mem.seek(0)
+    return send_file(mem, mimetype='text/csv', as_attachment=True, download_name=f"event_{ev.id}.csv")
 
-@events_bp.route('/<int:event_id>/export/pdf')
+@events_bp.route('/<int:event_id>/export.pdf')
 @login_required
 def export_pdf(event_id):
     ev = Event.query.get_or_404(event_id)
-    buffer = io.BytesIO()
-    c = canvas.Canvas(buffer, pagesize=A4)
-    w,h = A4
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(30,h-50, f"Rapport Évènement: {ev.title}")
-    c.setFont("Helvetica",12)
-    y=h-90
-    for ec in EventChild.query.filter_by(event_id=ev.id, included=True).all():
-        v=Verification.query.filter_by(event_id=ev.id, item_id=ec.child_id).first()
-        line=f"{Item.query.get(ec.parent_id).name} - {ec.child.name} : {'OK' if v.verified else 'NON'} ({v.by or '—'})"
-        c.drawString(40,y,line); y-=20
-        if y<50: c.showPage(); y=h-50
-    c.showPage(); c.save(); buffer.seek(0)
-    return send_file(buffer, mimetype='application/pdf', as_attachment=True, download_name=f"event_{ev.id}.pdf")
+    mem = io.BytesIO()
+    p = canvas.Canvas(mem, pagesize=A4)
+    w, h = A4
+    y = h - 40
+    p.setFont("Helvetica-Bold", 16); p.drawString(40, y, "Protection Civile de l'Isère — Rapport de mission"); y -= 22
+    p.setFont("Helvetica", 12); p.drawString(40, y, f"Évènement #{ev.id} — {ev.title} — {ev.date.strftime('%d/%m/%Y %H:%M')}  ({ev.location or '—'})"); y -= 16
+    p.drawString(40, y, f"État: {ev.state}"); y -= 16
+    parents = [ei.item for ei in ev.event_items]
+    for parent in parents:
+        if y < 80:
+            p.showPage(); y = h - 40
+        p.setFont("Helvetica-Bold", 12); p.drawString(40, y, f"Parent: {parent.name}"); y -= 14
+        for child in parent.children:
+            ec = EventChild.query.filter_by(event_id=ev.id, child_id=child.id).first()
+            if not ec or not ec.included:
+                continue
+            v = Verification.query.filter_by(event_id=ev.id, item_id=child.id).first()
+            status = "OK" if (v and v.verified) else "—"
+            who = v.last_by if v and v.last_by else ''
+            when = v.last_at.strftime('%d/%m %H:%M') if v and v.last_at else ''
+            p.setFont("Helvetica", 10); p.drawString(60, y, f"- {child.name} (x{child.expected_qty})  [{status}]  {who} {when}"); y -= 12
+        y -= 6
+    p.setFont("Helvetica", 10); p.drawString(40, 60, "Chef de poste: ____________________"); p.drawString(300, 60, "Conducteur: ____________________")
+    p.showPage(); p.save(); mem.seek(0)
+    return send_file(mem, mimetype='application/pdf', as_attachment=True, download_name=f"event_{ev.id}.pdf")
 
-@events_bp.route('/<int:event_id>/export/log')
+@events_bp.route('/<int:event_id>/log.csv')
 @login_required
 def export_log(event_id):
-    ev=Event.query.get_or_404(event_id)
-    si=io.StringIO(); cw=csv.writer(si)
-    cw.writerow(['Date','Action'])
+    ev = Event.query.get_or_404(event_id)
+    si = io.StringIO(); cw = csv.writer(si, delimiter=';')
+    cw.writerow(['at','actor','action','item_id'])
     for a in ev.activities:
-        cw.writerow([a.timestamp,a.message])
-    output=io.BytesIO(); output.write(si.getvalue().encode('utf-8')); output.seek(0)
-    return send_file(output,mimetype='text/csv',as_attachment=True,download_name=f"event_{ev.id}_log.csv")
+        cw.writerow([a.at.isoformat(), a.actor, a.action
