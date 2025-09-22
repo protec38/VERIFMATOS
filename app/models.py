@@ -120,6 +120,8 @@ class EventLog(db.Model):
 
 
 
-# --- alias rétro-compat pour l'ancien nom ---
+# --- Aliases rétro-compat pour ancien code ---
 EventItem = EventChild
+EventInclude = EventChild
+
 
