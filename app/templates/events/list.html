@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}Évènements{% endblock %}
+{% block content %}
+<div class="header-row">
+  <h1>Évènements</h1>
+  <a class="btn" href="{{ url_for('events.create_event') }}">Créer</a>
+</div>
+<table class="table">
+  <thead><tr><th>Titre</th><th>Date</th><th>Chef</th><th>Lieu</th><th>Lien</th></tr></thead>
+  <tbody>
+  {% for ev in events %}
+    <tr>
+      <td><a href="{{ url_for('events.view_event', event_id=ev.id) }}">{{ ev.title }}</a></td>
+      <td>{{ ev.date.strftime('%d/%m/%Y %H:%M') }}</td>
+      <td>{{ ev.chef.username if ev.chef else '—' }}</td>
+      <td>{{ ev.location or '—' }}</td>
+      <td><a href="{{ url_for('events.event_link', event_id=ev.id) }}">Partager</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

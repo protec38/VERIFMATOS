@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block title %}Vérification{% endblock %}
+{% block content %}
+<h1>{{ ev.title }} — Vérification du matériel</h1>
+<p class="muted">Cochez ce que vous avez vérifié. Mise à jour en direct pour tout le monde.</p>
+<div class="grid">
+{% for parent, children in data %}
+  <div class="card">
+    <h3>{{ parent.name }}</h3>
+    {% if children %}
+    <ul class="list">
+      {% for c in children %}
+      <li>
+        <label><input type="checkbox" onchange="markVerified('{{ ev.token }}', {{ c.id }})"> {{ c.name }}</label>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="muted">Aucun élément enfant</div>
+    {% endif %}
+  </div>
+{% endfor %}
+</div>
+{% endblock %}
