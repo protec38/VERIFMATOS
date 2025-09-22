@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% block title %}Créer un évènement{% endblock %}
+{% block content %}
+<h1>Créer un évènement</h1>
+<form method="post" class="card">
+  <label>Titre</label>
+  <input name="title" required placeholder="Dispositif prévisionnel...">
+  <label>Date</label>
+  <input name="date" type="datetime-local">
+  <label>Lieu</label>
+  <input name="location" placeholder="Adresse / Ville">
+  <label>Parents (et sous-parents) à inclure</label>
+  <div class="chips">
+  {% for p in parents %}
+    <label class="chip"><input type="checkbox" name="parent_ids" value="{{p.id}}"> {{ p.name }}</label>
+  {% endfor %}
+  </div>
+  <button class="btn" type="submit"><i class="fa-solid fa-check"></i> Créer</button>
+</form>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block title %}Évènements{% endblock %}
+{% block content %}
+<div class="row-between">
+  <h1>Évènements</h1>
+  <a class="btn" href="{{ url_for('events.create_event') }}"><i class="fa-solid fa-plus"></i> Créer</a>
+</div>
+<table class="table">
+  <thead><tr><th>ID</th><th>Titre</th><th>Date</th><th>État</th><th></th></tr></thead>
+  <tbody>
+  {% for e in events %}
+    <tr>
+      <td>#{{ e.id }}</td>
+      <td>{{ e.title }}</td>
+      <td>{{ e.date.strftime('%d/%m/%Y %H:%M') }}</td>
+      <td>{{ e.state }}</td>
+      <td>
+        <a class="btn btn-small" href="{{ url_for('events.view_event', event_id=e.id) }}"><i class="fa-solid fa-eye"></i></a>
+        <a class="btn btn-small" href="{{ url_for('events.event_link', event_id=e.id) }}"><i class="fa-solid fa-share-nodes"></i></a>
+        <a class="btn btn-small" href="{{ url_for('events.edit_event', event_id=e.id) }}"><i class="fa-solid fa-sitemap"></i></a>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="muted">Aucun évènement.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% block title %}Inclusions des feuilles{% endblock %}
+{% block content %}
+<h1>Inclusions des feuilles</h1>
+<form method="post" class="card">
+  {% for parent, rows in tree %}
+    <h3>{{ parent.name }}</h3>
+    <div class="chips">
+    {% for leaf, inc in rows %}
+      <label class="chip">
+        <input type="checkbox" name="leaf_ids" value="{{ leaf.id }}" {% if inc %}checked{% endif %}>
+        {{ leaf.name }} ×{{ leaf.expected_qty }}
+      </label>
+    {% endfor %}
+    </div>
+    <hr>
+  {% endfor %}
+  <button class="btn" type="submit"><i class="fa-solid fa-check"></i> Enregistrer</button>
+</form>
+{% endblock %}

@@ -1,0 +1,9 @@
+{% extends 'base.html' %}
+{% block title %}Lien secouristes{% endblock %}
+{% block content %}
+<h1>Lien à partager</h1>
+<div class="card row gap-8">
+  <input id="share" value="{{ share_url }}" readonly style="flex:1">
+  <button class="btn" onclick="copyShare()"><i class="fa-solid fa-copy"></i> Copier</button>
+</div>
+{% endblock %}
