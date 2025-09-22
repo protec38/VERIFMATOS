@@ -18,7 +18,7 @@ services:
     command: [ "gunicorn", "-w", "1", "-b", "0.0.0.0:8000", "wsgi:app" ]
     environment:
       - FLASK_ENV=production
-      - SECRET_KEY=${SECRET_KEY:-change-this-secret}
+      - SECRET_KEY=${SECRET_KEY:-rtyhqertgrterg}
       - DATABASE_URL=${DATABASE_URL:-postgresql+psycopg2://postgres:postgres@db:5432/pc38}
       - ADMIN_DEFAULT_USERNAME=${ADMIN_DEFAULT_USERNAME:-admin}
       - ADMIN_DEFAULT_PASSWORD=${ADMIN_DEFAULT_PASSWORD:-admin}
