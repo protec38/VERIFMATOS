@@ -217,7 +217,7 @@ EventInclude = EventChild
 EventLeaf = EventChild
 EventCheck = EventChild
 Verification = EventChild
-Activity = EventLog  # ✅ nouvel alias pour corriger l'import Activity
+Activity = EventLog  # ✅ alias pour anciens imports
 
 __all__ = [
     "ROLE_ADMIN", "ROLE_CHEF", "ROLE_VIEWER",
