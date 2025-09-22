@@ -1,6 +1,6 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom'
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import './index.css'
 import Login from './pages/Login'
 import Admin from './pages/Admin'
@@ -10,7 +10,7 @@ import Verify from './pages/Verify'
 
 function App(){
   return (
-    <BrowserRouter>
+    <HashRouter>
       <Routes>
         <Route path="/" element={<Navigate to="/chef" />} />
         <Route path="/login" element={<Login />} />
@@ -19,7 +19,7 @@ function App(){
         <Route path="/join/:code" element={<JoinEvent />} />
         <Route path="/event/:eventId/verify" element={<Verify />} />
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   )
 }
 
