@@ -2,18 +2,22 @@
 {% block title %}Vérification{% endblock %}
 {% block content %}
 <h1>{{ ev.title }} — Vérification du matériel</h1>
-<p class="muted">Cochez/décochez les éléments. Si tous les enfants d'un parent sont OK, le parent passe en vert. Mise à jour pour tout le monde en ~2s.</p>
+<p class="muted">Connecté en tant que <strong>{{ session['volunteer_name'] }}</strong>. Les changements se synchronisent automatiquement.</p>
+<div id="verify-live" data-token="{{ ev.token }}">
 <div class="grid">
 {% for parent, children in data %}
   <div class="card parent-card" id="parent-{{ parent.id }}">
     <h3>{{ parent.name }}</h3>
     {% if children %}
-    <ul class="list">
+    <ul class="list children">
       {% for c in children %}
-      <li>
+      <li data-item="{{ c.id }}">
         <label class="child-line">
-          <input type="checkbox" onchange="markVerified('{{ ev.token }}', {{ c.id }}, this.checked)"> 
-          {{ c.name }} <span class="qty">x{{ c.expected_qty }}</span>
+          <span>
+            <input type="checkbox" onchange="markVerified('{{ ev.token }}', {{ c.id }}, this.checked)">
+            {{ c.name }} <span class="qty">x{{ c.expected_qty }}</span>
+          </span>
+          <span class="muted small who" data-who="{{ c.id }}">—</span>
         </label>
       </li>
       {% endfor %}
@@ -24,4 +28,6 @@
   </div>
 {% endfor %}
 </div>
+</div>
+<script>startVerifyLive();</script>
 {% endblock %}
