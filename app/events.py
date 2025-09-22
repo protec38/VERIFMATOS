@@ -152,7 +152,10 @@ def event_link(event_id):
     ev = Event.query.get_or_404(event_id)
     if not is_admin_or_chef():
         return redirect(url_for('events.list_events'))
-    return render_template('events/link.html', ev=ev)
+    # URL absolue prête à copier
+    share_url = url_for('events.token_entry', token=ev.token, _external=True)
+    return render_template('events/link.html', ev=ev, share_url=share_url)
+
 
 # ---------------- LIFECYCLE ----------------
 @events_bp.route('/<int:event_id>/state', methods=['POST'])
