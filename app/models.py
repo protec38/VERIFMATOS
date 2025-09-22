@@ -1,101 +1,145 @@
-from datetime import datetime
-import os, secrets
+from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
-from werkzeug.security import generate_password_hash, check_password_hash
-from . import db, login_manager
+from datetime import datetime
+import secrets
 
-ROLE_ADMIN='admin'; ROLE_CHEF='chef'; ROLE_SECOURISTE='secouriste'
+db = SQLAlchemy()
+
+# ---------------------------------------------------------------------
+# Constantes pour les rôles
+# ---------------------------------------------------------------------
+ROLE_ADMIN = "admin"
+ROLE_CHEF = "chef"
+ROLE_SECOURISTE = "secouriste"
+
+# ---------------------------------------------------------------------
+# Modèles
+# ---------------------------------------------------------------------
 
 class User(UserMixin, db.Model):
-    __tablename__='users'
+    __tablename__ = "users"
+
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), default=ROLE_SECOURISTE)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    def set_password(self,p): self.password_hash = generate_password_hash(p)
-    def check_password(self,p): return check_password_hash(self.password_hash,p)
 
-@login_manager.user_loader
-def load_user(uid): return User.query.get(int(uid))
+    def __repr__(self):
+        return f"<User {self.username} ({self.role})>"
 
-def ensure_default_admin():
-    u = os.getenv('ADMIN_DEFAULT_USERNAME','admin'); p = os.getenv('ADMIN_DEFAULT_PASSWORD','admin')
-    x = User.query.filter_by(username=u).first()
-    if not x:
-        x = User(username=u, role=ROLE_ADMIN); x.set_password(p); db.session.add(x); db.session.commit()
 
 class Item(db.Model):
-    __tablename__='items'
+    __tablename__ = "items"
+
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
     is_parent = db.Column(db.Boolean, default=False)
-    parent_id = db.Column(db.Integer, db.ForeignKey('items.id'), nullable=True)
-    expected_qty = db.Column(db.Integer, default=1)  # for children; boolean check only, quantity shown
-    unique_code = db.Column(db.String(64), unique=True, nullable=True)  # to allow multiple instances of same parent
-    active = db.Column(db.Boolean, default=True)
-    parent = db.relationship('Item', remote_side=[id], backref='children')
+    expected_qty = db.Column(db.Integer, default=1)
+
+    # relation hiérarchique parent → enfants
+    parent_id = db.Column(db.Integer, db.ForeignKey("items.id"), nullable=True)
+    children = db.relationship("Item", backref=db.backref("parent", remote_side=[id]))
+
+    def __repr__(self):
+        return f"<Item {self.name} ({'parent' if self.is_parent else 'child'})>"
+
 
 class Event(db.Model):
-    __tablename__='events'
+    __tablename__ = "events"
+
     id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(180), nullable=False)
+    title = db.Column(db.String(200), nullable=False)
     date = db.Column(db.DateTime, default=datetime.utcnow)
-    location = db.Column(db.String(180), nullable=True)
-    chef_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    token = db.Column(db.String(32), unique=True, default=lambda: secrets.token_hex(8))
-    state = db.Column(db.String(20), default='draft')  # draft | in_progress | closed
+    location = db.Column(db.String(200))
+    chef_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    state = db.Column(db.String(20), default="draft")  # draft, in_progress, closed
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    chef = db.relationship('User', backref='events')
+    token = db.Column(db.String(32), unique=True, default=lambda: secrets.token_hex(8))
+
+    chef = db.relationship("User", backref="events")
+    event_items = db.relationship("EventItem", backref="event", cascade="all,delete-orphan")
+    event_children = db.relationship("EventChild", backref="event", cascade="all,delete-orphan")
+    verifications = db.relationship("Verification", backref="event", cascade="all,delete-orphan")
+    activities = db.relationship("Activity", backref="event", cascade="all,delete-orphan")
+    presences = db.relationship("Presence", backref="event", cascade="all,delete-orphan")
+
+    def __repr__(self):
+        return f"<Event {self.id} {self.title}>"
+
 
 class EventItem(db.Model):
-    __tablename__='event_items'
+    __tablename__ = "event_items"
+
     id = db.Column(db.Integer, primary_key=True)
-    event_id = db.Column(db.Integer, db.ForeignKey('events.id'), nullable=False)
-    item_id = db.Column(db.Integer, db.ForeignKey('items.id'), nullable=False)
+    event_id = db.Column(db.Integer, db.ForeignKey("events.id"))
+    item_id = db.Column(db.Integer, db.ForeignKey("items.id"))
     loaded = db.Column(db.Boolean, default=False)
-    event = db.relationship('Event', backref='event_items')
-    item = db.relationship('Item')
+
+    item = db.relationship("Item")
+
+    def __repr__(self):
+        return f"<EventItem ev={self.event_id} item={self.item_id} loaded={self.loaded}>"
+
 
 class EventChild(db.Model):
-    __tablename__='event_children'
+    __tablename__ = "event_children"
+
     id = db.Column(db.Integer, primary_key=True)
-    event_id = db.Column(db.Integer, db.ForeignKey('events.id'), nullable=False)
-    parent_id = db.Column(db.Integer, db.ForeignKey('items.id'), nullable=False)
-    child_id = db.Column(db.Integer, db.ForeignKey('items.id'), nullable=False)
+    event_id = db.Column(db.Integer, db.ForeignKey("events.id"))
+    parent_id = db.Column(db.Integer, db.ForeignKey("items.id"))
+    child_id = db.Column(db.Integer, db.ForeignKey("items.id"))
     included = db.Column(db.Boolean, default=True)
-    __table_args__=(db.UniqueConstraint('event_id','child_id', name='uq_event_child'),)
-    event = db.relationship('Event', backref='event_children')
-    parent = db.relationship('Item', foreign_keys=[parent_id])
-    child = db.relationship('Item', foreign_keys=[child_id])
+
+    parent = db.relationship("Item", foreign_keys=[parent_id], backref="event_children_parent")
+    child = db.relationship("Item", foreign_keys=[child_id], backref="event_children_child")
+
+    def __repr__(self):
+        return f"<EventChild ev={self.event_id} parent={self.parent_id} child={self.child_id}>"
+
 
 class Verification(db.Model):
-    __tablename__='verifications'
+    __tablename__ = "verifications"
+
     id = db.Column(db.Integer, primary_key=True)
-    event_id = db.Column(db.Integer, db.ForeignKey('events.id'), nullable=False)
-    item_id = db.Column(db.Integer, db.ForeignKey('items.id'), nullable=False)
+    event_id = db.Column(db.Integer, db.ForeignKey("events.id"))
+    item_id = db.Column(db.Integer, db.ForeignKey("items.id"))
     verified = db.Column(db.Boolean, default=False)
-    last_by = db.Column(db.String(120))
-    last_at = db.Column(db.DateTime, default=datetime.utcnow)
-    __table_args__=(db.UniqueConstraint('event_id','item_id', name='uq_event_item'),)
-    event = db.relationship('Event', backref='verifications')
-    item = db.relationship('Item')
+    by = db.Column(db.String(120))  # nom/prénom du secouriste
+    timestamp = db.Column(db.DateTime)  # quand la case a été cochée
+
+    item = db.relationship("Item")
+
+    def __repr__(self):
+        return f"<Verification ev={self.event_id} item={self.item_id} verified={self.verified}>"
+
 
 class Activity(db.Model):
-    __tablename__='activities'
+    __tablename__ = "activities"
+
     id = db.Column(db.Integer, primary_key=True)
-    event_id = db.Column(db.Integer, db.ForeignKey('events.id'))
+    event_id = db.Column(db.Integer, db.ForeignKey("events.id"))
     actor = db.Column(db.String(120))
-    action = db.Column(db.String(64))
-    item_id = db.Column(db.Integer, nullable=True)
+    action = db.Column(db.String(50))
+    item_id = db.Column(db.Integer, db.ForeignKey("items.id"), nullable=True)
     at = db.Column(db.DateTime, default=datetime.utcnow)
-    event = db.relationship('Event', backref='activities')
+
+    item = db.relationship("Item")
+
+    def __repr__(self):
+        return f"<Activity ev={self.event_id} {self.actor} {self.action}>"
+
 
 class Presence(db.Model):
-    __tablename__='presence'
+    __tablename__ = "presences"
+
     id = db.Column(db.Integer, primary_key=True)
-    event_id = db.Column(db.Integer, db.ForeignKey('events.id'))
-    parent_id = db.Column(db.Integer, db.ForeignKey('items.id'))
+    event_id = db.Column(db.Integer, db.ForeignKey("events.id"))
+    parent_id = db.Column(db.Integer, db.ForeignKey("items.id"))
     volunteer = db.Column(db.String(120))
     ping_at = db.Column(db.DateTime, default=datetime.utcnow)
-    __table_args__=(db.UniqueConstraint('event_id','parent_id','volunteer', name='uq_presence'),)
+
+    parent = db.relationship("Item")
+
+    def __repr__(self):
+        return f"<Presence ev={self.event_id} parent={self.parent_id} vol={self.volunteer}>"
