@@ -221,40 +221,49 @@ def ping_presence(token):
 
 # ---------------- STATUS / VERIFY / LOAD ----------------
 def _status_payload(ev: Event) -> dict:
+    # Verifs -> map item_id -> (verified, by, timestamp)
     verifs = Verification.query.filter_by(event_id=ev.id).all()
     vmap = {v.item_id: v for v in verifs}
 
-    parents = [ei.item for ei in ev.event_items]
+    # Pour chaque parent du contexte évènement, on ne retient que les ENFANTS
+    # inclus pour CE parent (important: filtre parent_id)
     parents_status = {}
-    for p in parents:
-        child_ids = [
-            c.id for c in p.children
-            if (EventChild.query.filter_by(event_id=ev.id, child_id=c.id).first()
-                and EventChild.query.filter_by(event_id=ev.id, child_id=c.id).first().included)
-        ]
-        parents_status[p.id] = all(vmap.get(cid) and vmap[cid].verified for cid in child_ids) if child_ids else False
+    loaded = {}
+    for ei in ev.event_items:          # ei.item = parent
+        parent_id = ei.item_id
+        loaded[parent_id] = ei.loaded
+        ecs = EventChild.query.filter_by(
+            event_id=ev.id, parent_id=parent_id, included=True
+        ).all()
+        child_ids = [ec.child_id for ec in ecs]
+        # parent complété = tous ses enfants inclus sont verified=True
+        parents_status[parent_id] = (
+            len(child_ids) > 0 and all(vmap.get(cid) and vmap[cid].verified for cid in child_ids)
+        )
 
-    loaded = {ei.item_id: ei.loaded for ei in ev.event_items}
-
+    # présence (5s)
     cutoff = datetime.utcnow() - timedelta(seconds=5)
-    presence = Presence.query.filter(Presence.event_id == ev.id, Presence.ping_at >= cutoff).all()
-    busy = {}
+    presence = Presence.query.filter(
+        Presence.event_id == ev.id, Presence.ping_at >= cutoff
+    ).all()
+    busy: dict[int, list[str]] = {}
     for pr in presence:
-        busy.setdefault(pr.parent_id, set()).add(pr.volunteer)
-    busy = {k: list(v) for k, v in busy.items()}
+        busy.setdefault(pr.parent_id, []).append(pr.volunteer)
 
     return {
-        'verifications': {
+        "verifications": {
             str(v.item_id): {
-                'verified': v.verified,
-                'by': v.by,
-                'at': v.timestamp.isoformat() if v.timestamp else None
-            } for v in verifs
+                "verified": v.verified,
+                "by": v.by,
+                "at": v.timestamp.isoformat() if v.timestamp else None,
+            }
+            for v in verifs
         },
-        'parents_complete': parents_status,
-        'loaded': loaded,
-        'busy': busy
+        "parents_complete": parents_status,
+        "loaded": loaded,
+        "busy": busy,
     }
+
 
 
 @events_bp.route('/api/<int:event_id>/status')
@@ -278,12 +287,21 @@ def api_verify(token):
         return jsonify({'ok': False, 'error': 'auth'}), 401
 
     data = request.get_json() or {}
-    item_id = int(data.get('item_id'))
+    try:
+        item_id = int(data.get('item_id'))
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'bad_item'}), 400
     state = bool(data.get('verified'))
 
     v = Verification.query.filter_by(event_id=ev.id, item_id=item_id).first()
     if not v:
-        v = Verification(event_id=ev.id, item_id=item_id, verified=state, by=name, timestamp=datetime.utcnow())
+        v = Verification(
+            event_id=ev.id,
+            item_id=item_id,
+            verified=state,
+            by=name,
+            timestamp=datetime.utcnow()
+        )
         db.session.add(v)
     else:
         v.verified = state
@@ -301,25 +319,50 @@ def api_verify(token):
     return jsonify({'ok': True})
 
 
+
 @events_bp.route('/api/<int:event_id>/load', methods=['POST'])
 @login_required
 def api_load(event_id):
     ev = Event.query.get_or_404(event_id)
     if not is_admin_or_chef():
         return jsonify({'ok': False, 'error': 'forbidden'}), 403
+
     data = request.get_json() or {}
-    item_id = int(data.get('item_id'))
-    loaded = bool(data.get('loaded'))
-    status = _status_payload(ev)
-    if loaded and not status['parents_complete'].get(item_id, False):
-        return jsonify({'ok': False, 'error': 'not_all_children_verified'}), 400
-    ei = EventItem.query.filter_by(event_id=ev.id, item_id=item_id).first()
+    try:
+        parent_id = int(data.get('item_id'))
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'bad_parent'}), 400
+    want_loaded = bool(data.get('loaded'))
+
+    # 1) liste EXACTE des enfants inclus POUR CE parent
+    ecs = EventChild.query.filter_by(event_id=ev.id, parent_id=parent_id, included=True).all()
+    child_ids = [ec.child_id for ec in ecs]
+
+    # 2) si on veut marquer "chargé", il faut que TOUS ces enfants soient vérifiés
+    if want_loaded:
+        verifs = Verification.query.filter(
+            Verification.event_id == ev.id,
+            Verification.item_id.in_(child_ids) if child_ids else False
+        ).all()
+        vmap = {v.item_id: v.verified for v in verifs}
+        all_ok = len(child_ids) > 0 and all(vmap.get(cid) for cid in child_ids)
+        if not all_ok:
+            return jsonify({'ok': False, 'error': 'not_all_children_verified'}), 400
+
+    ei = EventItem.query.filter_by(event_id=ev.id, item_id=parent_id).first()
     if not ei:
         return jsonify({'ok': False, 'error': 'not_in_event'}), 400
-    ei.loaded = loaded
-    db.session.add(Activity(event_id=ev.id, actor=current_user.username, action='load' if loaded else 'unload', item_id=item_id))
+
+    ei.loaded = want_loaded
+    db.session.add(Activity(
+        event_id=ev.id,
+        actor=current_user.username,
+        action=('load' if want_loaded else 'unload'),
+        item_id=parent_id
+    ))
     db.session.commit()
-    return jsonify({'ok': True, 'loaded': loaded})
+    return jsonify({'ok': True, 'loaded': want_loaded})
+
 
 # ---------------- EXPORTS ----------------
 @events_bp.route('/<int:event_id>/export.csv')
