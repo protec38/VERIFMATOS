@@ -2,9 +2,12 @@
 {% block title %}Accès évènement{% endblock %}
 {% block content %}
 <h1>{{ ev.title }}</h1>
+
 <form method="post" class="card">
   <label>Nom et prénom</label>
   <input name="full_name" required placeholder="Dupont Jeanne">
-  <button type="submit" class="btn"><i class="fa-solid fa-door-open"></i> Accéder</button>
+  <button type="submit" class="btn">
+    <i class="fa-solid fa-door-open"></i> Accéder
+  </button>
 </form>
 {% endblock %}
