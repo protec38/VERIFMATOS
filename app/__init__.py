@@ -5,7 +5,7 @@ from flask_login import LoginManager
 from dotenv import load_dotenv
 
 # ---------------------------------------------------------------------
-# Chargement variables d'environnement (.env)
+# Chargement des variables d'environnement (.env)
 # ---------------------------------------------------------------------
 load_dotenv()
 
@@ -19,18 +19,18 @@ def create_app():
     # -----------------------------------------------------------------
     # Configuration
     # -----------------------------------------------------------------
-    app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "rtyhqertgrterg")
+    app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "pc38-super-secret-change-me")
 
-    # Exemple: postgres://user:pass@db:5432/appdb
+    # Exemple : postgres://user:pass@db:5432/appdb
     app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv(
         "DATABASE_URL",
         "sqlite:///app.db"  # fallback local
     )
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-    # Sessions plus fiables
+    # Sessions stables
     app.config.setdefault('SESSION_COOKIE_SAMESITE', 'Lax')
-    # ⚠️ si tu déploies en HTTPS (cloud), active la ligne suivante :
+    # ⚠️ Si déploiement HTTPS, décommente :
     # app.config['SESSION_COOKIE_SECURE'] = True
 
     # -----------------------------------------------------------------
@@ -44,14 +44,12 @@ def create_app():
     # -----------------------------------------------------------------
     from .auth import auth_bp
     from .events import events_bp
-    from .stock import stock_bp
 
     app.register_blueprint(auth_bp, url_prefix="/auth")
     app.register_blueprint(events_bp, url_prefix="/events")
-    app.register_blueprint(stock_bp, url_prefix="/stock")
 
     # -----------------------------------------------------------------
-    # Création des tables
+    # Création des tables si besoin
     # -----------------------------------------------------------------
     with app.app_context():
         db.create_all()
