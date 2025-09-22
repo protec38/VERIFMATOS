@@ -20,7 +20,10 @@
       {% if p.children %}
       <ul class="list children" id="children-{{ p.id }}">
         {% for c in p.children %}
-        <li data-item="{{ c.id }}"><label><input type="checkbox" disabled> {{ c.name }} <span class="muted">x{{ c.expected_qty }}</span></label></li>
+        <li data-item="{{ c.id }}">
+          <label><input type="checkbox" disabled> {{ c.name }} <span class="muted">x{{ c.expected_qty }}</span></label>
+          <div class="byline muted small">par <span class="who" data-who="{{ c.id }}">—</span></div>
+        </li>
         {% endfor %}
       </ul>
       {% else %}
