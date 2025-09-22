@@ -366,7 +366,11 @@ def export_pdf(event_id):
 @login_required
 def export_log(event_id):
     ev = Event.query.get_or_404(event_id)
-    si = io.StringIO(); cw = csv.writer(si, delimiter=';')
-    cw.writerow(['at','actor','action','item_id'])
+    si = io.StringIO()
+    cw = csv.writer(si, delimiter=';')
+    cw.writerow(['at', 'actor', 'action', 'item_id'])
     for a in ev.activities:
-        cw.writerow([a.at.isoformat(), a.actor, a.action
+        cw.writerow([a.at.isoformat(), a.actor, a.action, a.item_id or ''])
+    mem = io.BytesIO(si.getvalue().encode('utf-8'))
+    mem.seek(0)
+    return send_file(mem, mimetype='text/csv', as_attachment=True, download_name=f"event_{ev.id}_log.csv")
