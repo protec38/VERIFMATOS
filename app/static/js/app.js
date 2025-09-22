@@ -1,89 +1,219 @@
-// Copy share
-function copyShare(){ const el=document.getElementById('share'); if(!el) return; el.select(); el.setSelectionRange(0, 99999); document.execCommand('copy'); alert('Lien copié !'); }
+/* ============================================================
+ * Helpers
+ * ============================================================ */
+function qs(sel, root=document){ return root.querySelector(sel); }
+function qsa(sel, root=document){ return Array.from(root.querySelectorAll(sel)); }
 
-// Polling intervals
-let _liveInterval=null;
-function startLive(ms=1000){
-  const live=document.getElementById('live'); if(!live) return;
-  const eventId=live.dataset.event;
-  async function refresh(){
-    try{ const r=await fetch(`/events/api/${eventId}/status`); const data=await r.json(); applyStatus(data); updateStats(); }catch(e){ console.error(e); }
-  }
-  refresh(); if(_liveInterval) clearInterval(_liveInterval); _liveInterval=setInterval(refresh, ms);
-}
-
-let _verifyInterval=null;
-function startVerifyLive(ms=1000){
-  const box=document.getElementById('verify-live'); if(!box) return;
-  const token=box.dataset.token;
-  async function refresh(){
-    try{ const r=await fetch(`/events/api/token/${token}/status`); const data=await r.json(); applyStatus(data); }catch(e){ console.error(e); }
-  }
-  refresh(); if(_verifyInterval) clearInterval(_verifyInterval); _verifyInterval=setInterval(refresh, ms);
-}
-
-// Presence
-async function pingBusy(token, parentId){
+function formatWhen(iso){
+  if(!iso) return '';
   try{
-    await fetch(`/events/api/token/${token}/presence`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({parent_id: parentId})});
-  }catch(e){}
+    const d = new Date(iso);
+    const pad = n => String(n).padStart(2,'0');
+    return `— ${pad(d.getDate())}/${pad(d.getMonth()+1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }catch(e){ return ''; }
 }
 
-// Apply status
-function applyStatus(data){
-  // loaded parents
-  Object.entries(data.loaded||{}).forEach(([pid, isLoaded])=>{
-    const card=document.getElementById(`parent-${pid}`);
-    if(card) card.classList.toggle('loaded', !!isLoaded);
+/* ============================================================
+ * STATUS → DOM
+ * status = {
+ *   verifications: { "<childId>": {verified, by, at}, ... },
+ *   parents_complete: { <parentId>: true/false, ... },
+ *   loaded: { <parentId>: true/false, ... },
+ *   busy: { <parentId>: ["Nom A","Nom B"], ... }
+ * }
+ * ============================================================ */
+function applyStatus(status){
+  if(!status) return;
+
+  // 1) enfants
+  const verifs = status.verifications || {};
+  Object.keys(verifs).forEach(k=>{
+    const childId = parseInt(k);
+    const v = verifs[k] || {};
+    const li = qs(`li.child-row[data-item="${childId}"]`);
+    if(!li) return;
+
+    // checkbox (lecture seule côté chef; interactive côté secouriste)
+    const cb = li.querySelector('input[type="checkbox"]');
+    if(cb){
+      cb.checked = !!v.verified;
+    }
+
+    // couleur
+    li.classList.toggle('ok', !!v.verified);
+
+    // by / when
+    const who = qs(`.who[data-who="${childId}"]`);
+    const when = qs(`.when[data-when="${childId}"]`);
+    if(who){ who.textContent = v.by ? v.by : '—'; }
+    if(when){ when.textContent = v.at ? formatWhen(v.at) : ''; }
   });
-  // children verified + who + when
-  const vmap=data.verifications||{};
-  document.querySelectorAll('[data-item]').forEach(li=>{
-    const id=li.getAttribute('data-item'); const info=vmap[id]; const cb=li.querySelector('input[type="checkbox"]'); const who=document.querySelector(`.who[data-who="${id}"]`); const when=document.querySelector(`.when[data-when="${id}"]`);
-    const state=!!(info&&info.verified); if(cb) cb.checked=state; li.classList.toggle('ok',state);
-    if(who) who.textContent=(info&&info.by)?info.by:'—';
-    if(when && info && info.at){ const d=new Date(info.at); when.textContent=' • '+d.toLocaleTimeString(); }
+
+  // 2) parents (complétés + chargés)
+  const parentsComplete = status.parents_complete || {};
+  const loaded = status.loaded || {};
+  Object.keys(parentsComplete).forEach(pidStr=>{
+    const pid = parseInt(pidStr);
+    const card = qs(`.parent-card[data-parent="${pid}"], #parent-${pid}`);
+    if(!card) return;
+
+    // classe "complete" si tous les enfants inclus sont OK
+    card.classList.toggle('complete', !!parentsComplete[pid]);
+
+    // état "Chargé" (checkbox dans la vue chef/admin)
+    const cbLoaded = qs(`input[data-loaded-for="${pid}"]`);
+    if(cbLoaded){
+      const isLoaded = !!loaded[pid];
+      cbLoaded.checked = isLoaded;
+      // Visuel: on permet le toggle, l'API refusera si pas tous les enfants OK
+      // (tu peux décommenter pour désactiver tant que pas complet)
+      // cbLoaded.disabled = !parentsComplete[pid];
+    }
+
+    // 3) présence (liste des volontaires actifs sur ce parent)
+    const busyDiv = qs(`#busy-${pid}`);
+    if(busyDiv){
+      const list = status.busy && status.busy[pid] ? status.busy[pid] : [];
+      if(list.length){
+        busyDiv.innerHTML = `<i class="fa-solid fa-user-group"></i> En cours : ${list.join(', ')}`;
+      }else{
+        busyDiv.textContent = '';
+      }
+    }
   });
-  // parents completion
-  Object.entries(data.parents_complete||{}).forEach(([pid, complete])=>{
-    const card=document.getElementById(`parent-${pid}`); if(card) card.classList.toggle('complete', !!complete);
-  });
-  // busy indicator
-  if(data.busy){
-    Object.entries(data.busy).forEach(([pid, names])=>{
-      const el=document.getElementById(`busy-${pid}`); if(el) el.textContent = names.length? ('En vérification: '+names.join(', ')) : '';
-    });
-  }
 }
 
-// Stats header for admin view
-function updateStats(){
-  const stat=document.getElementById('stat-progress'); if(!stat) return;
-  const parents=document.querySelectorAll('.parent-card');
-  let total=0, complete=0; parents.forEach(p=>{ total++; if(p.classList.contains('complete')) complete++; });
-  stat.textContent = `Parents complétés: ${complete}/${total}`;
+/* ============================================================
+ * Live polling (secouristes)
+ * - Attendu: <div id="verify-live" data-token="...">
+ * ============================================================ */
+let _verifyTimer = null;
+function startVerifyLive(intervalMs=1000){
+  const root = qs('#verify-live');
+  if(!root) return;
+  const token = root.dataset.token;
+  if(!token) return;
+
+  const tick = async ()=>{
+    try{
+      const r = await fetch(`/events/api/token/${token}/status`, {cache: 'no-store'});
+      if(!r.ok) return;
+      const data = await r.json();
+      applyStatus(data);
+    }catch(e){ /* silence */ }
+  };
+
+  // premier tir immédiat puis interval
+  tick();
+  if(_verifyTimer) clearInterval(_verifyTimer);
+  _verifyTimer = setInterval(tick, intervalMs);
 }
 
-// Filter on verify page
-function applyFilter(){
-  const q=(document.getElementById('filter').value||'').toLowerCase();
-  document.querySelectorAll('#verify-live .child-name').forEach(el=>{
-    const li=el.closest('li'); if(!li) return;
-    li.style.display = el.textContent.toLowerCase().includes(q) ? '' : 'none';
-  });
+/* ============================================================
+ * Live polling (chef/admin)
+ * - Attendu: <div id="live" data-event="123">
+ * ============================================================ */
+let _adminTimer = null;
+function startLive(intervalMs=1000){
+  const root = qs('#live');
+  if(!root) return;
+  const eventId = root.dataset.event;
+  if(!eventId) return;
+
+  const tick = async ()=>{
+    try{
+      const r = await fetch(`/events/api/${eventId}/status`, {cache:'no-store'});
+      if(!r.ok) return;
+      const data = await r.json();
+      applyStatus(data);
+    }catch(e){ /* silence */ }
+  };
+
+  tick();
+  if(_adminTimer) clearInterval(_adminTimer);
+  _adminTimer = setInterval(tick, intervalMs);
 }
 
-// API calls
+/* ============================================================
+ * Actions
+ * ============================================================ */
 async function markVerified(token, itemId, state){
   try{
-    await fetch(`/events/api/${token}/verify`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({item_id:itemId, verified: !!state})});
-  }catch(e){ console.error(e); }
-}
-async function toggleLoaded(eventId, itemId, loaded){
-  try{
-    const r = await fetch(`/events/api/${eventId}/load`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({item_id:itemId, loaded: !!loaded})});
-    if(r.status===400){
-      const data=await r.json(); if(data.error==='not_all_children_verified'){ alert("Impossible de marquer 'Chargé' tant que tous les enfants ne sont pas vérifiés."); }
+    const r = await fetch(`/events/api/${token}/verify`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ item_id: itemId, verified: !!state })
+    });
+    if(!r.ok){
+      const data = await r.json().catch(()=>({}));
+      if(data && data.error === 'auth'){
+        alert("Session expirée. Retournez sur la page d'accès et saisissez votre nom.");
+      }else if(data && data.error){
+        alert("Erreur: " + data.error);
+      }else{
+        alert("Erreur réseau.");
+      }
     }
-  }catch(e){ console.error(e); }
+  }catch(e){
+    console.error(e);
+    alert("Erreur réseau.");
+  }
 }
+
+async function toggleLoaded(eventId, parentId, state){
+  try{
+    const r = await fetch(`/events/api/${eventId}/load`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ item_id: parentId, loaded: !!state })
+    });
+    if(!r.ok){
+      const data = await r.json().catch(()=>({}));
+      if(data && data.error === 'not_all_children_verified'){
+        alert("Impossible de marquer 'Chargé' : tous les enfants de ce parent ne sont pas vérifiés.");
+      }else if(data && data.error){
+        alert("Erreur: " + data.error);
+      }else{
+        alert("Erreur réseau.");
+      }
+      // revert l'état visuel
+      const cb = qs(`input[data-loaded-for="${parentId}"]`);
+      if(cb){ cb.checked = !state; }
+    }
+  }catch(e){
+    console.error(e);
+    const cb = qs(`input[data-loaded-for="${parentId}"]`);
+    if(cb){ cb.checked = !state; }
+    alert("Erreur réseau.");
+  }
+}
+
+/* ============================================================
+ * Partage : copie du lien
+ * ============================================================ */
+async function copyShare(){
+  const el = qs('#share');
+  if(!el) return;
+  const text = el.value || el.placeholder || '';
+  try{
+    if(navigator.clipboard && window.isSecureContext){
+      await navigator.clipboard.writeText(text);
+    }else{
+      el.select(); el.setSelectionRange(0, 99999);
+      document.execCommand('copy');
+    }
+    alert('Lien copié !');
+  }catch(e){
+    console.error(e);
+    alert("Impossible de copier automatiquement. Copiez le texte manuellement.");
+  }
+}
+
+/* ============================================================
+ * Expose global (templates inline handlers s'en servent)
+ * ============================================================ */
+window.startVerifyLive = startVerifyLive;
+window.startLive = startLive;
+window.markVerified = markVerified;
+window.toggleLoaded = toggleLoaded;
+window.copyShare = copyShare;
