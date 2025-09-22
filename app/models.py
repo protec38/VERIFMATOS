@@ -12,11 +12,7 @@ ROLE_ADMIN = "admin"
 ROLE_CHEF = "chef"
 ROLE_VIEWER = "viewer"
 
-# ============================================================
-# UTIL
-# ============================================================
 def utcnow():
-    # simple helper pour éviter de capturer l'heure au moment de l'import
     return datetime.utcnow()
 
 # ============================================================
@@ -40,7 +36,6 @@ class User(UserMixin, db.Model):
     def __repr__(self) -> str:
         return f"<User {self.username} ({self.role})>"
 
-
 @login_manager.user_loader
 def load_user(user_id):
     try:
@@ -50,16 +45,13 @@ def load_user(user_id):
 
 # ============================================================
 # ITEM (hiérarchie multi-niveaux)
-# - kind: "parent" ou "leaf"
-# - parent_id: permet les sous-parents en cascade
-# - expected_qty: quantité attendue (pertinent pour les feuilles)
 # ============================================================
 class Item(db.Model):
     __tablename__ = "app_items"
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False, index=True)
-    kind = db.Column(db.String(10), nullable=False, default="leaf")
+    kind = db.Column(db.String(10), nullable=False, default="leaf")  # parent / leaf
     parent_id = db.Column(db.Integer, db.ForeignKey("app_items.id"), nullable=True)
     expected_qty = db.Column(db.Integer, nullable=False, default=1)
     icon = db.Column(db.String(64), nullable=True)  # ex: "fa-kit-medical"
@@ -78,8 +70,6 @@ class Item(db.Model):
 
 # ============================================================
 # EVENT
-# - token: lien partageable pour secouristes (unique)
-# - state: draft / active / closed (exploitable côté app si besoin)
 # ============================================================
 class Event(db.Model):
     __tablename__ = "app_events"
@@ -89,7 +79,7 @@ class Event(db.Model):
     date = db.Column(db.DateTime, default=utcnow, index=True)
     location = db.Column(db.String(255))
     state = db.Column(db.String(20), default="draft")
-    token = db.Column(db.String(64), unique=True, index=True)  # 36+ ok
+    token = db.Column(db.String(64), unique=True, index=True)  # lien partageable
 
     __table_args__ = (
         db.Index("ix_app_events_state_date", "state", "date"),
@@ -100,8 +90,6 @@ class Event(db.Model):
 
 # ============================================================
 # EVENT ↔ PARENTS ASSOCIÉS
-# - Un parent (sac, module, caisse...) sélectionné pour l'évènement
-# - Unicité (event_id, parent_id)
 # ============================================================
 class EventParent(db.Model):
     __tablename__ = "app_event_parents"
@@ -124,10 +112,7 @@ class EventParent(db.Model):
         return f"<EventParent ev={self.event_id} parent={self.parent_id}>"
 
 # ============================================================
-# EVENT ↔ FEUILLES (CHILDREN) INCLUSES
-# - included: permet d'exclure certaines feuilles d'un parent
-# - verified / verified_by / verified_at: suivi live
-# - Unicité (event_id, child_id)
+# EVENT ↔ FEUILLES INCLUSES + VÉRIF LIVE
 # ============================================================
 class EventChild(db.Model):
     __tablename__ = "app_event_children"
@@ -159,9 +144,7 @@ class EventChild(db.Model):
         )
 
 # ============================================================
-# EVENT LOAD (chargement des PARENTS dans le véhicule)
-# - loaded: True/False (contrôlé après vérif complète des enfants)
-# - Unicité (event_id, parent_id)
+# CHARGEMENT DES PARENTS
 # ============================================================
 class EventLoad(db.Model):
     __tablename__ = "app_event_loads"
@@ -184,8 +167,7 @@ class EventLoad(db.Model):
         return f"<EventLoad ev={self.event_id} parent={self.parent_id} loaded={self.loaded}>"
 
 # ============================================================
-# EVENT PRESENCE (qui bosse sur quel parent en ce moment)
-# - last_seen mis à jour pour l'affichage "En cours: Alice, Bob..."
+# PRÉSENCE (qui travaille sur quel parent)
 # ============================================================
 class EventPresence(db.Model):
     __tablename__ = "app_event_presence"
@@ -209,7 +191,7 @@ class EventPresence(db.Model):
         return f"<Presence ev={self.event_id} parent={self.parent_id} {self.actor} at={self.last_seen}>"
 
 # ============================================================
-# JOURNAL (logs)
+# LOGS
 # ============================================================
 class EventLog(db.Model):
     __tablename__ = "app_event_logs"
@@ -229,22 +211,21 @@ class EventLog(db.Model):
         return f"<Log ev={self.event_id} {self.actor} {self.action} at={self.at}>"
 
 # ============================================================
-# ALIASES RÉTRO-COMPAT (anciens noms utilisés dans certains fichiers)
+# ALIASES RÉTRO-COMPAT
+# (pour d'anciens imports dans events.py)
 # ============================================================
-# Ex-anciens modèles référençant les feuilles incluses dans un event
 EventItem = EventChild
 EventInclude = EventChild
-
-# Parfois on a vu passer ces alias aussi — on les fournit au cas où :
 EventLeaf = EventChild
 EventCheck = EventChild
+Verification = EventChild  # ✅ nouvel alias pour corriger l'import
 
 __all__ = [
     # consts
     "ROLE_ADMIN", "ROLE_CHEF", "ROLE_VIEWER",
     # models
-    "User", "Item", "Event", "EventParent", "EventChild", "EventLoad",
-    "EventPresence", "EventLog",
+    "User", "Item", "Event", "EventParent", "EventChild",
+    "EventLoad", "EventPresence", "EventLog",
     # retro aliases
-    "EventItem", "EventInclude", "EventLeaf", "EventCheck",
+    "EventItem", "EventInclude", "EventLeaf", "EventCheck", "Verification",
 ]
