@@ -4,7 +4,7 @@
 <h1>Lien à partager</h1>
 <p>Envoyez ce lien aux secouristes :</p>
 <div class="sharebox">
-  <input id="share" value="{{ request.host_url.rstrip('/') }}{{ url_for('events.token_entry', token=ev.token) }}" readonly>
+  <input id="share" value="{{ share_url }}" readonly>
   <button onclick="copyShare()"><i class="fa-solid fa-copy"></i> Copier</button>
 </div>
 {% endblock %}
