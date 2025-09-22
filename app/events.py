@@ -220,9 +220,10 @@ def ping_presence(token):
     return jsonify({'ok': True})
 
 # ---------------- STATUS / VERIFY / LOAD ----------------
-def _status_payload(ev):
+def _status_payload(ev: Event) -> dict:
     verifs = Verification.query.filter_by(event_id=ev.id).all()
     vmap = {v.item_id: v for v in verifs}
+
     parents = [ei.item for ei in ev.event_items]
     parents_status = {}
     for p in parents:
@@ -232,25 +233,29 @@ def _status_payload(ev):
                 and EventChild.query.filter_by(event_id=ev.id, child_id=c.id).first().included)
         ]
         parents_status[p.id] = all(vmap.get(cid) and vmap[cid].verified for cid in child_ids) if child_ids else False
+
     loaded = {ei.item_id: ei.loaded for ei in ev.event_items}
+
     cutoff = datetime.utcnow() - timedelta(seconds=5)
     presence = Presence.query.filter(Presence.event_id == ev.id, Presence.ping_at >= cutoff).all()
     busy = {}
     for pr in presence:
         busy.setdefault(pr.parent_id, set()).add(pr.volunteer)
     busy = {k: list(v) for k, v in busy.items()}
+
     return {
         'verifications': {
             str(v.item_id): {
                 'verified': v.verified,
-                'by': v.last_by,
-                'at': v.last_at.isoformat() if v.last_at else None
+                'by': v.by,
+                'at': v.timestamp.isoformat() if v.timestamp else None
             } for v in verifs
         },
         'parents_complete': parents_status,
         'loaded': loaded,
         'busy': busy
     }
+
 
 @events_bp.route('/api/<int:event_id>/status')
 def api_status(event_id):
