@@ -43,3 +43,9 @@ button,.btn{background:var(--pc-orange);color:black;font-weight:700;border:none;
 .busy::before{content:' '; display:inline-block; width:8px; height:8px; border-radius:999px; background:#22c55e; margin-right:6px; opacity:.6}
 #filter{margin-bottom:12px}
 @media (max-width:600px){ .nav .links a{margin:0 4px} }
+
+/* Fix mise en page du bloc "Partager" */
+.sharebox { display:flex; align-items:center; gap:8px; }
+.sharebox input { flex:1; min-width: 260px; }
+.sharebox button { width:auto; white-space: nowrap; }
+
