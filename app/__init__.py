@@ -1,5 +1,4 @@
 import os
-import secrets
 from datetime import datetime
 from flask import Flask
 from .extensions import db, migrate, socketio, login_manager, init_extensions
@@ -12,12 +11,12 @@ def create_app() -> Flask:
     # ---- Config de base ----
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", DEFAULT_SECRET)
 
-    # Database (Postgres via DATABASE_URL)
+    # Database (Postgres via DATABASE_URL, fallback SQLite)
     db_url = os.environ.get("DATABASE_URL", "sqlite:///app.db")
     app.config["SQLALCHEMY_DATABASE_URI"] = db_url
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-    # Redis pour Socket.IO / tâches
+    # Redis pour Socket.IO / file d’events
     app.config["REDIS_URL"] = os.environ.get("REDIS_URL", "redis://:pc_redis_pass@redis:6379/0")
     app.config["SOCKETIO_MESSAGE_QUEUE"] = os.environ.get(
         "SOCKETIO_MESSAGE_QUEUE",
@@ -26,6 +25,16 @@ def create_app() -> Flask:
 
     # ---- Initialisation des extensions ----
     init_extensions(app)
+
+    # ---- Login manager: user_loader ----
+    from .models import User, Role  # import ici après init_extensions pour éviter les cycles
+
+    @login_manager.user_loader
+    def load_user(user_id: str):
+        try:
+            return User.query.get(int(user_id))
+        except Exception:
+            return None
 
     # ---- Blueprints ----
     from .blueprints.auth.routes import bp as auth_bp
@@ -38,16 +47,14 @@ def create_app() -> Flask:
     # ---- Création des tables + seed admin (1 seule fois) ----
     with app.app_context():
         db.create_all()
-        _seed_admin_once()
+        _seed_admin_once(User, Role)
 
     return app
 
 
-def _seed_admin_once():
+def _seed_admin_once(User, Role):
     """Crée le compte admin une seule fois si absent."""
-    from .models import User, Role
     from werkzeug.security import generate_password_hash
-
     want = os.environ.get("INIT_CREATE_ADMIN", "true").lower() in ("1", "true", "yes")
     if not want:
         return
