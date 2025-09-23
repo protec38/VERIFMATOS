@@ -2,7 +2,6 @@ flask==3.0.3
 flask-login
 flask-wtf
 flask-sqlalchemy
-flask-migrate
 flask-socketio
 python-socketio[client]
 eventlet
