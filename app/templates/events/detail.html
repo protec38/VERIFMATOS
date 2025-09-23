@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4>{{ event.title }}</h4>
+  <a class="btn btn-primary" href="{{ url_for('inventory.event_inventory', event_id=event.id) }}"><i class="fa-solid fa-clipboard-check me-1"></i>Valider le stock</a>
+</div>
+<div class="card shadow-sm rounded-4">
+  <table class="table mb-0 align-middle">
+    <thead class="table-light"><tr><th>Objet</th><th>Inclu</th><th>Qté requise</th><th>État</th><th>Validé par</th></tr></thead>
+    <tbody>
+    {% for ei, node in items %}
+      <tr>
+        <td>{{ node.name }}</td>
+        <td>{{ 'Oui' if ei.include else 'Non' }}</td>
+        <td>{{ ei.required_qty or '—' }}</td>
+        <td>
+          {% if ei.state == 'checked' %}
+            <span class="badge text-bg-success">OK</span>
+          {% else %}
+            <span class="badge text-bg-secondary">En attente</span>
+          {% endif %}
+        </td>
+        <td>{{ ei.checked_by or '—' }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

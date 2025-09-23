@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4>Validation – {{ event.title }}</h4>
+  <a class="btn btn-outline-secondary" href="{{ url_for('events.join', event_id=event.id) }}"><i class="fa-solid fa-signal me-1"></i>Rejoindre (temps réel)</a>
+</div>
+
+<div class="card shadow-sm rounded-4">
+  <table class="table mb-0 align-middle" id="check-table" data-event="{{ event.id }}">
+    <thead class="table-light"><tr><th>Objet</th><th>Qté</th><th>État</th><th>Action</th></tr></thead>
+    <tbody>
+    {% for ei, node in items %}
+      <tr data-item="{{ ei.id }}">
+        <td>{{ node.name }}</td>
+        <td>{{ ei.required_qty or '—' }}</td>
+        <td class="state">{% if ei.state == 'checked' %}<span class="badge text-bg-success">OK</span>{% else %}<span class="badge text-bg-secondary">En attente</span>{% endif %}</td>
+        <td>
+          {% if ei.state != 'checked' %}
+          <button class="btn btn-sm btn-success do-check">Cocher</button>
+          {% else %}
+          <button class="btn btn-sm btn-outline-secondary do-uncheck">Annuler</button>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  window.EVENT_ID = {{ event.id }};
+</script>
+{% endblock %}

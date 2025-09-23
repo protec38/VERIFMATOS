@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="alert alert-info">Vous suivez <strong>{{ event.title }}</strong> en temps réel.</div>
+<div id="live-area" class="card card-body">
+  <div>En attente d’événements…</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  window.EVENT_ID = {{ event.id }};
+</script>
+{% endblock %}

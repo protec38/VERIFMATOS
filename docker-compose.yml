@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  web:
+    build: .
+    ports:
+      - "7000:8000"
+    environment:
+      FLASK_ENV: production
+      SECRET_KEY: change-me-in-prod
+      DATABASE_URL: postgresql+psycopg2://appuser:apppass@db:5432/appdb
+      REDIS_URL: redis://redis:6379/0
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: admin
+      ADMIN_DISPLAY_NAME: Admin
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: apppass
+      POSTGRES_DB: appdb
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
+
+volumes:
+  dbdata:
+  redisdata:
