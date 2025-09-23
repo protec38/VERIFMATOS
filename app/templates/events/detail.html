@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block title %}Détail événement • MediCheck{% endblock %}
+{% block content %}
+<div id="live" data-event="{{ ev.id }}"></div>
+
+<div class="flex flex-col md:flex-row gap-4 mb-6">
+  <div class="grow">
+    <h1 class="text-2xl font-semibold mb-2">{{ ev.title }}</h1>
+    <div class="text-slate-500 text-sm">{{ ev.location or '' }} • {{ ev.date.strftime('%d/%m/%Y %H:%M') if ev.date else '' }}</div>
+  </div>
+  <div class="shrink-0 bg-white rounded-2xl shadow p-4">
+    <div class="text-sm text-slate-500 mb-1">Lien partageable secouristes</div>
+    <div class="flex items-center gap-2">
+      <input id="share" class="rounded-xl border-slate-300 w-[360px]" value="{{ request.url_root.rstrip('/') + url_for('events.verify_access', token=ev.token) if ev.token else '' }}" readonly>
+      <button onclick="copyShare()" class="px-3 py-2 rounded-xl bg-slate-900 text-white hover:bg-black"><i class="fa-solid fa-copy"></i></button>
+    </div>
+  </div>
+</div>
+
+<div class="grid lg:grid-cols-2 gap-4">
+  {% for ep in parents %}
+    {% set pid = ep.parent.id %}
+    <div id="parent-{{ pid }}" class="parent-card bg-white rounded-2xl shadow p-4" data-parent="{{ pid }}">
+      <div class="flex items-center justify-between mb-3">
+        <div class="font-medium flex items-center gap-2">
+          <i class="fa-solid {{ ep.parent.icon or 'fa-box-open' }}"></i>
+          {{ ep.parent.name }}
+        </div>
+        <label class="flex items-center gap-2 text-sm">
+          <input type="checkbox" data-loaded-for="{{ pid }}" onchange="toggleLoaded({{ ev.id }}, {{ pid }}, this.checked)">
+          <span class="inline-flex items-center gap-1"><i class="fa-solid fa-truck"></i> Chargé</span>
+        </label>
+      </div>
+
+      <div id="busy-{{ pid }}" class="text-xs text-slate-500 mb-2"></div>
+
+      <ul class="space-y-2">
+        {% for ec in ep.children %}
+          {% set c = ec.child %}
+          <li class="child-row flex items-center justify-between p-3 rounded-xl border" data-item="{{ c.id }}">
+            <div class="flex items-center gap-3">
+              <input type="checkbox" disabled {{ 'checked' if ec.verified else '' }}>
+              <div class="flex items-center gap-2">
+                <i class="fa-solid {{ c.icon or 'fa-pills' }}"></i>
+                <span class="font-medium">{{ c.name }}</span>
+                <span class="text-xs text-slate-500">x{{ c.expected_qty }}</span>
+              </div>
+            </div>
+            <div class="text-xs text-slate-500">
+              <span class="who" data-who="{{ c.id }}">{{ ec.verified_by or '—' }}</span>
+              <span class="when" data-when="{{ c.id }}">{{ ec.verified_at.strftime('— %d/%m %H:%M') if ec.verified_at else '' }}</span>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endfor %}
+</div>
+
+<div class="mt-8 flex items-center gap-3">
+  <a class="px-4 py-2 rounded-xl border" href="{{ url_for('events.list_events') }}">Retour</a>
+  <a class="px-4 py-2 rounded-xl bg-white border shadow" href="{{ url_for('events.export_logs', event_id=ev.id) }}"><i class="fa-solid fa-file-csv"></i> Exporter les logs</a>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.startLive && window.startLive(1000);
+</script>
+{% endblock %}

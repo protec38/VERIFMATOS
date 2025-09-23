@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block title %}Accès secouristes • MediCheck{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-semibold mb-4"><i class="fa-solid fa-id-card-clip"></i> Accès secouristes</h1>
+<form method="post" class="bg-white rounded-2xl shadow p-4 space-y-4 max-w-lg">
+  <div>
+    <label class="block text-sm text-slate-600 mb-1">Nom</label>
+    <input name="last_name" class="w-full rounded-xl border-slate-300" required>
+  </div>
+  <div>
+    <label class="block text-sm text-slate-600 mb-1">Prénom</label>
+    <input name="first_name" class="w-full rounded-xl border-slate-300" required>
+  </div>
+  <button class="px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-black">Entrer</button>
+</form>
+{% endblock %}

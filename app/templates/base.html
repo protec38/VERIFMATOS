@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}MediCheck{% endblock %}</title>
+    <!-- Tailwind via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha512-wxM3Q/4n5yHkC8mQb1Qx9lN3mG4+5apK0Gf2VqJc4r9wQ1U6MbnfQr7QnX3b1JtY5aK2rYQ1K9e0m2y3R8l2mw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  </head>
+  <body class="bg-slate-100 text-slate-800 min-h-screen">
+    <nav class="bg-white shadow sticky top-0 z-30">
+      <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+        <a href="{{ url_for('index') }}" class="font-semibold text-lg tracking-tight flex items-center gap-2">
+          <i class="fa-solid fa-suitcase-medical"></i> MediCheck
+        </a>
+        <div class="flex items-center gap-4">
+          {% if current_user.is_authenticated %}
+            <a class="text-slate-600 hover:text-slate-900" href="{{ url_for('events.list_events') }}"><i class="fa-solid fa-calendar-check"></i> Evénements</a>
+            <span class="text-sm text-slate-500">Connecté : {{ current_user.username }}</span>
+            <a class="px-3 py-1 rounded-md bg-slate-800 text-white hover:bg-slate-900" href="{{ url_for('logout') }}">
+              <i class="fa-solid fa-right-from-bracket"></i> Déconnexion
+            </a>
+          {% else %}
+            <a class="px-3 py-1 rounded-md bg-slate-800 text-white hover:bg-slate-900" href="{{ url_for('login') }}">
+              <i class="fa-solid fa-right-to-bracket"></i> Connexion
+            </a>
+          {% endif %}
+        </div>
+      </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-4 py-6">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="space-y-2 mb-4">
+            {% for cat, msg in messages %}
+              <div class="p-3 rounded-md {{ 'bg-green-50 text-green-700' if cat=='success' else 'bg-amber-50 text-amber-700' }}">
+                {{ msg }}
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </main>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>
