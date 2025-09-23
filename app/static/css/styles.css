@@ -1,5 +1,0 @@
-
-body { --bs-border-radius-xxl: 1rem; }
-.rounded-4 { border-radius: var(--bs-border-radius-xxl) !important; }
-.bg-success-subtle { background: rgba(25, 135, 84, .12); }
-.list-group-item-action { cursor: pointer; }
