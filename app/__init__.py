@@ -1,41 +1,55 @@
+import os
+from flask import Flask
+from app.extensions import db, login_manager
+from app.models import User
 
-from flask import Flask, jsonify, render_template, redirect, url_for
-from flask_login import current_user
-from .extensions import db, migrate, login_manager, csrf, socketio
-from .config import ProdConfig
 
-def create_app():
+def create_app() -> Flask:
     app = Flask(__name__)
-    app.config.from_object(ProdConfig())
 
+    # -----------------------------
+    # Configuration application
+    # -----------------------------
+    app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev")
+    app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
+        "DATABASE_URL", "postgresql://admin:admin@db:5432/secouristes"
+    )
+    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+    # -----------------------------
     # Init extensions
+    # -----------------------------
     db.init_app(app)
-    migrate.init_app(app, db)
     login_manager.init_app(app)
-    csrf.init_app(app)
-    socketio.init_app(app, message_queue=app.config.get("SOCKETIO_MESSAGE_QUEUE"))
 
-    # Import models after db init
-    from .models import User  # noqa
-
-    # Flask-Login
+    # Flask-Login: fonction de chargement utilisateur
     @login_manager.user_loader
-    def load_user(user_id):
-        return User.query.get(int(user_id))
+    def load_user(user_id: str):
+        try:
+            return User.query.get(int(user_id))
+        except Exception:
+            return None
 
-    login_manager.login_view = "pages.login"
+    # -----------------------------
+    # Blueprints
+    # -----------------------------
+    # Assure-toi d’avoir un blueprint d’auth avec endpoint "auth.login"
+    # Exemple: app/blueprints/auth/routes.py avec:
+    #   bp = Blueprint("auth", __name__)
+    #   @bp.route("/login", methods=["GET","POST"]) ...
+    from app.blueprints.auth.routes import bp as auth_bp  # noqa: E402
+    app.register_blueprint(auth_bp, url_prefix="/auth")
 
-    # Blueprints (API)
-    from app.blueprints import register_blueprints
-    register_blueprints(app)
+    # Route de test
+    @app.get("/")
+    def index():
+        return "✅ Application Secouristes OK !"
 
-    # UI routes (Jinja)
-    from .pages import bp as pages_bp
-    app.register_blueprint(pages_bp)
-
-    # Health
-    @app.get("/healthz")
-    def healthz():
-        return jsonify(status="ok"), 200
+    # -----------------------------
+    # Création auto des tables
+    # (tu as demandé sans migrations)
+    # -----------------------------
+    with app.app_context():
+        db.create_all()
 
     return app
