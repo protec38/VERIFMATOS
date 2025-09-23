@@ -1,28 +1,53 @@
-{% macro navbar() -%}
-<nav class="navbar navbar-expand-lg navbar-dark pc-gradient">
-  <div class="container">
-    <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('core.index') }}">
-      <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="logo" height="28">
-      <span>Protection Civile – Inventaire</span>
-    </a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarsExample07">
+{% macro navbar() %}
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+  <div class="container-fluid">
+    <a class="navbar-brand fw-bold" href="{{ url_for('core.index') }}">📦 Inventaire Live</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarMain" aria-controls="navbarMain" aria-expanded="false" aria-label="Toggle navigation">
       <span class="navbar-toggler-icon"></span>
     </button>
-    <div class="collapse navbar-collapse" id="navbarsExample07">
+
+    <div class="collapse navbar-collapse" id="navbarMain">
       <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('events.list_events') }}"><i class="fa-solid fa-calendar-check me-1"></i>Événements</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('inventory.tree') }}"><i class="fa-solid fa-boxes-stacked me-1"></i>Inventaire</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('admin.users') }}"><i class="fa-solid fa-users-gear me-1"></i>Admin</a></li>
+        <li class="nav-item">
+          <a class="nav-link" href="{{ url_for('core.index') }}">
+            <i class="fa-solid fa-gauge-high me-1"></i>Tableau de bord
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="{{ url_for('events.list_events') }}">
+            <i class="fa-solid fa-calendar-check me-1"></i>Événements
+          </a>
+        </li>
+        {# Quand tu ajouteras un blueprint d’inventaire, ré-active ce lien :
+        <li class="nav-item">
+          <a class="nav-link" href="{{ url_for('inventory.tree') }}">
+            <i class="fa-solid fa-boxes-stacked me-1"></i>Inventaire
+          </a>
+        </li>
+        #}
       </ul>
+
       <ul class="navbar-nav ms-auto">
         {% if current_user.is_authenticated %}
-          <li class="nav-item"><span class="navbar-text me-3"><i class="fa-solid fa-user-shield me-1"></i>{{ current_user.display_name or current_user.email }}</span></li>
-          <li class="nav-item"><a class="btn btn-outline-light btn-sm" href="{{ url_for('auth.logout') }}">Déconnexion</a></li>
+          <li class="nav-item">
+            <span class="navbar-text me-3">
+              <i class="fa-solid fa-user-circle me-1"></i>{{ current_user.display_name or current_user.email }}
+            </span>
+          </li>
+          <li class="nav-item">
+            <a class="btn btn-outline-light btn-sm" href="{{ url_for('auth.logout') }}">
+              <i class="fa-solid fa-right-from-bracket me-1"></i>Se déconnecter
+            </a>
+          </li>
         {% else %}
-          <li class="nav-item"><a class="btn btn-light btn-sm" href="{{ url_for('auth.login_form') }}">Connexion</a></li>
+          <li class="nav-item">
+            <a class="btn btn-outline-light btn-sm" href="{{ url_for('auth.login') }}">
+              <i class="fa-solid fa-right-to-bracket me-1"></i>Se connecter
+            </a>
+          </li>
         {% endif %}
       </ul>
     </div>
   </div>
 </nav>
-{%- endmacro %}
+{% endmacro %}
