@@ -1,64 +1,63 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "🔎 Attente Postgres (db:5432)…"
-for i in {1..60}; do
-  if python - <<'PY'
-import os, sys
-import psycopg2
-from urllib.parse import urlparse
-url = os.getenv("DATABASE_URL","")
-if not url:
-    sys.exit(1)
-# Convert SA URL -> psycopg2 dsn
-# postgresql+psycopg2://user:pass@host:port/db
-if "+psycopg2" in url:
-    url = url.replace("+psycopg2","")
-u = urlparse(url)
-pw = (u.password or "")
-dsn = f"dbname={u.path.lstrip('/')} user={u.username} password={pw} host={u.hostname} port={u.port or 5432}"
-try:
-    psycopg2.connect(dsn).close()
-    sys.exit(0)
-except Exception as e:
-    sys.exit(2)
+echo "[wait] Checking Postgres..."
+# Extrait les infos de connexion depuis DATABASE_URL si dispo, sinon fallback
+: "${DATABASE_URL:=}"
+if [[ -n "${DATABASE_URL}" ]]; then
+  # postgres+psycopg2://user:pass@host:port/db
+  DB_HOST=$(python - <<'PY'
+import os, re
+u=os.environ.get("DATABASE_URL","")
+m=re.match(r".*?://.*?:?.*?@([^:/]+):?(\d+)?/.*", u)
+print(m.group(1) if m else "db")
 PY
-  then
-    echo "✅ Postgres prêt."
+)
+  DB_PORT=$(python - <<'PY'
+import os, re
+u=os.environ.get("DATABASE_URL","")
+m=re.match(r".*?://.*?:?.*?@[^:/]+:?(\\d+)?/.*", u)
+print(m.group(1) if m and m.group(1) else "5432")
+PY
+)
+else
+  DB_HOST="db"
+  DB_PORT="5432"
+fi
+
+for i in {1..60}; do
+  if (echo > /dev/tcp/$DB_HOST/$DB_PORT) >/dev/null 2>&1; then
+    echo "[wait] Postgres is reachable on $DB_HOST:$DB_PORT"
     break
-  else
-    sleep 2
   fi
-  if [ "$i" -eq 60 ]; then
-    echo "❌ Postgres indisponible."
-    exit 1
-  fi
+  echo "[wait] Postgres not ready yet ($i/60) ..."
+  sleep 2
 done
 
-echo "🔎 Attente Redis (redis:6379)…"
-for i in {1..60}; do
-  if python - <<'PY'
-import os, sys, redis, urllib.parse
-url = os.getenv("REDIS_URL","")
-if not url:
-    sys.exit(1)
-r = redis.Redis.from_url(url, socket_connect_timeout=1)
-try:
-    r.ping()
-    sys.exit(0)
-except Exception:
-    sys.exit(2)
+echo "[wait] Checking Redis..."
+: "${REDIS_URL:=redis://:pc_redis_pass@redis:6379/0}"
+# parse host/port/password quickly
+R_HOST=$(python - <<'PY'
+import os, re
+u=os.environ.get("REDIS_URL","redis://:pc_redis_pass@redis:6379/0")
+m=re.match(r"redis://(?::[^@]*@)?([^:/]+):?(\\d+)?", u)
+print(m.group(1) if m else "redis")
 PY
-  then
-    echo "✅ Redis prêt."
+)
+R_PORT=$(python - <<'PY'
+import os, re
+u=os.environ.get("REDIS_URL","redis://:pc_redis_pass@redis:6379/0")
+m=re.match(r"redis://(?::[^@]*@)?[^:/]+:?(\\d+)?", u)
+print(m.group(1) if m and m.group(1) else "6379")
+PY
+)
+for i in {1..60}; do
+  if (echo > /dev/tcp/$R_HOST/$R_PORT) >/dev/null 2>&1; then
+    echo "[wait] Redis is reachable on $R_HOST:$R_PORT"
     break
-  else
-    sleep 2
   fi
-  if [ "$i" -eq 60 ]; then
-    echo "❌ Redis indisponible."
-    exit 1
-  fi
+  echo "[wait] Redis not ready yet ($i/60) ..."
+  sleep 2
 done
 
-echo "✔️  Tous les services sont prêts."
+echo "[wait] All dependencies are reachable."
