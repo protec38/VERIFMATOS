@@ -7,35 +7,30 @@ services:
     ports:
       - "7000:8000"
     environment:
-      # Flask / App
       FLASK_ENV: production
       SECRET_KEY: change-me-in-prod
 
-      # Database & Redis
       DATABASE_URL: postgresql+psycopg2://pc_user:pc_pass@db:5432/pc_db
       REDIS_URL: redis://:pc_redis_pass@redis:6379/0
       SOCKETIO_MESSAGE_QUEUE: redis://:pc_redis_pass@redis:6379/0
 
-      # --- Compte admin initial (sera créé 1 seule fois) ---
+      # Compte admin initial (créé 1 seule fois)
       ADMIN_EMAIL: admin@example.com
       ADMIN_PASSWORD: admin
       ADMIN_DISPLAY_NAME: Administrateur
       ADMIN_ROLE: admin
       INIT_CREATE_ADMIN: "true"
-      # ------------------------------------------------------
 
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: >
-      /bin/bash -lc "/app/docker/wait-for-services.sh
-      && exec gunicorn wsgi:app
-         --bind 0.0.0.0:8000
-         --worker-class eventlet
-         --workers 1
-         --timeout 120"
+    # Utiliser la forme array évite les soucis de retours à la ligne
+    command: [
+      "bash","-lc",
+      "/app/docker/wait-for-services.sh && exec gunicorn wsgi:app --bind 0.0.0.0:8000 --worker-class eventlet --workers 1 --timeout 120"
+    ]
     restart: unless-stopped
 
   db:
