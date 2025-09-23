@@ -1,4 +1,0 @@
-/* Etat visuel quand une ligne enfant est validée */
-.child-row.ok{ border-color: rgb(22 163 74); background: rgb(240 253 244); }
-/* Carte parent complète (tous enfants OK) */
-.parent-card.complete{ outline: 2px solid rgb(22 163 74); box-shadow: 0 0 0 3px rgba(22,163,74,.15); }
