@@ -1,0 +1,35 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: changeme_strong
+      POSTGRES_DB: secouristes
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+
+  web:
+    build: ./app
+    depends_on:
+      - db
+      - redis
+    environment:
+      DATABASE_URL: postgresql+psycopg://app:changeme_strong@db:5432/secouristes
+      SECRET_KEY: supersecret_change_me
+      SOCKETIO_MESSAGE_QUEUE: redis://redis:6379/0
+      FLASK_ENV: production
+    command: >
+      bash -lc "alembic upgrade head &&
+                gunicorn -k eventlet -w 1 'wsgi:create_app()' --bind 0.0.0.0:8000"
+    ports:
+      - "7000:8000"
+
+volumes:
+  db_data:

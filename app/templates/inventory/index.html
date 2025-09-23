@@ -1,0 +1,13 @@
+
+{% extends "base.html" %}
+{% block title %}Inventaire · Secouristes{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h1 class="h4 mb-0"><i class="fa-solid fa-boxes-stacked me-2"></i>Inventaire</h1>
+  <button class="btn btn-primary rounded-pill" id="btn-new-node"><i class="fa-solid fa-plus me-1"></i>Nouveau</button>
+</div>
+<div id="tree" class="vstack gap-2"></div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/inventory.js') }}"></script>
+{% endblock %}

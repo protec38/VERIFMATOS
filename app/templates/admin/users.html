@@ -1,0 +1,37 @@
+
+{% extends "base.html" %}
+{% block title %}Utilisateurs · Secouristes{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h1 class="h4 mb-0"><i class="fa-solid fa-users-gear me-2"></i>Utilisateurs</h1>
+  <button class="btn btn-primary rounded-pill" id="btn-new-user"><i class="fa-solid fa-plus me-1"></i>Nouveau</button>
+</div>
+<table class="table table-sm align-middle">
+  <thead><tr><th>Email</th><th>Nom</th><th>Rôle</th><th>Actif</th><th></th></tr></thead>
+  <tbody id="users-body"></tbody>
+</table>
+{% endblock %}
+{% block scripts %}
+<script>
+  async function loadUsers(){
+    const res = await fetch('/admin/users');
+    const users = await res.json();
+    const tbody = document.getElementById('users-body');
+    tbody.innerHTML = users.map(u => `
+      <tr>
+        <td>${u.email}</td>
+        <td>${u.display_name || ''}</td>
+        <td><span class="badge bg-dark">${u.role}</span></td>
+        <td>${u.active ? '✅' : '❌'}</td>
+        <td class="text-end"><button class="btn btn-sm btn-outline-danger" onclick="delUser(${u.id})"><i class="fa-solid fa-trash"></i></button></td>
+      </tr>
+    `).join('');
+  }
+  async function delUser(id){
+    if (!confirm('Supprimer cet utilisateur ?')) return;
+    const res = await fetch('/admin/users/'+id, { method: 'DELETE', headers: {'X-CSRFToken': window.CSRF_TOKEN } });
+    if (res.ok) loadUsers(); else alert('Erreur suppression');
+  }
+  document.addEventListener('DOMContentLoaded', loadUsers);
+</script>
+{% endblock %}
