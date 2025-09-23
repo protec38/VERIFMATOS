@@ -1,55 +1,43 @@
 import os
 from flask import Flask
-from app.extensions import db, login_manager
-from app.models import User
+from .extensions import db, login_manager, csrf, socketio
 
-
-def create_app() -> Flask:
+def create_app():
     app = Flask(__name__)
 
-    # -----------------------------
-    # Configuration application
-    # -----------------------------
-    app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev")
+    # ---------- Config ----------
+    app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret")
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
-        "DATABASE_URL", "postgresql://admin:admin@db:5432/secouristes"
+        "DATABASE_URL",
+        "postgresql+psycopg2://postgres:postgres@db:5432/appdb",
     )
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-    # -----------------------------
-    # Init extensions
-    # -----------------------------
+    # ---------- Init extensions ----------
     db.init_app(app)
+    csrf.init_app(app)
     login_manager.init_app(app)
 
-    # Flask-Login: fonction de chargement utilisateur
+    # Flask-Login
+    login_manager.login_view = "auth.login"
+
+    from .models import User  # noqa
+
     @login_manager.user_loader
-    def load_user(user_id: str):
-        try:
-            return User.query.get(int(user_id))
-        except Exception:
-            return None
+    def load_user(user_id):
+        return User.query.get(int(user_id))
 
-    # -----------------------------
-    # Blueprints
-    # -----------------------------
-    # Assure-toi d’avoir un blueprint d’auth avec endpoint "auth.login"
-    # Exemple: app/blueprints/auth/routes.py avec:
-    #   bp = Blueprint("auth", __name__)
-    #   @bp.route("/login", methods=["GET","POST"]) ...
-    from app.blueprints.auth.routes import bp as auth_bp  # noqa: E402
+    # SocketIO doit être initialisé APRÈS la config
+    # (l'instance est créée dans extensions.py)
+    socketio.init_app(app)
+
+    # ---------- Blueprints ----------
+    from .blueprints.auth.routes import bp as auth_bp
+    from .blueprints.events.routes import bp as events_bp
+    from .blueprints.core.routes import bp as core_bp
+
     app.register_blueprint(auth_bp, url_prefix="/auth")
-
-    # Route de test
-    @app.get("/")
-    def index():
-        return "✅ Application Secouristes OK !"
-
-    # -----------------------------
-    # Création auto des tables
-    # (tu as demandé sans migrations)
-    # -----------------------------
-    with app.app_context():
-        db.create_all()
+    app.register_blueprint(events_bp, url_prefix="/events")
+    app.register_blueprint(core_bp)
 
     return app
