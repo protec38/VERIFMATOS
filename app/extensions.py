@@ -1,12 +1,9 @@
-
 from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
 from flask_login import LoginManager
-from flask_wtf import CSRFProtect
-from flask_socketio import SocketIO
 
 db = SQLAlchemy()
-migrate = Migrate()
 login_manager = LoginManager()
-csrf = CSRFProtect()
-socketio = SocketIO(async_mode="eventlet", cors_allowed_origins="*")
+
+# Optionnel: configuration de la vue de login (utilisée par @login_required)
+login_manager.login_view = "auth.login"
+login_manager.login_message_category = "warning"
