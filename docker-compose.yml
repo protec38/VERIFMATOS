@@ -1,40 +1,72 @@
-version: "3.9"
-
 services:
   web:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pc_web
     ports:
       - "7000:8000"
     environment:
+      # Flask / App
       FLASK_ENV: production
       SECRET_KEY: change-me-in-prod
-      DATABASE_URL: postgresql+psycopg2://appuser:apppass@db:5432/appdb
-      REDIS_URL: redis://redis:6379/0
+
+      # Database & Redis
+      DATABASE_URL: postgresql+psycopg2://pc_user:pc_pass@db:5432/pc_db
+      REDIS_URL: redis://:pc_redis_pass@redis:6379/0
+      SOCKETIO_MESSAGE_QUEUE: redis://:pc_redis_pass@redis:6379/0
+
+      # --- Compte admin initial (sera créé 1 seule fois) ---
       ADMIN_EMAIL: admin@example.com
       ADMIN_PASSWORD: admin
-      ADMIN_DISPLAY_NAME: Admin
+      ADMIN_DISPLAY_NAME: Administrateur
+      ADMIN_ROLE: admin
+      INIT_CREATE_ADMIN: "true"
+      # ------------------------------------------------------
+
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      /bin/bash -lc "/app/docker/wait-for-services.sh
+      && exec gunicorn wsgi:app
+         --bind 0.0.0.0:8000
+         --worker-class eventlet
+         --workers 1
+         --timeout 120"
     restart: unless-stopped
 
   db:
-    image: postgres:15
+    image: postgres:15-alpine
+    container_name: pc_db
     environment:
-      POSTGRES_USER: appuser
-      POSTGRES_PASSWORD: apppass
-      POSTGRES_DB: appdb
+      POSTGRES_DB: pc_db
+      POSTGRES_USER: pc_user
+      POSTGRES_PASSWORD: pc_pass
     volumes:
-      - dbdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pc_user -d pc_db -h 127.0.0.1"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
     restart: unless-stopped
 
   redis:
-    image: redis:7
-    command: ["redis-server", "--appendonly", "yes"]
-    volumes:
-      - redisdata:/data
+    image: redis:7-alpine
+    container_name: pc_redis
+    command: >
+      redis-server --requirepass pc_redis_pass --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "pc_redis_pass", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
     restart: unless-stopped
 
 volumes:
-  dbdata:
-  redisdata:
+  pgdata:
