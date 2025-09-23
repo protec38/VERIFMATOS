@@ -19,4 +19,4 @@ COPY . .
 EXPOSE 8000
 
 # Lancer Gunicorn
-CMD ["gunicorn", "-k", "eventlet", "-w", "1", "wsgi:app", "--bind", "0.0.0.0:8000"]
+CMD ["sh", "-c", "flask db upgrade || true && python seed.py && gunicorn -w 1 -k eventlet -b 0.0.0.0:8000 wsgi:app"]
