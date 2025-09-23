@@ -1,52 +1,40 @@
 version: "3.9"
 
 services:
+  web:
+    build: .
+    container_name: secouristes_web
+    command: >
+      bash -lc "gunicorn -k eventlet -w 1 wsgi:app --bind 0.0.0.0:8000"
+    volumes:
+      - .:/srv
+    ports:
+      - "7000:8000"
+    depends_on:
+      - db
+      - redis
+    environment:
+      FLASK_ENV: production
+      DATABASE_URL: postgresql://admin:admin@db:5432/secouristes
+      REDIS_URL: redis://redis:6379/0
+
   db:
     image: postgres:15
-    restart: unless-stopped
+    container_name: secouristes_db
     environment:
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: changeme_strong
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
       POSTGRES_DB: secouristes
     ports:
-      - "5432:5432"           # facultatif (si tu veux accéder depuis l’hôte)
+      - "5432:5432"
     volumes:
-      - db_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d secouristes"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+      - pgdata:/var/lib/postgresql/data
 
   redis:
     image: redis:7
-    restart: unless-stopped
+    container_name: secouristes_redis
     ports:
-      - "6379:6379"           # facultatif
-    command: ["redis-server", "--appendonly", "yes"]
-
-  web:
-    build: ./app              # doit contenir Dockerfile + code app
-    restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_started
-    environment:
-      DATABASE_URL: postgresql+psycopg://app:changeme_strong@db:5432/secouristes
-      SECRET_KEY: supersecret_change_me
-      SOCKETIO_MESSAGE_QUEUE: redis://redis:6379/0
-      FLASK_ENV: production
-      # Si tu utilises Flask pour créer les tables au boot (db.create_all()),
-      # assure-toi que l'import des modèles est fait dans create_app().
-    command: >
-      bash -lc "gunicorn -k eventlet -w 1 'wsgi:create_app()' --bind 0.0.0.0:8000"
-    ports:
-      - "7000:8000"
-    # Si tu veux monter le code local en dev :
-    # volumes:
-    #   - ./app:/srv
+      - "6379:6379"
 
 volumes:
-  db_data:
+  pgdata:
