@@ -13,13 +13,13 @@ def create_app():
     # --------------------
     # Configuration
     # --------------------
-    app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "dev_secret_key")
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv(
+    app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev_secret_key")
+    app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
         "DATABASE_URL",
-        "postgresql://postgres:postgres@db:5432/postgres"
+        "postgresql://postgres:postgres@db:5432/postgres",
     )
-    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    app.config['REDIS_URL'] = os.getenv("REDIS_URL", "redis://redis:6379/0")
+    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    app.config["REDIS_URL"] = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
     # --------------------
     # Initialiser extensions
@@ -28,7 +28,15 @@ def create_app():
     socketio.init_app(app, cors_allowed_origins="*")
     login_manager.init_app(app)
 
-    # 🔧 Injection de current_user dans tous les templates Jinja
+    # === Flask-Login: user_loader obligatoire ===
+    @login_manager.user_loader
+    def load_user(user_id: str):
+        try:
+            return User.query.get(int(user_id))
+        except Exception:
+            return None
+
+    # (optionnel) rendre current_user dispo partout dans Jinja
     @app.context_processor
     def inject_current_user():
         return {"current_user": current_user}
@@ -39,7 +47,7 @@ def create_app():
     from .blueprints.core.routes import bp as core_bp
     from .blueprints.auth.routes import bp as auth_bp
     from .blueprints.events.routes import bp as events_bp
-    # from .blueprints.inventory.routes import bp as inventory_bp  # décommente quand créé
+    # from .blueprints.inventory.routes import bp as inventory_bp  # si/qd présent
 
     app.register_blueprint(core_bp)
     app.register_blueprint(auth_bp, url_prefix="/auth")
@@ -47,7 +55,7 @@ def create_app():
     # app.register_blueprint(inventory_bp, url_prefix="/inventory")
 
     # --------------------
-    # Création auto du compte admin au démarrage
+    # Création auto du compte admin au démarrage (une seule fois)
     # --------------------
     with app.app_context():
         db.create_all()
