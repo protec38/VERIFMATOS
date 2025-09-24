@@ -1,81 +1,67 @@
 import os
-from datetime import datetime
 from flask import Flask
-from .extensions import db, migrate, socketio, login_manager, init_extensions
+from flask_login import current_user
+from werkzeug.security import generate_password_hash
 
-DEFAULT_SECRET = "change-me-in-prod"
+from .extensions import db, socketio, login_manager
+from .models import User, Role
 
-def create_app() -> Flask:
-    app = Flask(__name__, instance_relative_config=False)
 
-    # ---- Config de base ----
-    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", DEFAULT_SECRET)
+def create_app():
+    app = Flask(__name__)
 
-    # Database (Postgres via DATABASE_URL, fallback SQLite)
-    db_url = os.environ.get("DATABASE_URL", "sqlite:///app.db")
-    app.config["SQLALCHEMY_DATABASE_URI"] = db_url
-    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-
-    # Redis pour Socket.IO / file d’events
-    app.config["REDIS_URL"] = os.environ.get("REDIS_URL", "redis://:pc_redis_pass@redis:6379/0")
-    app.config["SOCKETIO_MESSAGE_QUEUE"] = os.environ.get(
-        "SOCKETIO_MESSAGE_QUEUE",
-        app.config["REDIS_URL"],
+    # --------------------
+    # Configuration
+    # --------------------
+    app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "dev_secret_key")
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv(
+        "DATABASE_URL",
+        "postgresql://postgres:postgres@db:5432/postgres"
     )
+    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    app.config['REDIS_URL'] = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
-    # ---- Initialisation des extensions ----
-    init_extensions(app)
+    # --------------------
+    # Initialiser extensions
+    # --------------------
+    db.init_app(app)
+    socketio.init_app(app, cors_allowed_origins="*")
+    login_manager.init_app(app)
 
-    # ---- Login manager: user_loader ----
-    from .models import User, Role  # import ici après init_extensions pour éviter les cycles
+    # 🔧 Injection de current_user dans tous les templates Jinja
+    @app.context_processor
+    def inject_current_user():
+        return {"current_user": current_user}
 
-    @login_manager.user_loader
-    def load_user(user_id: str):
-        try:
-            return User.query.get(int(user_id))
-        except Exception:
-            return None
-
-    # ---- Blueprints ----
-    from .blueprints.auth.routes import bp as auth_bp
+    # --------------------
+    # Enregistrer les blueprints
+    # --------------------
     from .blueprints.core.routes import bp as core_bp
+    from .blueprints.auth.routes import bp as auth_bp
     from .blueprints.events.routes import bp as events_bp
-    app.register_blueprint(auth_bp, url_prefix="/auth")
-    app.register_blueprint(core_bp)
-    app.register_blueprint(events_bp, url_prefix="/events")
+    # from .blueprints.inventory.routes import bp as inventory_bp  # décommente quand créé
 
-    # ---- Création des tables + seed admin (1 seule fois) ----
+    app.register_blueprint(core_bp)
+    app.register_blueprint(auth_bp, url_prefix="/auth")
+    app.register_blueprint(events_bp, url_prefix="/events")
+    # app.register_blueprint(inventory_bp, url_prefix="/inventory")
+
+    # --------------------
+    # Création auto du compte admin au démarrage
+    # --------------------
     with app.app_context():
         db.create_all()
-        _seed_admin_once(User, Role)
+
+        if not User.query.filter_by(email="admin@local").first():
+            admin_user = User(
+                email="admin@local",
+                password_hash=generate_password_hash("admin"),
+                display_name="Administrateur",
+                role=Role.ADMIN,
+                is_active=True,
+            )
+            db.session.add(admin_user)
+            db.session.commit()
+            print("✅ Compte admin créé: admin@local / admin")
 
     return app
-
-
-def _seed_admin_once(User, Role):
-    """Crée le compte admin une seule fois si absent."""
-    from werkzeug.security import generate_password_hash
-    want = os.environ.get("INIT_CREATE_ADMIN", "true").lower() in ("1", "true", "yes")
-    if not want:
-        return
-
-    email = os.environ.get("ADMIN_EMAIL", "admin@example.com").strip().lower()
-    password = os.environ.get("ADMIN_PASSWORD", "admin")
-    display_name = os.environ.get("ADMIN_DISPLAY_NAME", "Administrateur")
-    role = os.environ.get("ADMIN_ROLE", Role.ADMIN)
-
-    existing = User.query.filter_by(email=email).first()
-    if existing:
-        return
-
-    admin = User(
-        email=email,
-        password_hash=generate_password_hash(password),
-        display_name=display_name,
-        role=role,
-        is_active=True,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
-    )
-    db.session.add(admin)
-    db.session.commit()
