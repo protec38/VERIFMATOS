@@ -1,7 +1,7 @@
 # app/events/views.py — API JSON pour les événements (AUCUN HTML ici)
 from __future__ import annotations
 import uuid
-from typing import Any, Dict, List
+from typing import Any, Dict
 from flask import Blueprint, jsonify, request, abort
 from flask_login import login_required, current_user
 
@@ -36,6 +36,10 @@ def require_can_view_event(ev: Event) -> None:
     if not current_user.is_authenticated:
         abort(401)
     if current_user.role not in (Role.ADMIN, Role.CHEF, Role.VIEWER):
+        abort(403)
+
+def require_admin() -> None:
+    if not current_user.is_authenticated or current_user.role != Role.ADMIN:
         abort(403)
 
 # -------------------------
@@ -104,9 +108,8 @@ def update_event_status(event_id: int):
         return jsonify({"ok": True, "status": "CLOSED"})
 
     elif status_str == "OPEN":
-        # Optionnel : autoriser réouverture aux ADMIN uniquement
-        if not current_user.is_authenticated or current_user.role != Role.ADMIN:
-            abort(403)
+        # Optionnel : réouverture réservée ADMIN
+        require_admin()
         ev.status = EventStatus.OPEN
         db.session.commit()
         try:
@@ -166,7 +169,6 @@ def verify_item(event_id: int):
     if not node_id or status not in ("OK", "NOT_OK") or not verifier_name:
         abort(400, description="Paramètres invalides (node_id, status, verifier_name)")
 
-    # On pourrait contrôler ici que node_id correspond bien à un ITEM rattaché à l'événement.
     rec = VerificationRecord(
         event_id=event_id,
         node_id=node_id,
@@ -188,7 +190,6 @@ def verify_item(event_id: int):
 
     return jsonify({"ok": True, "record_id": rec.id})
 
-# (Optionnel) statistiques brèves
 @bp.get("/events/<int:event_id>/stats")
 @login_required
 def event_stats(event_id: int):
@@ -198,3 +199,18 @@ def event_stats(event_id: int):
     total_ok = db.session.query(VerificationRecord).filter_by(event_id=event_id, status="OK").count()
     total_all = db.session.query(VerificationRecord).filter_by(event_id=event_id).count()
     return jsonify({"ok": True, "verified_ok": total_ok, "verified_total": total_all})
+
+@bp.delete("/events/<int:event_id>")
+@login_required
+def delete_event(event_id: int):
+    """Suppression ADMIN ONLY d’un événement et de ses dépendances (liens, statuts, vérifs, associations)."""
+    require_admin()
+    ev = db.session.get(Event, event_id) or abort(404)
+    # Supprimer enfants
+    VerificationRecord.query.filter_by(event_id=event_id).delete(synchronize_session=False)
+    EventNodeStatus.query.filter_by(event_id=event_id).delete(synchronize_session=False)
+    EventShareLink.query.filter_by(event_id=event_id).delete(synchronize_session=False)
+    db.session.execute(event_stock.delete().where(event_stock.c.event_id == event_id))
+    db.session.delete(ev)
+    db.session.commit()
+    return jsonify({"ok": True, "deleted": event_id})
