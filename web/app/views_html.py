@@ -1,10 +1,10 @@
-# app/views_html.py — Pages HTML (Jinja) : login (GET), dashboard, event, public
+# app/views_html.py — Pages HTML (Jinja): login GET, dashboard (avec choix stock), event, public, stock/admin pages
 from __future__ import annotations
 from datetime import datetime
 from flask import Blueprint, render_template, render_template_string, request, redirect, url_for, abort
 from flask_login import login_required, current_user, logout_user
 from . import db
-from .models import Event, EventStatus, Role, EventShareLink, User
+from .models import Event, EventStatus, Role, EventShareLink, StockNode, NodeType, event_stock
 from .tree_query import build_event_tree
 
 bp = Blueprint("pages", __name__)
@@ -18,7 +18,7 @@ def can_manage():
 # -------- Auth HTML --------
 @bp.route("/login", methods=["GET"])
 def login():
-    # Le formulaire POST /login sera reçu par app/auth/views.py
+    # Le formulaire POST /login est géré par app/auth/views.py
     return render_template_string(
         '{% extends "base.html" %}{% block content %}'
         '<div class="card"><div class="title">Connexion</div>'
@@ -39,15 +39,14 @@ def logout():
 @bp.route("/dashboard", methods=["GET", "POST"])
 @login_required
 def dashboard():
-    from .models import Event  # import local pour éviter les cycles
     if request.method == "POST":
         if not can_manage():
             abort(403)
         name = (request.form.get("name") or "").strip()
         date_str = (request.form.get("date") or "").strip()
-        if not name:
+        root_id = request.form.get("stock_root_id")
+        if not name or not root_id:
             abort(400)
-        from datetime import datetime
         date = None
         if date_str:
             try:
@@ -56,13 +55,21 @@ def dashboard():
                 date = None
         ev = Event(name=name, date=date, status=EventStatus.OPEN, created_by_id=current_user.id)
         db.session.add(ev)
+        db.session.flush()
+        # Associer le stock parent choisi
+        root = db.session.get(StockNode, int(root_id))
+        if not root or root.type != NodeType.GROUP or root.level != 0:
+            abort(400)
+        db.session.execute(event_stock.insert().values(event_id=ev.id, node_id=root.id))
         db.session.commit()
         return redirect(url_for("pages.event_page", event_id=ev.id))
 
     if not can_view():
         abort(403)
     events = Event.query.order_by(Event.created_at.desc()).all()
-    return render_template("home.html", events=events, can_manage=can_manage())
+    # Récupère les stocks racines (parents niveau 0)
+    roots = StockNode.query.filter(StockNode.level == 0, StockNode.type == NodeType.GROUP).order_by(StockNode.name.asc()).all()
+    return render_template("home.html", events=events, can_manage=can_manage(), roots=roots)
 
 # -------- Pages Événement / Public --------
 @bp.get("/events/<int:event_id>")
@@ -84,3 +91,19 @@ def public_event_page(token: str):
     ev = link.event
     tree = build_event_tree(ev.id)
     return render_template("public_event.html", event=ev, tree=tree, token=token)
+
+# -------- Gestion Stock (UI) --------
+@bp.get("/stock")
+@login_required
+def stock_page():
+    if not can_manage():
+        abort(403)
+    return render_template("manage.html", active_tab="stock")
+
+# -------- Gestion Admin (UI) --------
+@bp.get("/admin")
+@login_required
+def admin_page():
+    if current_user.role != Role.ADMIN:
+        abort(403)
+    return render_template("manage.html", active_tab="admin")
