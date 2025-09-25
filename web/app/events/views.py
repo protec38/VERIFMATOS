@@ -73,7 +73,7 @@ def get_json() -> Dict[str, Any]:
     return data
 
 # -------------------------
-# Endpoints
+# Endpoints privés (auth)
 # -------------------------
 
 @bp.post("/events")
@@ -230,7 +230,7 @@ def update_parent_status(event_id: int):
 @bp.post("/events/<int:event_id>/verify")
 @login_required
 def verify_item(event_id: int):
-    """Ajoute un enregistrement de vérification pour un item (OK / NOT_OK)."""
+    """Ajoute un enregistrement de vérification pour un item (OK / NOT_OK) — version privée (auth)."""
     ev = db.session.get(Event, event_id) or abort(404)
     require_can_manage_event(ev)  # CHEF/ADMIN
     data = get_json()
@@ -239,12 +239,7 @@ def verify_item(event_id: int):
     verifier_name = (data.get("verifier_name") or "").strip()
     if not node_id or status not in ("OK", "NOT_OK") or not verifier_name:
         abort(400, description="Paramètres invalides (node_id, status, verifier_name)")
-    rec = VerificationRecord(
-        event_id=event_id,
-        node_id=node_id,
-        status=status,
-        verifier_name=verifier_name,
-    )
+    rec = VerificationRecord(event_id=event_id, node_id=node_id, status=status, verifier_name=verifier_name)
     db.session.add(rec)
     db.session.commit()
     try:
@@ -284,40 +279,48 @@ def delete_event(event_id: int):
     db.session.commit()
     return jsonify({"ok": True})
 
-# --------- DEBUG: vérifier les associations et l’arbre ----------
-@bp.get("/events/<int:event_id>/debug")
-@login_required
-def event_debug(event_id: int):
-    ev = db.session.get(Event, event_id) or abort(404)
-    require_can_view_event(ev)
+# -------------------------
+# Endpoints PUBLICS (via token de partage)
+# -------------------------
 
-    roots = (
-        db.session.query(StockNode)
-        .join(event_stock, event_stock.c.node_id == StockNode.id)
-        .filter(event_stock.c.event_id == event_id)
-        .order_by(StockNode.name.asc())
-        .all()
-    )
-    root_ids = [r.id for r in roots]
-    root_names = [r.name for r in roots]
+@bp.get("/public/event/<token>/tree")
+def public_event_tree(token: str):
+    """Arbre accessible via lien de partage. Pas de login requis."""
+    link = EventShareLink.query.filter_by(token=token, active=True).first()
+    if not link or not link.event:
+        abort(404)
+    tree = build_event_tree(link.event_id)
+    return jsonify(tree)
 
-    tree = build_event_tree(event_id)
+@bp.post("/public/event/<token>/verify")
+def public_verify_item(token: str):
+    """Vérification d’un item sans compte, via le token. Nécessite que l’événement soit OPEN."""
+    link = EventShareLink.query.filter_by(token=token, active=True).first()
+    if not link or not link.event:
+        abort(404)
+    ev = link.event
+    if ev.status != EventStatus.OPEN:
+        abort(403, description="Événement clôturé")
 
-    def _count_items(nodes):
-        c = 0
-        for n in nodes:
-            if str(n.get("type")) == "ITEM":
-                c += 1
-            c += _count_items(n.get("children", []))
-        return c
+    data = get_json()
+    node_id = int(data.get("node_id") or 0)
+    status = (data.get("status") or "").upper()  # "OK" | "NOT_OK"
+    verifier_name = (data.get("verifier_name") or "").strip()
 
-    payload = {
-        "event": {"id": ev.id, "name": ev.name, "status": ev.status.name if hasattr(ev.status, "name") else str(ev.status)},
-        "root_ids": root_ids,
-        "root_names": root_names,
-        "tree_roots": len(tree),
-        "tree_items": _count_items(tree),
-        "tree": tree,
-    }
-    current_app.logger.info("[EVENT DEBUG] %s", payload)
-    return jsonify(payload)
+    if not node_id or status not in ("OK", "NOT_OK") or not verifier_name:
+        abort(400, description="Paramètres invalides (node_id, status, verifier_name)")
+
+    rec = VerificationRecord(event_id=ev.id, node_id=node_id, status=status, verifier_name=verifier_name)
+    db.session.add(rec)
+    db.session.commit()
+
+    try:
+        socketio.emit(
+            "event_update",
+            {"type": "item_verified", "event_id": ev.id, "node_id": node_id, "status": status, "by": verifier_name},
+            room=f"event_{ev.id}",
+        )
+    except Exception:
+        pass
+
+    return jsonify({"ok": True, "record_id": rec.id})
