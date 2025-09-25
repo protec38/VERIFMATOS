@@ -30,7 +30,14 @@
 
   <script>
     const EVENT_ID = {{ event.id }};
-    const TREE = {{ tree|tojson }}; // [{id,name,level,type,quantity,children:[...]}]
+    let TREE = {{ tree|tojson }};
+    async function loadTreeIfEmpty(){
+      if(Array.isArray(TREE) && TREE.length>0) return;
+      try {
+        const r = await fetch(`/events/${EVENT_ID}/tree`, {credentials:'include'});
+        if(r.ok){ TREE = await r.json(); buildUI(true); }
+      } catch(e) {}
+    } // [{id,name,level,type,quantity,children:[...]}]
     const socket = io();
     socket.emit("join_event", {event_id: EVENT_ID});
 
@@ -124,6 +131,7 @@
       recomputeProgress();
     }
     buildUI();
+    loadTreeIfEmpty();
 
     // Live updates
     let okCount = 0;
@@ -138,7 +146,7 @@
     });
 
     // Actions haut de page
-    document.getElementById("btn-share").addEventListener("click", () => {
+    document.getElementById("btn-share").addEventListener("click", async () => {
       fetch(`/events/${EVENT_ID}/share-link`, {method:"POST", credentials:"include"})
       .then(r=>r.json()).then(res=>{
         if(res.url){
@@ -152,8 +160,8 @@
       });
     });
     document.getElementById("btn-close").addEventListener("click", () => {
-      fetch(`/events/${EVENT_ID}/status`, {method:"PATCH", headers:{"Content-Type":"application/json"}, credentials:"include", body: JSON.stringify({status:"CLOSED"})})
-      .then(()=> location.reload());
+      fetch(`/events/${EVENT_ID}/status`, {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"include", body: JSON.stringify({status:"CLOSED"})})
+      .then(async r => { if(!r.ok){ const t = await r.text(); alert(t||"Erreur"); } else { location.reload(); } });
     });
   </script>
 {% endblock %}
