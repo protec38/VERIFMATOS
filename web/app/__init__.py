@@ -1,4 +1,4 @@
-# app/__init__.py — FINAL DEFINITIF (avec fallback Redis sûr)
+# app/__init__.py — FINAL DEFINITIF (fallback Redis + user_loader)
 from __future__ import annotations
 from datetime import datetime
 from flask import Flask, redirect, url_for
@@ -25,10 +25,19 @@ def create_app() -> Flask:
     login_manager.init_app(app)
     login_manager.login_view = "pages.login"
 
+    # --- Flask-Login: user_loader obligatoire ---
+    @login_manager.user_loader
+    def load_user(user_id: str):
+        try:
+            from .models import User
+            return db.session.get(User, int(user_id))
+        except Exception:
+            return None
+
     # Import models pour Alembic
     from . import models  # noqa: F401
 
-    # Activer Redis MQ seulement si possible
+    # Socket.IO — active Redis MQ seulement si possible
     redis_url = app.config.get("REDIS_URL")
     if redis_url:
         try:
@@ -41,6 +50,11 @@ def create_app() -> Flask:
     else:
         socketio.init_app(app)
         app.logger.info("SocketIO: démarrage sans message queue (REDIS_URL vide).")
+
+    # Jinja globals
+    @app.context_processor
+    def inject_now():
+        return {"now": datetime.utcnow}
 
     # Blueprints API
     from .auth.views import bp as auth_api_bp
