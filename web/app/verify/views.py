@@ -1,164 +1,62 @@
-# app/verify/views.py — Vérification items + statut parent (REST) + diffusion temps réel
-from flask import Blueprint, request, jsonify
-from flask_login import login_required, current_user
+# app/verify/views.py — Lien public pour les secouristes
+from __future__ import annotations
+from typing import Any, Dict
+from flask import Blueprint, jsonify, request, abort, render_template
 from .. import db, socketio
+from ..tree_query import build_event_tree
 from ..models import (
-    Event, EventStatus, VerificationRecord, ItemStatus,
-    EventNodeStatus, StockNode, NodeType, EventShareLink, Role
+    Event,
+    EventStatus,
+    EventShareLink,
+    VerificationRecord,
+    ItemStatus,
 )
 
-bp = Blueprint("verify", __name__)
+bp = Blueprint("verify_public", __name__)
 
-def room_for_event(event_id: int) -> str:
-    return f"event-{event_id}"
+def _json() -> Dict[str, Any]:
+    data = request.get_json(silent=True)
+    if data is None:
+        data = request.form.to_dict() if request.form else {}
+    return data
 
-def can_manage_event():
-    return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF, Role.VIEWER)
-
-# ---- Authenticated endpoints (chefs/admin/viewer lecture seule) ----
-
-@bp.post("/events/<int:event_id>/verify")
-@login_required
-def verify_item(event_id: int):
-    # VIEWER ne doit pas modifier
-    if current_user.role == Role.VIEWER:
-        return jsonify(error="Forbidden"), 403
-
-    ev = db.session.get(Event, event_id)
-    if not ev:
-        return jsonify(error="Event not found"), 404
-    if ev.status != EventStatus.OPEN:
-        return jsonify(error="Event is CLOSED"), 403
-
-    data = request.get_json() or {}
-    node_id = data.get("node_id")
-    status_str = (data.get("status") or "OK").upper()
-    verifier_name = data.get("verifier_name")
-    comment = data.get("comment")
-
-    if not node_id or not verifier_name:
-        return jsonify(error="node_id and verifier_name required"), 400
-    node = db.session.get(StockNode, int(node_id))
-    if not node or node.type != NodeType.ITEM:
-        return jsonify(error="Invalid node (must be ITEM)"), 400
-
-    try:
-        status = ItemStatus[status_str]
-    except KeyError:
-        return jsonify(error="Invalid status"), 400
-
-    rec = VerificationRecord(
-        event_id=event_id,
-        node_id=node.id,
-        status=status,
-        verifier_name=verifier_name.strip()[:120],
-        comment=comment[:1000] if comment else None,
-    )
-    db.session.add(rec)
-    db.session.commit()
-
-    payload = {
-        "type": "item_verified",
-        "event_id": event_id,
-        "node_id": node.id,
-        "status": status.name,
-        "verifier_name": rec.verifier_name,
-        "comment": rec.comment,
-        "created_at": rec.created_at.isoformat()
-    }
-    socketio.emit("event_update", payload, to=room_for_event(event_id))
-    return jsonify(ok=True, **payload)
-
-@bp.post("/events/<int:event_id>/parent-status")
-@login_required
-def parent_status(event_id: int):
-    # VIEWER ne doit pas modifier
-    if current_user.role == Role.VIEWER:
-        return jsonify(error="Forbidden"), 403
-
-    ev = db.session.get(Event, event_id)
-    if not ev:
-        return jsonify(error="Event not found"), 404
-    if ev.status != EventStatus.OPEN:
-        return jsonify(error="Event is CLOSED"), 403
-
-    data = request.get_json() or {}
-    node_id = data.get("node_id")
-    charged = bool(data.get("charged_vehicle", False))
-    comment = data.get("comment")
-
-    if not node_id:
-        return jsonify(error="node_id required"), 400
-    node = db.session.get(StockNode, int(node_id))
-    if not node or node.type != NodeType.GROUP:
-        return jsonify(error="Invalid node (must be GROUP)"), 400
-
-    # upsert
-    ens = EventNodeStatus.query.filter_by(event_id=event_id, node_id=node.id).first()
-    if not ens:
-        ens = EventNodeStatus(event_id=event_id, node_id=node.id, charged_vehicle=charged, comment=comment)
-        db.session.add(ens)
-    else:
-        ens.charged_vehicle = charged
-        ens.comment = comment
-    db.session.commit()
-
-    payload = {
-        "type": "parent_status",
-        "event_id": event_id,
-        "node_id": node.id,
-        "charged_vehicle": ens.charged_vehicle,
-        "comment": ens.comment
-    }
-    socketio.emit("event_update", payload, to=room_for_event(event_id))
-    return jsonify(ok=True, **payload)
-
-# ---- Public endpoints via token (secouristes) ----
-
-@bp.post("/public/<token>/verify")
-def public_verify(token: str):
+def _event_from_token(token: str) -> Event:
     link = EventShareLink.query.filter_by(token=token, active=True).first()
-    if not link or not link.event:
-        return jsonify(error="Invalid link"), 404
-    ev = link.event
+    if not link:
+        abort(404)
+    ev = db.session.get(Event, link.event_id)
+    if not ev:
+        abort(404)
+    return ev
+
+# --- Page publique ---
+@bp.get("/public/event/<token>")
+def public_event_page(token: str):
+    ev = _event_from_token(token)
+    return render_template("public_event.html", token=token, event=ev)
+
+@bp.get("/public/event/<token>/tree")
+def public_event_tree(token: str):
+    ev = _event_from_token(token)
+    return jsonify(build_event_tree(ev.id))
+
+@bp.post("/public/event/<token>/verify")
+def public_verify(token: str):
+    ev = _event_from_token(token)
     if ev.status != EventStatus.OPEN:
-        return jsonify(error="Event is CLOSED"), 403
-
-    data = request.get_json() or {}
-    node_id = data.get("node_id")
-    status_str = (data.get("status") or "OK").upper()
-    verifier_name = data.get("verifier_name")
-    comment = data.get("comment")
-
-    if not node_id or not verifier_name:
-        return jsonify(error="node_id and verifier_name required"), 400
-    node = db.session.get(StockNode, int(node_id))
-    if not node or node.type != NodeType.ITEM:
-        return jsonify(error="Invalid node (must be ITEM)"), 400
-
-    try:
-        status = ItemStatus[status_str]
-    except KeyError:
-        return jsonify(error="Invalid status"), 400
-
-    rec = VerificationRecord(
-        event_id=ev.id,
-        node_id=node.id,
-        status=status,
-        verifier_name=verifier_name.strip()[:120],
-        comment=comment[:1000] if comment else None,
-    )
+        abort(403, description="Événement clôturé.")
+    data = _json()
+    node_id = int(data.get("node_id") or 0)
+    status_raw = (data.get("status") or "").upper()
+    verifier_name = (data.get("verifier_name") or "").strip()
+    if not node_id or status_raw not in ("OK", "NOT_OK") or not verifier_name:
+        abort(400, description="Paramètres invalides.")
+    status = ItemStatus.OK if status_raw == "OK" else ItemStatus.NOT_OK
+    rec = VerificationRecord(event_id=ev.id, node_id=node_id, status=status, verifier_name=verifier_name)
     db.session.add(rec)
     db.session.commit()
-
-    payload = {
-        "type": "item_verified",
-        "event_id": ev.id,
-        "node_id": node.id,
-        "status": status.name,
-        "verifier_name": rec.verifier_name,
-        "comment": rec.comment,
-        "created_at": rec.created_at.isoformat()
-    }
-    socketio.emit("event_update", payload, to=room_for_event(ev.id))
-    return jsonify(ok=True, **payload)
+    try:
+        socketio.emit("event_update", {"type": "item_verified", "event_id": ev.id, "node_id": node_id, "status": status_raw, "by": verifier_name}, room=f"event_{ev.id}")
+    except Exception:
+        pass
+    return jsonify({"ok": True, "record_id": rec.id})
