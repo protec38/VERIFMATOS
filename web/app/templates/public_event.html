@@ -48,10 +48,33 @@
     <div id="tree" class="tree" style="margin-top:10px;"></div>
   </div>
 
+  <style>
+    .ok-flag { font-weight:700; margin-left:6px; }
+    .ok-flag.good { color:#12b886; }
+    .chip { border-radius: 12px; padding: 2px 8px; font-size: 12px; }
+    .chip.ok { background:#e6fcf5; color:#0ca678; border:1px solid #96f2d7; }
+    .chip.ko { background:#fff5f5; color:#e03131; border:1px solid #ffc9c9; }
+    .who { font-size:12px; color:#6b7280; margin-top:4px; }
+    .node.item-ok > .header { border-left:4px solid #12b886; padding-left:8px; }
+  </style>
+
   <script>
     const TOKEN = "{{ token }}";
-    const SERVER_TREE = {{ (tree or [])|tojson }};  // << sécurisé
-    let TREE = Array.isArray(SERVER_TREE) ? SERVER_TREE : [];
+    const EVENT_ID = {{ event.id }};
+    let TREE = {{ (tree or [])|tojson }};
+    let okCount = 0, totalItems = 0;
+
+    // Socket public (optionnel)
+    let socket = null;
+    try {
+      socket = io({transports:["websocket","polling"], timeout: 1500});
+      socket.emit("join_event", {event_id: EVENT_ID});
+      socket.on("event_update", (payload) => {
+        if(payload?.type === "item_verified"){
+          applyVerificationToUI(payload.node_id, payload.status, payload.by || payload.verifier_name || "");
+        }
+      });
+    } catch (e) { console.warn("Socket.IO indisponible:", e); }
 
     function getStoredName(){ try{ return localStorage.getItem("pcprep_name") || ""; }catch(e){ return ""; } }
     function setStoredName(v){ try{ localStorage.setItem("pcprep_name", v || ""); }catch(e){} }
@@ -68,35 +91,60 @@
       return e;
     }
 
-    function renderItemActions(item) {
-      return el("div", {class:"item"},
+    function renderItemHeader(n){
+      const nameEl = el("div", {class:"name"}, n.name);
+      const chip = n.last_status
+        ? el("span", {class: "chip " + (n.last_status==="OK" ? "ok" : "ko")}, n.last_status==="OK" ? "OK" : "Non conforme")
+        : el("span", {class:"chip"}, "À vérifier");
+      return el("div", {class:"header"}, nameEl, el("span", {class:"qty"}, `Qté: ${n.quantity ?? "—"}`), chip);
+    }
+    function renderItem(n){
+      const header = renderItemHeader(n);
+      const who = el("div", {class:"who", id:`who-${n.id}`},
+        n.last_by ? `Validé par : ${n.last_by}` : ""
+      );
+      const actions = el("div", {class:"item"},
         el("div", {class:"subtitle"}, "Vérification"),
         el("div", {class:"row", style:"gap:6px;"},
-          el("button", {class:"btn", onclick: () => verifyItem(item.id, "OK")}, "OK"),
-          el("button", {class:"btn ghost", onclick: () => verifyItem(item.id, "NOT_OK")}, "Non conforme")
+          el("button", {class:"btn", onclick: () => verifyItem(n.id, "OK")}, "OK"),
+          el("button", {class:"btn ghost", onclick: () => verifyItem(n.id, "NOT_OK")}, "Non conforme"),
         )
       );
+      const node = el("div", {class:"node", id:`node-${n.id}`}, header, el("div",{class:"childs"}, who, actions));
+      if(n.last_status === "OK"){ node.classList.add("item-ok"); }
+      return node;
     }
 
-    function renderNode(node){
-      const isGroup = node.type === "GROUP";
-      const header = el("div", {class:"header"},
-        el("div", {class:"name"}, node.name),
-        isGroup ? el("span", {class:"badge"}, "Conteneur") : el("span", {class:"qty"}, `Qté: ${node.quantity ?? "—"}`)
-      );
+    function renderGroupHeader(n){
+      const nameEl = el("div", {class:"name"}, n.name);
+      const tick = el("span", {class:"ok-flag" + (n.complete ? " good" : ""), id:`tick-${n.id}`}, n.complete ? "✓" : "");
+      return el("div", {class:"header"}, nameEl, tick);
+    }
+    function renderGroup(n){
+      const header = renderGroupHeader(n);
       const childrenWrap = el("div", {class:"childs"});
-      (node.children || []).forEach(ch => childrenWrap.appendChild(renderNode(ch)));
-      if(!isGroup){ childrenWrap.appendChild(renderItemActions(node)); }
-      return el("div", {class:"node", id:`node-${node.id}`}, header, childrenWrap);
+      (n.children || []).forEach(ch => childrenWrap.appendChild(renderNode(ch)));
+      return el("div", {class:"node", id:`node-${n.id}`}, header, childrenWrap);
     }
+    function renderNode(n){ return n.type==="GROUP" ? renderGroup(n) : renderItem(n); }
 
-    function flattenItems(nodes) {
+    function flattenItems(nodes){
       const out = [];
-      (function rec(n){
-        if(n.type === "ITEM") out.push(n.id);
-        (n.children || []).forEach(rec);
-      })({children:nodes});
+      (function rec(list){
+        list.forEach(n => { if(n.type==="ITEM") out.push(n); if(n.children?.length) rec(n.children); });
+      })(nodes);
       return out;
+    }
+    function computeInitialProgress(){
+      const items = flattenItems(TREE);
+      totalItems = items.length;
+      okCount = items.filter(i => i.last_status === "OK").length;
+      updateProgress(okCount, totalItems);
+    }
+    function updateProgress(ok, total){
+      const pct = total ? Math.round((ok/total)*100) : 0;
+      document.getElementById("progress-bar").style.width = pct + "%";
+      document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
     }
 
     function buildUI(){
@@ -108,21 +156,10 @@
         return;
       }
       TREE.forEach(root => treeEl.appendChild(renderNode(root)));
-      const total = flattenItems(TREE).length;
-      updateProgress(0,total);
+      computeInitialProgress();
     }
 
-    let okCount = 0, totalItems = 0;
-    function updateProgress(ok, total){
-      okCount = ok; totalItems = total;
-      const pct = total ? Math.round((ok/total)*100) : 0;
-      document.getElementById("progress-bar").style.width = pct + "%";
-      document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
-    }
-
-    function getCurrentName(){
-      return (document.getElementById("name-inline").value || "").trim();
-    }
+    function getCurrentName(){ return (document.getElementById("name-inline").value || "").trim(); }
 
     async function verifyItem(nodeId, status){
       const name = getCurrentName();
@@ -132,40 +169,93 @@
         headers:{"Content-Type":"application/json"},
         body: JSON.stringify({node_id: nodeId, status, verifier_name: name})
       });
-      if(!r.ok){
-        alert(await r.text().catch(()=> "Erreur"));
-        return;
+      if(!r.ok){ alert(await r.text().catch(()=> "Erreur")); return; }
+      applyVerificationToUI(nodeId, status, name);
+    }
+
+    function findNodeInTree(id){
+      let found=null;
+      (function rec(list){
+        for(const n of list){
+          if(n.id===id){ found=n; return; }
+          if(n.children?.length){ rec(n.children); if(found) return; }
+        }
+      })(TREE);
+      return found;
+    }
+    function parentMap(){
+      const map = new Map();
+      (function rec(list, parent){
+        for(const n of list){
+          map.set(n.id, parent || null);
+          if(n.children?.length) rec(n.children, n);
+        }
+      })(TREE, null);
+      return map;
+    }
+    const PARENT_MAP = parentMap();
+
+    function aggregate(node){
+      let ok=0, total=0;
+      (function rec(n){
+        if(n.type==="ITEM"){ total++; if(n.last_status==="OK") ok++; }
+        (n.children||[]).forEach(rec);
+      })(node);
+      return {ok, total};
+    }
+
+    function updateParentTicksFrom(nodeId){
+      let curId = nodeId;
+      while(PARENT_MAP.has(curId)){
+        const parent = PARENT_MAP.get(curId);
+        if(!parent) break;
+        const agg = aggregate(parent);
+        parent.ok_count = agg.ok;
+        parent.total_items = agg.total;
+        parent.complete = (agg.total>0 && agg.ok===agg.total);
+        const tick = document.getElementById(`tick-${parent.id}`);
+        if(tick){ tick.textContent = parent.complete ? "✓" : ""; tick.classList.toggle("good", !!parent.complete); }
+        curId = parent.id;
       }
-      if(status==="OK"){
-        okCount = Math.min(totalItems, okCount+1);
-        updateProgress(okCount, totalItems);
-      }
+    }
+
+    function applyVerificationToUI(nodeId, status, by){
+      const item = findNodeInTree(nodeId);
+      if(!item) return;
+      const prevOK = item.last_status === "OK";
+      item.last_status = status;
+      item.last_by = by || item.last_by || "";
       const node = document.getElementById(`node-${nodeId}`);
-      if(node){ node.style.outline = status==="OK" ? "2px solid #12b886" : "2px solid #ff6b6b"; }
+      if(node){
+        const header = node.querySelector(".header");
+        let chip = header?.querySelector(".chip");
+        if(!chip){ chip = el("span",{class:"chip"},""); header.appendChild(chip); }
+        chip.className = "chip " + (status==="OK" ? "ok" : "ko");
+        chip.textContent = status==="OK" ? "OK" : "Non conforme";
+        const who = node.querySelector(`#who-${nodeId}`);
+        if(who){ who.textContent = by ? `Validé par : ${by}` : ""; }
+        if(status==="OK") node.classList.add("item-ok"); else node.classList.remove("item-ok");
+      }
+      if(status==="OK" && !prevOK){ okCount = Math.min(totalItems, okCount+1); }
+      if(status==="NOT_OK" && prevOK){ okCount = Math.max(0, okCount-1); }
+      updateProgress(okCount, totalItems);
+      updateParentTicksFrom(nodeId);
     }
 
     async function init(){
-      try{
-        if(!Array.isArray(TREE) || TREE.length===0){
-          const r = await fetch(`/public/event/${TOKEN}/tree`);
-          if(r.ok){ TREE = await r.json(); }
-        }
-      }catch(e){ console.warn("fetch tree public KO", e); }
-
-      const stored = getStoredName();
+      // gating nom
       const intro = document.getElementById("intro-card");
       const treeCard = document.getElementById("tree-card");
       const inputStart = document.getElementById("secu-name");
       const inputInline = document.getElementById("name-inline");
+      const stored = getStoredName();
 
       if(stored){
         inputInline.value = stored;
         intro.style.display = "none";
         treeCard.style.display = "";
         buildUI();
-        totalItems = flattenItems(TREE).length;
-        updateProgress(0,totalItems);
-      }else{
+      } else {
         intro.style.display = "";
         treeCard.style.display = "none";
       }
@@ -178,8 +268,6 @@
         intro.style.display = "none";
         treeCard.style.display = "";
         buildUI();
-        totalItems = flattenItems(TREE).length;
-        updateProgress(0,totalItems);
       };
 
       document.getElementById("btn-change-name").onclick = () => {
