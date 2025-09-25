@@ -1,167 +1,200 @@
-{% extends "base.html" %}
-{% from "base.html" import icon %}
-{% set title = "Événement" %}
-{% block content %}
-  <div class="grid cols-2">
-    <div class="card">
-      <div class="row">
-        <div class="title">{{ event.name }}</div>
-        <span class="badge" id="status-badge">Statut : {{ event.status if event.status is string else event.status.name }}</span>
-      </div>
-      <div class="muted">Date : {{ event.date or "—" }}</div>
-      <div class="row" style="margin-top:10px;">
-        <button class="btn primary" id="btn-share">Générer un lien pour les secouristes</button>
-        <button class="btn" id="btn-close">Clôturer l'événement</button>
-      </div>
-    </div>
-    <div class="card">
-      <div class="title">Progression</div>
-      <div class="progress" style="margin-top:8px;"><div id="progress-bar" style="width:0%"></div></div>
-      <div class="muted" id="progress-text" style="margin-top:6px;">0 / 0 vérifiés</div>
-    </div>
-  </div>
+# app/events/views.py — API JSON pour les événements (AUCUN HTML ici)
+from __future__ import annotations
+import uuid
+from typing import Any, Dict, List
+from flask import Blueprint, jsonify, request, abort
+from flask_login import login_required, current_user
 
-  <div class="card" style="margin-top:12px;">
-    <div class="title">Matériel à vérifier</div>
-    <div id="tree" class="tree" style="margin-top:10px;">
-      <!-- Le backend injecte {{ tree|tojson }} sous forme de liste de racines avec enfants -->
-    </div>
-  </div>
+from .. import db, socketio
+from ..models import (
+    Event,
+    EventStatus,
+    Role,
+    StockNode,
+    NodeType,
+    event_stock,             # Table d'association événement <-> parents racine
+    EventShareLink,          # Table des liens partagés
+    EventNodeStatus,         # Statut par parent (ex: chargé véhicule)
+    VerificationRecord,      # Enregistrements de vérification des items
+)
 
-  <script>
-    const EVENT_ID = {{ event.id }};
-    const TREE = {{ tree|tojson }}; // [{id,name,level,type,quantity,children:[...]}]
+bp = Blueprint("events", __name__)  # enregistré dans create_app() sans prefix pour /events/...
 
-    // Forcer WebSocket pour éviter les problèmes de transport
-    const socket = io({ transports: ['websocket'] });
-    socket.emit("join_event", {event_id: EVENT_ID});
+# -------------------------
+# Helpers permissions
+# -------------------------
+def require_can_manage_event(ev: Event) -> None:
+    """Autorise ADMIN et CHEF tant que l'événement est OPEN."""
+    if not current_user.is_authenticated:
+        abort(401)
+    if current_user.role not in (Role.ADMIN, Role.CHEF):
+        abort(403)
+    if ev.status != EventStatus.OPEN:
+        abort(403)
 
-    function el(tag, attrs={}, ...children){
-      const e = document.createElement(tag);
-      for(const [k,v] of Object.entries(attrs)){
-        if(k==="class") e.className = v;
-        else if(k.startsWith("on") && typeof v==="function") e.addEventListener(k.slice(2), v);
-        else if(k==="html") e.innerHTML = v;
-        else e.setAttribute(k,v);
-      }
-      for(const c of children){ if(c!=null) e.append(c.nodeType?c:document.createTextNode(c)); }
-      return e;
-    }
+def require_can_view_event(ev: Event) -> None:
+    if not current_user.is_authenticated:
+        abort(401)
+    if current_user.role not in (Role.ADMIN, Role.CHEF, Role.VIEWER):
+        abort(403)
 
-    function renderTree(root) {
-      const group = root.type === "GROUP";
-      const nodeEl = el("div", {class:"node", id:"node-"+root.id},
-        el("div", {class:"header"},
-          el("div", {class:"name"}, root.name),
-          group
-            ? el("label", {class:"check"},
-                el("input", {type:"checkbox", id:"charged-"+root.id, onchange: e => setCharged(root.id, e.target.checked)}),
-                el("span", null, "Chargé dans le véhicule")
-              )
-            : el("span", {class:"qty"}, `Qté: ${root.quantity ?? 0}`)
-        ),
-        el("div", {class:"childs"},
-          ...root.children.map(renderTree),
-          ...(!group ? [renderItemActions(root)] : [])
+# -------------------------
+# Utilitaires JSON
+# -------------------------
+def get_json() -> Dict[str, Any]:
+    data = request.get_json(silent=True)
+    if data is None:
+        # Supporte aussi form-urlencoded pour éviter "Unsupported Media Type"
+        data = request.form.to_dict() if request.form else {}
+    return data
+
+# -------------------------
+# Endpoints
+# -------------------------
+
+@bp.get("/events/<int:event_id>/stock-roots")
+@login_required
+def get_event_stock_roots(event_id: int):
+    """Retourne la liste des parents racine associés à l'événement (id + name)."""
+    ev = db.session.get(Event, event_id) or abort(404)
+    require_can_view_event(ev)
+    q = (
+        db.session.query(StockNode)
+        .join(event_stock, event_stock.c.node_id == StockNode.id)
+        .filter(event_stock.c.event_id == event_id)
+        .order_by(StockNode.name.asc())
+    )
+    roots = [{"id": n.id, "name": n.name} for n in q.all()]
+    return jsonify(roots)
+
+@bp.post("/events/<int:event_id>/share-link")
+@login_required
+def create_share_link(event_id: int):
+    """Génère (ou réutilise) un lien public pour les secouristes."""
+    ev = db.session.get(Event, event_id) or abort(404)
+    require_can_manage_event(ev)
+
+    # Réutilise un lien actif s'il existe
+    link = EventShareLink.query.filter_by(event_id=event_id, active=True).first()
+    if not link:
+        token = uuid.uuid4().hex
+        link = EventShareLink(event_id=event_id, token=token, active=True)
+        db.session.add(link)
+        db.session.commit()
+
+    return jsonify({"ok": True, "token": link.token, "url": f"/public/event/{link.token}"}), 201
+
+@bp.patch("/events/<int:event_id>/status")
+@login_required
+def update_event_status(event_id: int):
+    """Change le statut de l'événement (ex: CLOSED)."""
+    ev = db.session.get(Event, event_id) or abort(404)
+    data = get_json()
+    status_str = (data.get("status") or "").upper()
+
+    if status_str == "CLOSED":
+        require_can_manage_event(ev)
+        ev.status = EventStatus.CLOSED
+        db.session.commit()
+        # Notifie via Socket.IO (canal de l'événement)
+        try:
+            socketio.emit("event_update", {"type": "event_closed", "event_id": ev.id}, room=f"event_{ev.id}")
+        except Exception:
+            pass
+        return jsonify({"ok": True, "status": "CLOSED"})
+
+    elif status_str == "OPEN":
+        # Optionnel : autoriser réouverture aux ADMIN uniquement
+        if not current_user.is_authenticated or current_user.role != Role.ADMIN:
+            abort(403)
+        ev.status = EventStatus.OPEN
+        db.session.commit()
+        try:
+            socketio.emit("event_update", {"type": "event_opened", "event_id": ev.id}, room=f"event_{ev.id}")
+        except Exception:
+            pass
+        return jsonify({"ok": True, "status": "OPEN"})
+
+    abort(400, description="Statut invalide")
+
+@bp.post("/events/<int:event_id>/parent-status")
+@login_required
+def update_parent_status(event_id: int):
+    """Marque un parent (sac/ambulance…) comme 'chargé dans le véhicule'."""
+    ev = db.session.get(Event, event_id) or abort(404)
+    require_can_manage_event(ev)
+
+    data = get_json()
+    node_id = int(data.get("node_id") or 0)
+    charged = bool(data.get("charged_vehicle"))
+
+    if not node_id:
+        abort(400, description="node_id manquant")
+
+    ens = (
+        EventNodeStatus.query.filter_by(event_id=event_id, node_id=node_id).first()
+        or EventNodeStatus(event_id=event_id, node_id=node_id)
+    )
+    ens.charged_vehicle = charged
+    db.session.add(ens)
+    db.session.commit()
+
+    try:
+        socketio.emit(
+            "event_update",
+            {"type": "parent_charged", "event_id": ev.id, "node_id": node_id, "charged": charged},
+            room=f"event_{ev.id}",
         )
-      );
-      return nodeEl;
-    }
+    except Exception:
+        pass
 
-    function renderItemActions(item) {
-      const wrap = el("div", {class:"item"},
-        el("div", null, el("span", {class:"muted"}, "Vérification")),
-        el("div", {class:"row"},
-          el("input", {type:"text", placeholder:"Nom & prénom", id:"name-"+item.id}),
-          el("button", {class:"btn", onclick: () => verifyItem(item.id, "OK")}, "OK"),
-          el("button", {class:"btn ghost", onclick: () => verifyItem(item.id, "NOT_OK")}, "Non conforme"),
+    return jsonify({"ok": True, "node_id": node_id, "charged_vehicle": charged})
+
+@bp.post("/events/<int:event_id>/verify")
+@login_required
+def verify_item(event_id: int):
+    """Ajoute un enregistrement de vérification pour un item (OK / NOT_OK)."""
+    ev = db.session.get(Event, event_id) or abort(404)
+    # Autoriser CHEF/ADMIN. Si tu veux autoriser aussi VIEWER, élargis ici.
+    require_can_manage_event(ev)
+
+    data = get_json()
+    node_id = int(data.get("node_id") or 0)
+    status = (data.get("status") or "").upper()  # "OK" | "NOT_OK"
+    verifier_name = (data.get("verifier_name") or "").strip()
+
+    if not node_id or status not in ("OK", "NOT_OK") or not verifier_name:
+        abort(400, description="Paramètres invalides (node_id, status, verifier_name)")
+
+    # On pourrait contrôler ici que node_id correspond bien à un ITEM rattaché à l'événement.
+    rec = VerificationRecord(
+        event_id=event_id,
+        node_id=node_id,
+        status=status,
+        verifier_name=verifier_name,
+    )
+    db.session.add(rec)
+    db.session.commit()
+
+    # Notifie le front pour mettre à jour la progression
+    try:
+        socketio.emit(
+            "event_update",
+            {"type": "item_verified", "event_id": ev.id, "node_id": node_id, "status": status, "by": verifier_name},
+            room=f"event_{ev.id}",
         )
-      );
-      return wrap;
-    }
+    except Exception:
+        pass
 
-    function flattenItems(nodes) {
-      const out = [];
-      (function rec(n){
-        if(n.type==="ITEM") out.push(n.id);
-        (n.children||[]).forEach(rec);
-      })( {children: nodes} );
-      return out;
-    }
+    return jsonify({"ok": True, "record_id": rec.id})
 
-    const totalItems = flattenItems(TREE).length;
-    let okCount = 0;
+# (Optionnel) statistiques brèves
+@bp.get("/events/<int:event_id>/stats")
+@login_required
+def event_stats(event_id: int):
+    ev = db.session.get(Event, event_id) or abort(404)
+    require_can_view_event(ev)
 
-    function setProgress(ok){
-      const pct = totalItems ? Math.min(100, Math.round(ok/totalItems*100)) : 0;
-      document.getElementById("progress-bar").style.width = pct + "%";
-      document.getElementById("progress-text").textContent = `${ok} / ${totalItems} vérifiés`;
-    }
-
-    function recomputeProgressInitial(){
-      // Si tu as un endpoint de stats, remplace par un fetch et renseigne okCount initial.
-      // Ici on part à 0 et on incremente en live via socket.
-      setProgress(okCount);
-    }
-
-    function setCharged(nodeId, checked){
-      fetch(`/events/${EVENT_ID}/parent-status`, {
-        method:"POST", headers:{"Content-Type":"application/json"}, credentials:"include",
-        body: JSON.stringify({node_id: nodeId, charged_vehicle: checked})
-      }).catch(()=>{});
-    }
-
-    function verifyItem(nodeId, status){
-      const name = document.getElementById("name-"+nodeId).value.trim();
-      if(!name){ alert("Merci de renseigner votre nom et prénom"); return; }
-      fetch(`/events/${EVENT_ID}/verify`, {
-        method:"POST", headers:{"Content-Type":"application/json"}, credentials:"include",
-        body: JSON.stringify({node_id: nodeId, status, verifier_name: name})
-      }).then(async r=>{
-        if(!r.ok){ const t = await r.text().catch(()=> ""); alert(t||"Erreur"); }
-      }).catch(()=>{});
-    }
-
-    function buildUI(){
-      const treeEl = document.getElementById("tree");
-      treeEl.innerHTML = "";
-      TREE.forEach(root => treeEl.appendChild(renderTree(root)));
-      recomputeProgressInitial();
-    }
-    buildUI();
-
-    // Live updates depuis le serveur
-    socket.on("event_update", (payload) => {
-      if(payload && payload.type === "item_verified"){
-        okCount = Math.max(0, okCount + 1); // NOTE: simpliste; pour du distinct, tenir un Set de node_ids OK
-        setProgress(okCount);
-      }
-      if(payload && payload.type === "event_closed"){
-        document.getElementById("status-badge").textContent = "Statut : CLOSED";
-      }
-    });
-
-    // Actions haut de page
-    document.getElementById("btn-share").addEventListener("click", () => {
-      fetch(`/events/${EVENT_ID}/share-link`, {method:"POST", credentials:"include"})
-      .then(r=>r.json()).then(res=>{
-        if(res.url){
-          const absolute = res.url.startsWith("http") ? res.url : (location.origin + res.url);
-          navigator.clipboard.writeText(absolute).catch(()=>{});
-          alert("Lien copié : " + absolute);
-        } else {
-          alert("Lien généré.");
-        }
-      }).catch(()=>{});
-    });
-
-    document.getElementById("btn-close").addEventListener("click", () => {
-      fetch(`/events/${EVENT_ID}/status`, {
-        method:"PATCH",
-        headers:{"Content-Type":"application/json"},
-        credentials:"include",
-        body: JSON.stringify({status:"CLOSED"})
-      }).then(()=> location.reload()).catch(()=>{});
-    });
-  </script>
-{% endblock %}
+    total_ok = db.session.query(VerificationRecord).filter_by(event_id=event_id, status="OK").count()
+    total_all = db.session.query(VerificationRecord).filter_by(event_id=event_id).count()
+    return jsonify({"ok": True, "verified_ok": total_ok, "verified_total": total_all})
