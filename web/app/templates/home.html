@@ -2,11 +2,9 @@
 {% set title = "Tableau de bord" %}
 {% block content %}
   <div class="row" style="margin-bottom:10px;">
-    {% if can_manage %}
+    {% if current_user.role.name == 'ADMIN' %}
       <a class="btn" href="{{ url_for('pages.stock_page') }}">🧰 Stock</a>
-      {% if current_user.role.name == 'ADMIN' %}
-        <a class="btn" href="{{ url_for('pages.admin_page') }}">⚙️ Administration</a>
-      {% endif %}
+      <a class="btn" href="{{ url_for('pages.admin_page') }}">⚙️ Administration</a>
     {% endif %}
   </div>
 
@@ -14,18 +12,29 @@
     <div class="card">
       <div class="title">Créer un événement</div>
       {% if can_manage %}
-      <form method="post" class="row" style="margin-top:8px;">
-        <input type="text" name="name" placeholder="Nom de l'événement" required>
-        <input type="date" name="date">
-        <select name="stock_root_id" required>
-          <option value="" disabled selected>Choisir le stock parent…</option>
-          {% for r in roots %}
-            <option value="{{ r.id }}">{{ r.name }}</option>
-          {% endfor %}
-        </select>
-        <button class="btn primary" type="submit">Créer</button>
+      <form method="post" class="row" style="margin-top:8px; display:block;">
+        <div class="row">
+          <input type="text" name="name" placeholder="Nom de l'événement" required>
+          <input type="date" name="date">
+        </div>
+        <div style="margin-top:10px;">
+          <div class="muted" style="margin-bottom:6px;">Sélectionnez un ou plusieurs <strong>stocks parents</strong> à vérifier :</div>
+          <div class="listbox">
+            {% for r in roots %}
+              <label>
+                <input type="checkbox" name="root_ids" value="{{ r.id }}">
+                {{ r.name }}
+              </label>
+            {% else %}
+              <div class="muted">Aucun stock parent — créez-en d'abord dans l’onglet <em>Stock</em> (réservé aux admins).</div>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <button class="btn primary" type="submit">Créer</button>
+        </div>
       </form>
-      <div class="muted" style="margin-top:6px;">Le stock sélectionné sera associé à cet événement (arbre de vérification).</div>
+      <div class="muted" style="margin-top:6px;">Les parents cochés définiront le matériel à vérifier pour cet événement.</div>
       {% else %}
       <div class="muted">Lecture seule — création désactivée.</div>
       {% endif %}
@@ -33,9 +42,9 @@
     <div class="card">
       <div class="title">Aide rapide</div>
       <ul class="muted">
-        <li>Utilisez <strong>Stock</strong> pour créer/éditer vos sacs, ambulances, etc.</li>
-        <li>Lors de la création d’un événement, choisissez le <em>stock parent</em> à vérifier.</li>
-        <li>Sur la page événement : lien de partage secouristes + statut “chargé véhicule”.</li>
+        <li>Les pages <strong>Stock</strong> et <strong>Administration</strong> sont réservées aux admins.</li>
+        <li>Les <strong>chefs de poste</strong> peuvent créer des événements et suivre la vérification.</li>
+        <li>Lors de la création, cochez tous les <em>parents</em> à vérifier (sacs, ambulances, chaises, etc.).</li>
       </ul>
     </div>
   </div>
