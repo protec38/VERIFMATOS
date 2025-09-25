@@ -1,41 +1,40 @@
-# app/tree_query.py — construit l'arbre 'tree' pour un événement ou un noeud
+# app/tree_query.py
 from __future__ import annotations
-from typing import Dict, List, Any
+from typing import Dict, List
 from . import db
 from .models import StockNode, NodeType, event_stock
 
-def _node_to_dict(n: StockNode) -> Dict[str, Any]:
-    t = n.type.name if hasattr(n.type, "name") else str(n.type)
-    return {
-        "id": n.id,
-        "name": n.name,
-        "level": n.level,
-        "type": t,
-        "quantity": n.quantity or 0,
+MAX_DEPTH = 5  # jusqu’à 5 sous-niveaux comme demandé
+
+def _serialize_node(node: StockNode, depth: int = 0) -> Dict:
+    """Sérialise un nœud et ses enfants récursivement, avec limite de profondeur."""
+    data: Dict = {
+        "id": node.id,
+        "name": node.name,
+        "type": node.type.name if hasattr(node.type, "name") else str(node.type),
+        "level": node.level,
+        "quantity": node.quantity if getattr(node, "quantity", None) is not None else None,
         "children": [],
     }
+    if depth >= MAX_DEPTH:
+        return data
 
-def _children_for(node_id: int) -> List[StockNode]:
-    return (
+    # On récupère les enfants, tri : GROUP avant ITEM, puis par nom
+    children = (
         StockNode.query
-        .filter(StockNode.parent_id == node_id)
+        .filter(StockNode.parent_id == node.id)
         .order_by(StockNode.type.desc(), StockNode.name.asc())
         .all()
     )
+    for ch in children:
+        data["children"].append(_serialize_node(ch, depth + 1))
+    return data
 
-def _build_subtree(root: StockNode) -> Dict[str, Any]:
-    d = _node_to_dict(root)
-    stack = [(root.id, d)]
-    while stack:
-        nid, dict_ref = stack.pop()
-        childs = _children_for(nid)
-        for c in childs:
-            cd = _node_to_dict(c)
-            dict_ref["children"].append(cd)
-            stack.append((c.id, cd))
-    return d
-
-def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
+def build_event_tree(event_id: int) -> List[Dict]:
+    """Construit l'arbre complet pour un événement :
+    - Récupère les parents racine associés via event_stock
+    - Sérialise chaque sous-arbre
+    """
     roots = (
         db.session.query(StockNode)
         .join(event_stock, event_stock.c.node_id == StockNode.id)
@@ -43,7 +42,7 @@ def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
         .order_by(StockNode.name.asc())
         .all()
     )
-    tree: List[Dict[str, Any]] = []
+    out: List[Dict] = []
     for r in roots:
-        tree.append(_build_subtree(r))
-    return tree
+        out.append(_serialize_node(r, depth=0))
+    return out
