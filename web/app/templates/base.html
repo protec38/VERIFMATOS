@@ -5,7 +5,7 @@
   <title>{{ title or "Protection Civile — Préparation Matériel" }}</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
 
-  <!-- CSS INLINE -->
+  <!-- CSS INLINE (thème Protection Civile) -->
   <style>
   :root{
     --pc-blue: #0E3D66;
@@ -101,18 +101,19 @@
 <body>
   <header class="appbar">
     <div class="left">
-      <!-- Si tu as un logo, mets-le en /static/logo_pc.png ; sinon tu peux supprimer l'img -->
       <img src="/static/logo_pc.png" alt="Protection Civile" class="logo" onerror="this.style.display='none'">
       <span class="brand">Protection Civile</span>
       <span class="brand-sub">Préparation Matériel</span>
     </div>
     <nav class="right">
       <a class="btn" href="/dashboard">🏠 Menu</a>
-      {% if current_user.is_authenticated and current_user.role.name == 'ADMIN' %}
+      {# ---- GUARDS : ne plante jamais si current_user n'est pas injecté ---- #}
+      {% set _cu = current_user if current_user is defined else None %}
+      {% if _cu and _cu.is_authenticated and _cu.role and _cu.role.name == 'ADMIN' %}
         <a class="btn" href="/manage">🧰 Stock</a>
         <a class="btn" href="/admin">🔧 Administration</a>
       {% endif %}
-      {% if current_user.is_authenticated %}
+      {% if _cu and _cu.is_authenticated %}
         <a class="btn ghost" href="/logout">⇦ Déconnexion</a>
       {% endif %}
     </nav>
@@ -123,12 +124,14 @@
   </main>
 
   <footer class="footer muted">
-    © {{ now().year }} Protection Civile — Interface de préparation (DPS)
+    {% set _now = now() if now is defined else None %}
+    © {{ (_now.year if _now else '—') }} Protection Civile — Interface de préparation (DPS)
   </footer>
 
   <!-- Socket.IO (si dispo côté serveur) -->
   <script src="/socket.io/socket.io.js"></script>
 
+  {# Place le macro ici (aucune variable utilisée pour éviter les erreurs au moment des imports) #}
   {% macro icon(name) -%}
     <span class="ico">{{ name }}</span>
   {%- endmacro %}
