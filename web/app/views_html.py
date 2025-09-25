@@ -1,7 +1,7 @@
 # app/views_html.py — Pages HTML (Jinja): Stock/Admin; création d’événement multi-parents; page événement avec TREE injecté
 from __future__ import annotations
 from datetime import datetime
-from flask import Blueprint, render_template, render_template_string, request, redirect, url_for, abort, flash
+from flask import Blueprint, render_template, render_template_string, request, redirect, url_for, abort, current_app
 from flask_login import login_required, current_user, logout_user
 from . import db
 from .models import (
@@ -12,7 +12,6 @@ from .models import (
     StockNode,
     NodeType,
     event_stock,
-    # Ajout pour l'admin UI :
     User,
 )
 from .tree_query import build_event_tree
@@ -29,7 +28,6 @@ def can_view() -> bool:
     return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF, Role.VIEWER)
 
 def can_manage_event() -> bool:
-    # Création/gestion d’événements autorisée pour ADMIN et CHEF
     return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF)
 
 # -------------------------
@@ -60,7 +58,7 @@ def logout():
 @bp.route("/dashboard", methods=["GET", "POST"])
 @login_required
 def dashboard():
-    # Création d’un événement (via formulaire HTML du tableau de bord)
+    # Création via formulaire HTML (pas le JSON)
     if request.method == "POST":
         if not can_manage_event():
             abort(403)
@@ -68,7 +66,6 @@ def dashboard():
         name = (request.form.get("name") or "").strip()
         date_str = (request.form.get("date") or "").strip()
 
-        # Multi-sélection de parents racine
         root_ids = request.form.getlist("root_ids")
         try:
             root_ids = [int(r) for r in root_ids if r and str(r).isdigit()]
@@ -93,9 +90,8 @@ def dashboard():
             created_by_id=current_user.id,
         )
         db.session.add(ev)
-        db.session.flush()  # pour récupérer ev.id
+        db.session.flush()  # pour ev.id
 
-        # Associer tous les parents sélectionnés (uniquement GROUP de niveau 0)
         added = 0
         for rid in sorted(set(root_ids)):
             root = db.session.get(StockNode, rid)
@@ -103,6 +99,9 @@ def dashboard():
                 continue
             db.session.execute(event_stock.insert().values(event_id=ev.id, node_id=root.id))
             added += 1
+
+        current_app.logger.info("[DASH CREATE] ev_id=%s name=%s roots=%s added=%s",
+                                ev.id, ev.name, root_ids, added)
 
         if not added:
             db.session.rollback()
@@ -116,7 +115,6 @@ def dashboard():
         abort(403)
 
     events = Event.query.order_by(Event.created_at.desc()).all()
-    # Parents racine disponibles (GROUP, level 0) pour la création
     roots = (
         StockNode.query
         .filter(StockNode.level == 0, StockNode.type == NodeType.GROUP)
@@ -136,8 +134,8 @@ def event_page(event_id: int):
     ev = db.session.get(Event, event_id)
     if not ev:
         abort(404)
-    # Construit l’arbre complet rattaché à l’événement (parents associés + enfants…)
     tree = build_event_tree(event_id)
+    current_app.logger.info("[EVENT PAGE] ev_id=%s tree_roots=%s", ev.id, len(tree))
     return render_template("event.html", event=ev, tree=tree)
 
 # -------------------------
@@ -160,7 +158,6 @@ def public_event_page(token: str):
 def stock_page():
     if not is_admin():
         abort(403)
-    # Ta page stock validée s’appelle manage.html (onglet stock)
     return render_template("manage.html", active_tab="stock")
 
 # -------------------------
@@ -172,10 +169,8 @@ def admin_page():
     if not is_admin():
         abort(403)
 
-    # Petites actions inline pour dépanner : création, reset MDP, activer/désactiver, suppression.
     if request.method == "POST":
         action = request.form.get("action") or ""
-        # Créer un utilisateur
         if action == "create_user":
             username = (request.form.get("username") or "").strip()
             password = (request.form.get("password") or "").strip()
@@ -189,18 +184,15 @@ def admin_page():
             if User.query.filter_by(username=username).first():
                 abort(400, description="Nom d’utilisateur déjà pris")
             u = User(username=username, role=role, is_active=True)
-            # dépend d’une méthode set_password() dans ton modèle User
             try:
                 u.set_password(password)
             except Exception:
-                # fallback si pas de méthode utilitaire
                 from werkzeug.security import generate_password_hash
                 u.password_hash = generate_password_hash(password)
             db.session.add(u)
             db.session.commit()
             return redirect(url_for("pages.admin_page"))
 
-        # Réinitialiser le mot de passe
         if action == "reset_password":
             user_id = request.form.get("user_id")
             new_pwd = (request.form.get("new_password") or "").strip()
@@ -209,8 +201,6 @@ def admin_page():
             u = db.session.get(User, int(user_id))
             if not u:
                 abort(404)
-            if u.id == current_user.id and len(new_pwd) < 1:
-                abort(400, description="Mot de passe invalide")
             try:
                 u.set_password(new_pwd)
             except Exception:
@@ -219,7 +209,6 @@ def admin_page():
             db.session.commit()
             return redirect(url_for("pages.admin_page"))
 
-        # Activer / désactiver
         if action == "toggle_active":
             user_id = request.form.get("user_id")
             if not user_id:
@@ -233,7 +222,6 @@ def admin_page():
             db.session.commit()
             return redirect(url_for("pages.admin_page"))
 
-        # Supprimer
         if action == "delete_user":
             user_id = request.form.get("user_id")
             if not user_id:
@@ -249,6 +237,5 @@ def admin_page():
 
         abort(400, description="Action inconnue")
 
-    # GET : liste utilisateurs pour l’UI
     users = User.query.order_by(User.username.asc()).all()
     return render_template("admin.html", users=users, Role=Role)
