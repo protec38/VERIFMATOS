@@ -33,7 +33,8 @@
     }
     header.nav img.logo { height: 28px; width:auto; object-fit: contain; }
     header.nav .brand { font-weight:700; letter-spacing:.3px; }
-    header.nav .pill { margin-left:auto; background: #0f1a2e; border:1px solid var(--line); border-radius:20px; padding:6px 10px; font-size:12px; color:var(--muted); }
+    header.nav .spacer { flex: 1 1 auto; }
+    .nav-actions { display:flex; align-items:center; gap:8px; }
     .grid { display:grid; gap: 12px; }
     .grid.cols-2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
     @media (max-width: 900px){ .grid.cols-2 { grid-template-columns: 1fr; } }
@@ -67,6 +68,8 @@
     .pill-ok { color:#16f09b; }
     .pill-ko { color:#ff7a7a; }
     footer { padding:30px 16px; color:var(--muted); font-size:12px; text-align:center;}
+    .listbox { display:grid; gap:6px; max-height:220px; overflow:auto; border:1px solid var(--line); border-radius:10px; padding:8px; background:#0f1a2e;}
+    .listbox label { display:flex; align-items:center; gap:8px; }
   </style>
 
   <!-- Socket.IO client v4 (compatible Flask-SocketIO 5.x) -->
@@ -85,9 +88,14 @@
   <header class="nav">
     <img class="logo" src="/static/pc_logo.webp" alt="Protection Civile">
     <div class="brand">Préparation Matériel</div>
-    {% if current_user is defined and current_user.is_authenticated %}
-      <div class="pill">Connecté : <strong>{{ current_user.username }}</strong></div>
-    {% endif %}
+    <div class="spacer"></div>
+    <div class="nav-actions">
+      <a class="btn ghost" href="/dashboard">🏠 Menu</a>
+      {% if current_user is defined and current_user.is_authenticated %}
+        <a class="btn ghost" href="/logout">⇦ Déconnexion</a>
+        <span class="muted">({{ current_user.username }})</span>
+      {% endif %}
+    </div>
   </header>
   <div class="container">
     {% block content %}{% endblock %}
