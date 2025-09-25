@@ -1,11 +1,10 @@
-# app/__init__.py — FINAL DEFINITIF (fallback Redis + user_loader)
+# app/__init__.py — FINAL (fallback Redis + user_loader + Jinja globals)
 from __future__ import annotations
 from datetime import datetime
 from flask import Flask, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager
-from flask_login import current_user as login_current_user
 from flask_socketio import SocketIO
 from .config import get_config
 
@@ -26,7 +25,7 @@ def create_app() -> Flask:
     login_manager.init_app(app)
     login_manager.login_view = "pages.login"
 
-    # --- Flask-Login: user_loader obligatoire ---
+    # Flask-Login: user_loader obligatoire
     @login_manager.user_loader
     def load_user(user_id: str):
         try:
@@ -52,10 +51,12 @@ def create_app() -> Flask:
         socketio.init_app(app)
         app.logger.info("SocketIO: démarrage sans message queue (REDIS_URL vide).")
 
-    
+    # Jinja globals — injecte 'now' et 'current_user' partout
+    from flask_login import current_user as login_current_user
+
     @app.context_processor
     def inject_globals():
-    # 'now' pour les templates + 'current_user' directement dispo dans Jinja
+        # 'now' est une fonction: utilisez {{ now().year }} dans les templates
         return {"now": datetime.utcnow, "current_user": login_current_user}
 
     # Blueprints API
@@ -93,7 +94,7 @@ def create_app() -> Flask:
     from .sockets import register_socketio_handlers
     register_socketio_handlers(socketio)
 
-    # CLI (seed templates)
+    # CLI (seed templates) — optionnel
     try:
         from .seeds_templates import register_cli as register_seed_cli
         register_seed_cli(app)
