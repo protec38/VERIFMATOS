@@ -1,24 +1,25 @@
-# syntax=docker/dockerfile:1
+# Dockerfile — uses entrypoint to wait for DB, migrate & seed automatically
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Installer les dépendances
-COPY requirements.txt /app/requirements.txt
+# Install requirements first for better layer caching
+COPY web/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Copier le code (ajouté dans les prochains lots)
-COPY . /app/
+# Copy application
+COPY web /app
+
+# Add entrypoint
+RUN chmod +x /app/entrypoint.sh
 
 EXPOSE 8000
+ENV GUNICORN_WORKERS=1 \
+    GUNICORN_BIND=0.0.0.0:8000 \
+    GUNICORN_APP=wsgi:app \
+    DB_WAIT_TIMEOUT=90
 
-# WSGI + websockets (eventlet)
-CMD ["gunicorn", "--worker-class", "eventlet", "-w", "1", "-b", "0.0.0.0:8000", "wsgi:app"]
+ENTRYPOINT ["/app/entrypoint.sh"]
