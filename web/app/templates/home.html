@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% set title = "Tableau de bord" %}
+{% block content %}
+  <div class="grid cols-2">
+    <div class="card">
+      <div class="title">Créer un événement</div>
+      {% if can_manage %}
+      <form method="post" class="row" style="margin-top:8px;">
+        <input type="text" name="name" placeholder="Nom de l'événement" required>
+        <input type="date" name="date">
+        <button class="btn primary" type="submit">Créer</button>
+      </form>
+      {% else %}
+      <div class="muted">Lecture seule — création désactivée.</div>
+      {% endif %}
+    </div>
+    <div class="card">
+      <div class="title">Aide rapide</div>
+      <ul class="muted">
+        <li>Ouvrez un événement pour voir la vérification en direct.</li>
+        <li>Depuis la page événement : générez un lien pour les secouristes.</li>
+        <li>Clôturez l’événement pour verrouiller les modifications.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:12px;">
+    <div class="title">Événements</div>
+    <div style="margin-top:8px; display:grid; gap:8px;">
+      {% for e in events %}
+        <div class="item">
+          <div>
+            <div style="font-weight:600">{{ e.name }}</div>
+            <div class="muted">Date: {{ e.date or "—" }} • Statut: {{ e.status.name }}</div>
+          </div>
+          <div class="row">
+            <a class="btn" href="{{ url_for('pages.event_page', event_id=e.id) }}">Ouvrir</a>
+            <a class="btn ghost" href="{{ url_for('reports.export_csv', event_id=e.id) }}">CSV</a>
+            <a class="btn ghost" href="{{ url_for('reports.export_pdf', event_id=e.id) }}">PDF</a>
+          </div>
+        </div>
+      {% else %}
+        <div class="muted">Aucun événement pour l’instant.</div>
+      {% endfor %}
+    </div>
+  </div>
+{% endblock %}

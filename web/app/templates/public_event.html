@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% from "base.html" import icon %}
+{% set title = "Vérification (Public)" %}
+{% block content %}
+  <div class="card">
+    <div class="row">
+      <div class="title">{{ event.name }}</div>
+      <span class="badge">Date : {{ event.date or "—" }}</span>
+      <span class="badge" id="status-badge">Statut : {{ event.status }}</span>
+    </div>
+    <div class="muted">Merci d'entrer votre nom & prénom avant de cocher les éléments.</div>
+  </div>
+
+  <div class="card">
+    <div id="tree" class="tree"></div>
+  </div>
+
+  <script>
+    const TOKEN = "{{ token }}";
+    const EVENT_ID = {{ event.id }};
+    const TREE = {{ tree|tojson }};
+    const socket = io();
+    socket.emit("join_event", {token: TOKEN});
+
+    function el(tag, attrs={}, ...children){
+      const e = document.createElement(tag);
+      for(const [k,v] of Object.entries(attrs)){
+        if(k==="class") e.className = v;
+        else if(k.startsWith("on") && typeof v==="function") e.addEventListener(k.slice(2), v);
+        else if(k==="html") e.innerHTML = v;
+        else e.setAttribute(k,v);
+      }
+      for(const c of children){ if(c!=null) e.append(c.nodeType?c:document.createTextNode(c)); }
+      return e;
+    }
+
+    function renderTree(root){
+      const group = root.type === "GROUP";
+      const nodeEl = el("div", {class:"node", id:"node-"+root.id},
+        el("div", {class:"header"},
+          el("div", {class:"name"}, root.name),
+          group ? el("span", {class:"badge"}, "Parent") : el("span", {class:"qty"}, `Qté: ${root.quantity}`)
+        ),
+        el("div", {class:"childs"},
+          ...root.children.map(renderTree),
+          ...(!group ? [renderItemActions(root)] : [])
+        )
+      );
+      return nodeEl;
+    }
+
+    function renderItemActions(item){
+      const wrap = el("div", {class:"item"},
+        el("input", {type:"text", placeholder:"Nom & prénom", id:"name-"+item.id}),
+        el("div", {class:"row"},
+          el("label", {class:"check"},
+            el("input", {type:"checkbox", onchange: e => verifyItem(item.id, e.target.checked ? "OK" : "NOT_OK")}),
+            el("span", null, "Vérifié")
+          )
+        )
+      );
+      return wrap;
+    }
+
+    function verifyItem(nodeId, status){
+      const name = document.getElementById("name-"+nodeId).value.trim();
+      if(!name){ alert("Merci de renseigner votre nom et prénom"); return; }
+      fetch(`/public/${TOKEN}/verify`, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({node_id: nodeId, status, verifier_name: name})
+      }).then(r=>r.json()).then(res=>{
+        if(!res.ok){ alert(res.error||"Erreur"); }
+      });
+    }
+
+    function buildUI(){
+      const t = document.getElementById("tree");
+      t.innerHTML = "";
+      TREE.forEach(root => t.appendChild(renderTree(root)));
+    }
+    buildUI();
+
+    socket.on("event_update", (payload) => {
+      // On peut montrer de petites notifications ou rafraîchir des compteurs si ajoutés plus tard
+      // Ici, on reste léger.
+    });
+  </script>
+{% endblock %}

@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% from "base.html" import icon %}
+{% set title = "Événement" %}
+{% block content %}
+  <div class="grid cols-2">
+    <div class="card">
+      <div class="row">
+        <div class="title">{{ event.name }}</div>
+        <span class="badge" id="status-badge">Statut : {{ event.status }}</span>
+      </div>
+      <div class="muted">Date : {{ event.date or "—" }}</div>
+      <div class="row" style="margin-top:10px;">
+        <button class="btn primary" id="btn-share">Générer un lien pour les secouristes</button>
+        <button class="btn" id="btn-close">Clôturer l'événement</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="title">Progression</div>
+      <div class="progress" style="margin-top:8px;"><div id="progress-bar" style="width:0%"></div></div>
+      <div class="muted" id="progress-text" style="margin-top:6px;">0 / 0 vérifiés</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:12px;">
+    <div class="title">Matériel à vérifier</div>
+    <div id="tree" class="tree" style="margin-top:10px;">
+      <!-- Le backend injectera {{ tree|tojson }}. On reconstruit ci-dessous -->
+    </div>
+  </div>
+
+  <script>
+    const EVENT_ID = {{ event.id }};
+    const TREE = {{ tree|tojson }}; // [{id,name,level,type,quantity,children:[...]}]
+    const socket = io();
+    socket.emit("join_event", {event_id: EVENT_ID});
+
+    function el(tag, attrs={}, ...children){
+      const e = document.createElement(tag);
+      for(const [k,v] of Object.entries(attrs)){
+        if(k==="class") e.className = v;
+        else if(k.startsWith("on") && typeof v==="function") e.addEventListener(k.slice(2), v);
+        else if(k==="html") e.innerHTML = v;
+        else e.setAttribute(k,v);
+      }
+      for(const c of children){ if(c!=null) e.append(c.nodeType?c:document.createTextNode(c)); }
+      return e;
+    }
+
+    function renderTree(root) {
+      const group = root.type === "GROUP";
+      const nodeEl = el("div", {class:"node", id:"node-"+root.id},
+        el("div", {class:"header"},
+          el("div", {class:"name"}, root.name),
+          group
+            ? el("label", {class:"check"},
+                el("input", {type:"checkbox", id:"charged-"+root.id, onchange: e => setCharged(root.id, e.target.checked)}),
+                el("span", null, "Chargé dans le véhicule")
+              )
+            : el("span", {class:"qty"}, `Qté: ${root.quantity}`)
+        ),
+        el("div", {class:"childs"},
+          ...root.children.map(renderTree),
+          ...(!group ? [renderItemActions(root)] : [])
+        )
+      );
+      return nodeEl;
+    }
+
+    function renderItemActions(item) {
+      const wrap = el("div", {class:"item"},
+        el("div", null, el("span", {class:"muted"}, "Vérification")),
+        el("div", {class:"row"},
+          el("input", {type:"text", placeholder:"Nom & prénom", id:"name-"+item.id}),
+          el("button", {class:"btn", onclick: () => verifyItem(item.id, "OK")}, "OK"),
+          el("button", {class:"btn ghost", onclick: () => verifyItem(item.id, "NOT_OK")}, "Non conforme"),
+        )
+      );
+      return wrap;
+    }
+
+    function flattenItems(nodes) {
+      const out = [];
+      (function rec(n){
+        if(n.type==="ITEM") out.push(n.id);
+        (n.children||[]).forEach(rec);
+      })(nodes);
+      return out;
+    }
+
+    function recomputeProgress() {
+      fetch(`/events/${EVENT_ID}/stock-roots`, {credentials:"include"})
+        .then(r=>r.json())
+        .then(roots => {
+          // on compte via records live: demander nombre total d'items + endpoint de stats à venir
+          const totalItems = flattenItems(TREE).length;
+          // on ne connaît pas "ok count" ici, en attendant on met 0 et les updates Socket alimenteront côté client
+          document.getElementById("progress-bar").style.width = `${0}%`;
+          document.getElementById("progress-text").textContent = `0 / ${totalItems} vérifiés`;
+        });
+    }
+
+    function setCharged(nodeId, checked){
+      fetch(`/events/${EVENT_ID}/parent-status`, {
+        method:"POST", headers:{"Content-Type":"application/json"}, credentials:"include",
+        body: JSON.stringify({node_id: nodeId, charged_vehicle: checked})
+      });
+    }
+
+    function verifyItem(nodeId, status){
+      const name = document.getElementById("name-"+nodeId).value.trim();
+      if(!name){ alert("Merci de renseigner votre nom et prénom"); return; }
+      fetch(`/events/${EVENT_ID}/verify`, {
+        method:"POST", headers:{"Content-Type":"application/json"}, credentials:"include",
+        body: JSON.stringify({node_id: nodeId, status, verifier_name: name})
+      }).then(r=>r.json()).then(res=>{
+        if(!res.ok){ alert(res.error||"Erreur"); }
+      });
+    }
+
+    function buildUI(){
+      const treeEl = document.getElementById("tree");
+      treeEl.innerHTML = "";
+      TREE.forEach(root => treeEl.appendChild(renderTree(root)));
+      recomputeProgress();
+    }
+    buildUI();
+
+    // Live updates
+    let okCount = 0;
+    const totalItems = (function getTotal(n){ let c=0; function rec(x){ if(x.type==="ITEM") c++; (x.children||[]).forEach(rec);} TREE.forEach(rec); return c; })();
+    socket.on("event_update", (payload) => {
+      if(payload.type==="item_verified"){
+        okCount++; // simpliste, on comptera distincts plus tard
+        const pct = Math.min(100, Math.round(okCount/totalItems*100));
+        document.getElementById("progress-bar").style.width = pct+"%";
+        document.getElementById("progress-text").textContent = okCount+" / "+totalItems+" vérifiés";
+      }
+    });
+
+    // Actions haut de page
+    document.getElementById("btn-share").addEventListener("click", () => {
+      fetch(`/events/${EVENT_ID}/share-link`, {method:"POST", credentials:"include"})
+      .then(r=>r.json()).then(res=>{
+        if(res.url){
+          const absolute = location.origin + res.url;
+          navigator.clipboard.writeText(absolute);
+          alert("Lien copié : " + absolute);
+        }
+      });
+    });
+    document.getElementById("btn-close").addEventListener("click", () => {
+      fetch(`/events/${EVENT_ID}/status`, {method:"PATCH", headers:{"Content-Type":"application/json"}, credentials:"include", body: JSON.stringify({status:"CLOSED"})})
+      .then(()=> location.reload());
+    });
+  </script>
+{% endblock %}

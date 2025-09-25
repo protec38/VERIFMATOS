@@ -1,0 +1,36 @@
+version: "3.9"
+services:
+  web:
+    build: ./web
+    container_name: pcprep_web
+    depends_on:
+      - db
+      - redis
+    environment:
+      FLASK_ENV: production
+      SECRET_KEY: ${SECRET_KEY:-change-me}
+      DATABASE_URL: postgresql+psycopg2://pcprep:pcprep@db:5432/pcprep
+      REDIS_URL: redis://redis:6379/0
+      # Pour la génération de PDF plus tard si besoin (wkhtmltopdf via service séparé si nécessaire)
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    container_name: pcprep_db
+    environment:
+      POSTGRES_DB: pcprep
+      POSTGRES_USER: pcprep
+      POSTGRES_PASSWORD: pcprep
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: pcprep_redis
+    restart: unless-stopped
+
+volumes:
+  pgdata:

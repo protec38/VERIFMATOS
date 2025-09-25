@@ -1,0 +1,96 @@
+{% macro icon(name, cls="w-5 h-5") -%}
+  {% if name == "check" %}
+    <svg xmlns="http://www.w3.org/2000/svg" class="{{cls}}" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+  {% elif name == "x" %}
+    <svg xmlns="http://www.w3.org/2000/svg" class="{{cls}}" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+  {% elif name == "truck" %}
+    <svg xmlns="http://www.w3.org/2000/svg" class="{{cls}}" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 7h10v10H3z"/><path d="M13 10h4l4 3v4h-8z"/><circle cx="7.5" cy="17.5" r="1.5"/><circle cx="17.5" cy="17.5" r="1.5"/></svg>
+  {% endif %}
+{%- endmacro %}
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title or "Prépa Matériel" }}</title>
+  <meta name="theme-color" content="#003E6B">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/static/pc_logo.webp">
+  <style>
+    :root {
+      --pc-blue:#003E6B; --pc-orange:#F39200; --bg:#0f172a; --panel:#111827; --muted:#6b7280; --ok:#16a34a; --ko:#dc2626;
+      --card:#0b1220; --line:#1f2937; --white:#f9fafb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial;
+      background: linear-gradient(180deg, #0b1220 0%, #0a0f1b 100%); color: var(--white);
+    }
+    .container { max-width: 1200px; margin: 0 auto; padding: 16px; }
+    header.nav {
+      display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid var(--line);
+      position: sticky; top:0; background: rgba(11,18,32,0.9); backdrop-filter: blur(6px); z-index:20;
+    }
+    header.nav img.logo { height: 28px; width:auto; object-fit: contain; }
+    header.nav .brand { font-weight:700; letter-spacing:.3px; }
+    header.nav .pill { margin-left:auto; background: #0f1a2e; border:1px solid var(--line); border-radius:20px; padding:6px 10px; font-size:12px; color:var(--muted); }
+    .grid { display:grid; gap: 12px; }
+    .grid.cols-2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    @media (max-width: 900px){ .grid.cols-2 { grid-template-columns: 1fr; } }
+    .card {
+      background: radial-gradient(120% 120% at 100% 0%, rgba(243,146,0,0.06) 0%, transparent 60%), var(--card);
+      border:1px solid var(--line); border-radius:16px; padding:14px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.3);
+    }
+    .btn { display:inline-flex; align-items:center; gap:8px; padding:10px 14px; border-radius:12px;
+      border:1px solid var(--line); color:var(--white); background:#0d182a; cursor:pointer; text-decoration:none; }
+    .btn.primary { background: linear-gradient(90deg, var(--pc-orange), #ffb24a); color:#111; border-color:transparent; font-weight:700; }
+    .btn.ghost { background: transparent; }
+    .btn:disabled { opacity:.6; cursor:not-allowed; }
+    .title { font-size: 20px; font-weight: 700; letter-spacing:.2px; }
+    .muted { color: var(--muted); font-size:13px;}
+    .row { display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+    .progress { height:10px; background:#0f1a2e; border:1px solid var(--line); border-radius:999px; overflow:hidden; }
+    .progress > div { height:100%; background: linear-gradient(90deg, #22c55e, #16a34a); width:0%; transition: width .3s; }
+    .tree { display:flex; flex-direction:column; gap:8px; }
+    .node { border:1px dashed #1e293b; border-radius:12px; padding:8px; }
+    .node .header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .node .header .name { font-weight:600; }
+    .badge { display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:10px; font-size:12px; border:1px solid var(--line); color:var(--muted); }
+    .badge.ok { color:#16f09b; border-color:#16f09b22; }
+    .badge.ko { color:#ff5b5b; border-color:#ff5b5b22; }
+    .childs { margin-left: 14px; display:flex; flex-direction:column; gap:8px; }
+    .item { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px; border:1px solid var(--line); border-radius:10px; }
+    .item .qty { font-size:12px; color:var(--muted); }
+    .check { display:flex; align-items:center; gap:8px; }
+    .check input[type="checkbox"] { width:18px; height:18px; }
+    .pill-ok { color:#16f09b; }
+    .pill-ko { color:#ff7a7a; }
+    footer { padding:30px 16px; color:var(--muted); font-size:12px; text-align:center;}
+  </style>
+  <script defer src="/socket.io/socket.io.js"></script>
+  <script>
+    // Register Service Worker for PWA offline support
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      });
+    }
+  </script>
+</head>
+<body>
+  <header class="nav">
+    <img class="logo" src="/static/pc_logo.webp" alt="Protection Civile">
+    <div class="brand">Préparation Matériel</div>
+    {% if current_user.is_authenticated %}
+      <div class="pill">Connecté : <strong>{{ current_user.username }}</strong></div>
+    {% endif %}
+  </header>
+  <div class="container">
+    {% block content %}{% endblock %}
+  </div>
+  <footer>
+    © {{ now().year }} Protection Civile — Interface de préparation (DPS)
+  </footer>
+</body>
+</html>
