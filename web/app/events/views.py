@@ -16,6 +16,7 @@ from ..models import (
     EventShareLink,          # Table des liens partagés
     EventNodeStatus,         # Statut par parent (ex: chargé véhicule)
     VerificationRecord,      # Enregistrements de vérification des items
+    ItemStatus,
 )
 
 bp = Blueprint("events", __name__)  # enregistré dans create_app() sans prefix pour /events/...
@@ -163,12 +164,13 @@ def verify_item(event_id: int):
 
     data = get_json()
     node_id = int(data.get("node_id") or 0)
-    status = (data.get("status") or "").upper()  # "OK" | "NOT_OK"
+    status_raw = (data.get("status") or "").upper()  # "OK" | "NOT_OK"
     verifier_name = (data.get("verifier_name") or "").strip()
 
-    if not node_id or status not in ("OK", "NOT_OK") or not verifier_name:
+    if not node_id or status_raw not in ("OK", "NOT_OK") or not verifier_name:
         abort(400, description="Paramètres invalides (node_id, status, verifier_name)")
 
+    status = ItemStatus.OK if status_raw == "OK" else ItemStatus.NOT_OK
     rec = VerificationRecord(
         event_id=event_id,
         node_id=node_id,
