@@ -16,16 +16,8 @@
     </div>
 
     <div class="card">
-      <div class="title">Accès rapides</div>
-      {% set _cu = current_user if current_user is defined else None %}
-      {% if _cu and _cu.role.name == 'ADMIN' %}
-        <div class="row wrap" style="gap:8px; margin-top:8px;">
-          <a class="btn" href="/manage">🧰 Stock</a>
-          <a class="btn" href="/admin">🔧 Administration</a>
-        </div>
-      {% else %}
-        <div class="alert">Le Stock et l’Administration sont réservés aux administrateurs.</div>
-      {% endif %}
+      <div class="title">Informations</div>
+      <div class="subtitle">Après création, ouvre l’événement pour générer le lien secouristes et suivre la progression.</div>
     </div>
   </div>
 
@@ -72,14 +64,17 @@
       if(ct.includes('application/json')) return r.json();
       return r.text();
     }
+
     async function loadParents(){
       try{
         const roots = await api('/stock/roots');
         const host = document.getElementById('parents');
         host.innerHTML = '';
         roots.forEach(r => {
-          const label = document.createElement('label'); label.className='chip';
-          const inp = document.createElement('input'); inp.type='checkbox'; inp.value=String(r.id); inp.style.marginRight='6px';
+          const label = document.createElement('label'); label.className='badge';
+          label.style.display='inline-flex'; label.style.alignItems='center'; label.style.gap='6px';
+          const inp = document.createElement('input'); inp.type='checkbox'; inp.value=String(r.id);
+          inp.style.width='18px'; inp.style.height='18px';
           const span = document.createElement('span'); span.textContent = r.name;
           label.append(inp, span);
           host.append(label);
@@ -89,9 +84,10 @@
         }
       }catch(e){
         document.getElementById('parents').innerHTML =
-          '<div class="alert danger">Impossible de charger les racines (réservé admin ?)</div>';
+          '<div class="alert">Impossible de charger les racines (droits insuffisants ?)</div>';
       }
     }
+
     async function createEvent(){
       const name = (document.getElementById('ev-name').value || '').trim();
       const date = document.getElementById('ev-date').value || '';
@@ -99,6 +95,7 @@
       const parent_ids = Array.from(
         document.querySelectorAll('#parents input[type=checkbox]:checked')
       ).map(i=>parseInt(i.value,10));
+      if(parent_ids.length===0){ alert("Sélectionne au moins un stock parent."); return; }
       const res = await api('/events', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
@@ -106,6 +103,7 @@
       });
       if(res?.id){ location.href = '/events/' + res.id; }
     }
+
     document.getElementById('btn-create').onclick = ()=>createEvent().catch(e=>alert(e.message||e));
     loadParents();
 
