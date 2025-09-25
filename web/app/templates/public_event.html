@@ -3,19 +3,18 @@
 {% block content %}
   <div class="grid cols-2">
     <div class="card">
-      <div class="row">
+      <div class="row wrap">
         <div class="title">{{ event.name }}</div>
         <span class="badge">Statut : {{ event.status if event.status is string else event.status.name }}</span>
       </div>
       <div class="muted">Date : {{ event.date or "—" }}</div>
       <div class="row" style="margin-top:10px;">
-        <input id="who" placeholder="Nom & prénom" style="max-width:260px;">
-        <span class="muted">Obligatoire pour valider</span>
+        <input id="who" placeholder="Nom & prénom (obligatoire)" style="max-width:260px;">
       </div>
     </div>
     <div class="card">
       <div class="title">Consignes</div>
-      <div class="muted">Coche chaque élément vérifié. Plusieurs secouristes peuvent travailler en parallèle.</div>
+      <div class="subtitle">Valide chaque élément. Plusieurs secouristes peuvent travailler en parallèle.</div>
     </div>
   </div>
 
@@ -25,6 +24,7 @@
   </div>
 
   <script>
+    // Client Socket.IO v4 (déjà chargé dans base.html). Ici on n'utilise que l'API HTTP publique.
     const TOKEN = "{{ token }}";
     let WHO = "";
 
@@ -75,18 +75,18 @@
     async function verifyItem(nodeId, status){
       if(!WHO){ alert("Merci de renseigner votre nom & prénom."); return; }
       const r = await fetch(`/public/event/${TOKEN}/verify`, {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({node_id: nodeId, status, verifier_name: WHO})
+        method:"POST", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ node_id: nodeId, status, verifier_name: WHO })
       });
       if(!r.ok){ const t = await r.text(); alert(t||"Erreur"); return; }
-      // feedback visuel
       const n = document.getElementById("node-"+nodeId);
       if(n){ n.style.outline = "2px solid rgba(0,200,0,.5)"; setTimeout(()=> n.style.outline="", 800); }
     }
 
     document.getElementById("who").addEventListener("input", (e) => {
       WHO = e.target.value.trim();
-      loadTree(); // active/désactive les boutons
+      // rafraîchit pour activer/désactiver les boutons
+      loadTree();
     });
 
     loadTree();
