@@ -13,7 +13,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       # Pour la génération de PDF plus tard si besoin (wkhtmltopdf via service séparé si nécessaire)
     ports:
-      - "8000:8000"
+      - "7000:8000"
     restart: unless-stopped
 
   db:
