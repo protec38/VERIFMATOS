@@ -27,8 +27,25 @@ if [ ! -d "/app/migrations" ]; then
 fi
 flask --app wsgi db upgrade
 
-echo "==> Seeding admin (idempotent)..."
-flask --app wsgi seed-admin || true
+echo "==> Seeding admin (idempotent, inline Python)..."
+python - <<'PY'
+import os
+from app import create_app, db
+from app.models import User, Role
+app = create_app()
+with app.app_context():
+    username = os.environ.get("ADMIN_USERNAME","admin")
+    password = os.environ.get("ADMIN_PASSWORD","admin")
+    u = User.query.filter_by(username=username).first()
+    if not u:
+        u = User(username=username, role=Role.ADMIN, is_active=True)
+        u.set_password(password)
+        db.session.add(u)
+        db.session.commit()
+        print(f"Admin created: {username}/{password}")
+    else:
+        print(f"Admin already exists: {username}")
+PY
 
 echo "==> Starting Gunicorn..."
 exec gunicorn -k eventlet -w ${GUNICORN_WORKERS:-1} -b ${GUNICORN_BIND:-0.0.0.0:8000} ${GUNICORN_APP:-wsgi:app}
