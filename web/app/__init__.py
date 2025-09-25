@@ -1,4 +1,4 @@
-# app/__init__.py — Socket.IO SANS Redis (message_queue=None)
+# app/__init__.py — Socket.IO SANS Redis + user_loader Flask-Login
 from __future__ import annotations
 from datetime import datetime
 from flask import Flask, redirect, url_for
@@ -12,7 +12,7 @@ from .config import get_config
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
-# >>> IMPORTANT : pas de message_queue = Redis ici
+# Pas de message_queue (pas de Redis)
 socketio = SocketIO(async_mode="eventlet", cors_allowed_origins="*")
 
 def create_app() -> Flask:
@@ -25,8 +25,18 @@ def create_app() -> Flask:
     login_manager.init_app(app)
     login_manager.login_view = "pages.login"
 
-    # Import models pour migrations
+    # Import models pour migrations / user_loader
     from . import models  # noqa: F401
+    from .models import User  # pour le loader
+
+    # ---- Flask-Login: user_loader OBLIGATOIRE ----
+    @login_manager.user_loader
+    def load_user(user_id: str):
+      try:
+          # Flask 3.x / SQLAlchemy 2.x : db.session.get(Model, pk)
+          return db.session.get(User, int(user_id))
+      except Exception:
+          return None
 
     # Socket.IO : SANS Redis (inter-process MQ désactivée)
     socketio.init_app(app, message_queue=None)
