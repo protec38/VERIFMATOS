@@ -31,7 +31,10 @@
   </div>
 
   <div class="card" style="margin-top:12px;">
-    <div class="title">Événements récents</div>
+    <div class="row" style="justify-content:space-between;">
+      <div class="title">Événements récents</div>
+      <div class="muted">Clique “Export PDF” pour générer un récap.</div>
+    </div>
     {% if events %}
       <table class="table">
         <thead>
@@ -65,10 +68,7 @@
   <script>
     async function api(url, opts={}){
       const r = await fetch(url, {credentials:'include', ...opts});
-      if(!r.ok){
-        let t=''; try{t=await r.text();}catch(e){}
-        throw new Error(t||('HTTP '+r.status));
-      }
+      if(!r.ok){ let t=''; try{t=await r.text();}catch(e){}; throw new Error(t||('HTTP '+r.status)); }
       const ct = r.headers.get('Content-Type') || '';
       if(ct.includes('application/json')) return r.json();
       return r.text();
