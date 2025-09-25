@@ -1,4 +1,4 @@
-# app/views_html.py — Pages HTML (Jinja): Admin-only Stock/Admin; création d’événement avec sélection MULTI-parents + affichage des parents sur la page événement
+# app/views_html.py — Pages HTML (Jinja): Admin-only Stock/Admin; création d’événement multi-parents; page événement avec TREE injecté
 from __future__ import annotations
 from datetime import datetime
 from flask import Blueprint, render_template, render_template_string, request, redirect, url_for, abort
@@ -13,6 +13,7 @@ from .models import (
     NodeType,
     event_stock,
 )
+from .tree_query import build_event_tree
 
 bp = Blueprint("pages", __name__)
 
@@ -108,15 +109,9 @@ def event_page(event_id: int):
     ev = db.session.get(Event, event_id)
     if not ev:
         abort(404)
-    # Récupère les parents associés à l'événement pour "Matériel à vérifier"
-    roots = (
-        db.session.query(StockNode)
-        .join(event_stock, event_stock.c.node_id == StockNode.id)
-        .filter(event_stock.c.event_id == event_id)
-        .order_by(StockNode.name.asc())
-        .all()
-    )
-    return render_template("event.html", event=ev, roots=roots)
+    # Construit l’arbre complet lié à l’événement (inclut les parents associés, leurs enfants, etc.)
+    tree = build_event_tree(event_id)  # <- IMPORTANT: injecté au template
+    return render_template("event.html", event=ev, tree=tree)
 
 # -------- Page publique (secouristes via lien partagé) --------
 @bp.get("/public/event/<token>")
@@ -125,14 +120,8 @@ def public_event_page(token: str):
     if not link or not link.event:
         abort(404)
     ev = link.event
-    roots = (
-        db.session.query(StockNode)
-        .join(event_stock, event_stock.c.node_id == StockNode.id)
-        .filter(event_stock.c.event_id == ev.id)
-        .order_by(StockNode.name.asc())
-        .all()
-    )
-    return render_template("public_event.html", event=ev, roots=roots, token=token)
+    tree = build_event_tree(ev.id)
+    return render_template("public_event.html", event=ev, tree=tree, token=token)
 
 # -------- Gestion Stock (UI) — ADMIN ONLY --------
 @bp.get("/stock")
