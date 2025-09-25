@@ -12,13 +12,11 @@ from .config import get_config
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
-# Crée l’instance SocketIO sans MQ, on décidera au runtime si on active Redis
+# Instance SocketIO sans MQ; on activera Redis si dispo
 socketio = SocketIO(async_mode="eventlet", cors_allowed_origins="*")
 
 def create_app() -> Flask:
     app = Flask(__name__, instance_relative_config=False)
-
-    # Config
     app.config.from_object(get_config())
 
     # Init extensions
@@ -27,30 +25,24 @@ def create_app() -> Flask:
     login_manager.init_app(app)
     login_manager.login_view = "pages.login"
 
-    # Import models to make migrations aware
+    # Import models pour Alembic
     from . import models  # noqa: F401
 
-    # Socket.IO — tente d'activer Redis MQ seulement si possible
+    # Activer Redis MQ seulement si possible
     redis_url = app.config.get("REDIS_URL")
     if redis_url:
         try:
-            import redis  # Vérifie la présence du client Python
+            import redis  # vérifie la présence du client Python
             socketio.init_app(app, message_queue=redis_url)
             app.logger.info("SocketIO: Redis MQ activé (%s).", redis_url)
         except Exception as e:
-            # Fallback: pas de MQ, évite le crash "Redis package is not installed"
-            socketio.init_app(app)
+            socketio.init_app(app)  # fallback sans MQ
             app.logger.warning("SocketIO: Redis MQ indisponible (%s). Démarrage sans MQ.", e)
     else:
         socketio.init_app(app)
         app.logger.info("SocketIO: démarrage sans message queue (REDIS_URL vide).")
 
-    # Jinja globals
-    @app.context_processor
-    def inject_now():
-        return {"now": datetime.utcnow}
-
-    # Register API blueprints
+    # Blueprints API
     from .auth.views import bp as auth_api_bp
     app.register_blueprint(auth_api_bp)
     from .admin.views import bp as admin_api_bp
@@ -68,7 +60,7 @@ def create_app() -> Flask:
     from .pwa.views import bp as pwa_bp
     app.register_blueprint(pwa_bp)
 
-    # Pages (HTML)
+    # Pages HTML
     from .views_html import bp as pages_bp
     app.register_blueprint(pages_bp)
 
@@ -90,7 +82,6 @@ def create_app() -> Flask:
         from .seeds_templates import register_cli as register_seed_cli
         register_seed_cli(app)
     except Exception:
-        # optional; ignore if not present
         pass
 
     return app
