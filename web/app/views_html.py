@@ -1,28 +1,35 @@
-# app/views_html.py — Pages HTML (Jinja): Admin-only Stock/Admin; event creation with MULTI parent selection
+# app/views_html.py — Pages HTML (Jinja): Admin-only Stock/Admin; création d’événement avec sélection MULTI-parents + affichage des parents sur la page événement
 from __future__ import annotations
 from datetime import datetime
-from flask import Blueprint, render_template, render_template_string, request, redirect, url_for, abort, flash
+from flask import Blueprint, render_template, render_template_string, request, redirect, url_for, abort
 from flask_login import login_required, current_user, logout_user
 from . import db
-from .models import Event, EventStatus, Role, EventShareLink, StockNode, NodeType, event_stock
-from .tree_query import build_event_tree
+from .models import (
+    Event,
+    EventStatus,
+    Role,
+    EventShareLink,
+    StockNode,
+    NodeType,
+    event_stock,
+)
 
 bp = Blueprint("pages", __name__)
 
-def is_admin():
+def is_admin() -> bool:
     return current_user.is_authenticated and current_user.role == Role.ADMIN
 
-def can_view():
+def can_view() -> bool:
     return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF, Role.VIEWER)
 
-def can_manage_event():
-    # Création d'événement autorisée pour ADMIN et CHEF (conforme au besoin initial)
+def can_manage_event() -> bool:
+    # Création d'événements autorisée pour ADMIN et CHEF
     return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF)
 
 # -------- Auth HTML --------
 @bp.route("/login", methods=["GET"])
 def login():
-    # Le formulaire POST /login est géré par app/auth/views.py
+    # Le POST /login est géré par app/auth/views.py (JSON ou form)
     return render_template_string(
         '{% extends "base.html" %}{% block content %}'
         '<div class="card"><div class="title">Connexion</div>'
@@ -48,10 +55,12 @@ def dashboard():
             abort(403)
         name = (request.form.get("name") or "").strip()
         date_str = (request.form.get("date") or "").strip()
+        # Multi-sélection de parents
         root_ids = request.form.getlist("root_ids")
         root_ids = [int(r) for r in root_ids if r and r.isdigit()]
         if not name or not root_ids:
             abort(400)
+
         date = None
         if date_str:
             try:
@@ -63,12 +72,12 @@ def dashboard():
         db.session.add(ev)
         db.session.flush()
 
-        # Associer tous les parents sélectionnés
+        # Associer tous les parents sélectionnés (parents racine uniquement)
         added = 0
         for rid in sorted(set(root_ids)):
             root = db.session.get(StockNode, rid)
             if not root or root.type != NodeType.GROUP or root.level != 0:
-                continue  # ignore invalid entries
+                continue  # ignore si non valide
             db.session.execute(event_stock.insert().values(event_id=ev.id, node_id=root.id))
             added += 1
         if not added:
@@ -79,12 +88,18 @@ def dashboard():
 
     if not can_view():
         abort(403)
+
     events = Event.query.order_by(Event.created_at.desc()).all()
-    # Récupère les stocks racines (parents niveau 0)
-    roots = StockNode.query.filter(StockNode.level == 0, StockNode.type == NodeType.GROUP).order_by(StockNode.name.asc()).all()
+    # Parents racine disponibles pour l’association
+    roots = (
+        StockNode.query
+        .filter(StockNode.level == 0, StockNode.type == NodeType.GROUP)
+        .order_by(StockNode.name.asc())
+        .all()
+    )
     return render_template("home.html", events=events, can_manage=can_manage_event(), roots=roots)
 
-# -------- Pages Événement / Public --------
+# -------- Page Événement --------
 @bp.get("/events/<int:event_id>")
 @login_required
 def event_page(event_id: int):
@@ -93,17 +108,31 @@ def event_page(event_id: int):
     ev = db.session.get(Event, event_id)
     if not ev:
         abort(404)
-    tree = build_event_tree(event_id)
-    return render_template("event.html", event=ev, tree=tree)
+    # Récupère les parents associés à l'événement pour "Matériel à vérifier"
+    roots = (
+        db.session.query(StockNode)
+        .join(event_stock, event_stock.c.node_id == StockNode.id)
+        .filter(event_stock.c.event_id == event_id)
+        .order_by(StockNode.name.asc())
+        .all()
+    )
+    return render_template("event.html", event=ev, roots=roots)
 
+# -------- Page publique (secouristes via lien partagé) --------
 @bp.get("/public/event/<token>")
 def public_event_page(token: str):
     link = EventShareLink.query.filter_by(token=token, active=True).first()
     if not link or not link.event:
         abort(404)
     ev = link.event
-    tree = build_event_tree(ev.id)
-    return render_template("public_event.html", event=ev, tree=tree, token=token)
+    roots = (
+        db.session.query(StockNode)
+        .join(event_stock, event_stock.c.node_id == StockNode.id)
+        .filter(event_stock.c.event_id == ev.id)
+        .order_by(StockNode.name.asc())
+        .all()
+    )
+    return render_template("public_event.html", event=ev, roots=roots, token=token)
 
 # -------- Gestion Stock (UI) — ADMIN ONLY --------
 @bp.get("/stock")
