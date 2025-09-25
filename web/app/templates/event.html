@@ -3,171 +3,214 @@
 {% block content %}
   <div class="grid cols-2">
     <div class="card">
-      <div class="row wrap">
-        <div class="title">{{ event.name }}</div>
+      <div class="row space-between">
+        <div>
+          <div class="title">{{ event.name }}</div>
+          <div class="subtitle">Date : {{ event.date or "—" }}</div>
+        </div>
         <span class="badge" id="status-badge">Statut : {{ event.status if event.status is string else event.status.name }}</span>
       </div>
-      <div class="muted">Date : {{ event.date or "—" }}</div>
 
       <div class="row wrap" style="margin-top:10px;">
-        <a class="btn" href="/dashboard">← Menu principal</a>
-        <a class="btn ghost" href="/logout">Déconnexion</a>
-        <a class="btn primary" id="btn-share">Générer un lien secouristes</a>
-        <a class="btn" id="btn-close">Clôturer l'événement</a>
+        <a class="btn" href="{{ url_for('pages.dashboard') }}">← Menu principal</a>
+        <a class="btn ghost" href="{{ url_for('pages.logout') }}">Déconnexion</a>
+        <button class="btn primary" id="btn-share">Générer un lien secouristes</button>
+        <button class="btn" id="btn-close">Clôturer l'événement</button>
       </div>
     </div>
 
     <div class="card">
       <div class="title">Progression</div>
       <div class="progress" style="margin-top:8px;"><div id="progress-bar" style="width:0%"></div></div>
-      <div class="muted" id="progress-text" style="margin-top:6px;">0 / 0 vérifiés</div>
+      <div class="subtitle" id="progress-text" style="margin-top:6px;">0 / 0 vérifiés</div>
     </div>
   </div>
 
   <div class="card" style="margin-top:12px;">
-    <div class="row space-between wrap">
+    <div class="row space-between">
       <div class="title">Matériel à vérifier</div>
-      <div class="row wrap">
-        <label class="muted">Nom & prénom (pour enregistrer) :</label>
-        <input id="who" placeholder="Nom & prénom" style="max-width:260px;">
+      <div class="row" style="gap:8px;">
+        <div class="subtitle">Nom & prénom (pour enregistrer) :</div>
+        <input id="global-name" placeholder="Nom & prénom" style="min-width:220px;">
       </div>
     </div>
     <div id="tree" class="tree" style="margin-top:10px;"></div>
   </div>
 
   <script>
-    // Client Socket.IO v4 (chargé depuis base.html)
-    const socket = io({ transports: ['websocket','polling'], upgrade: true, path: '/socket.io/' });
-
+    // ===== Données serveur =====
     const EVENT_ID = {{ event.id }};
-    socket.emit("join_event", {event_id: EVENT_ID});
+    const SERVER_TREE = {{ tree|tojson }};
+    let TREE = Array.isArray(SERVER_TREE) ? SERVER_TREE : [];
 
-    let WHO = "";
-
+    // ===== Utilitaires DOM =====
     function el(tag, attrs={}, ...children){
       const e = document.createElement(tag);
-      for(const [k,v] of Object.entries(attrs)){
+      for(const [k,v] of Object.entries(attrs||{})){
         if(k==="class") e.className = v;
-        else if(k.startsWith("on") && typeof v==="function") e.addEventListener(k.slice(2), v);
         else if(k==="html") e.innerHTML = v;
-        else e.setAttribute(k,v);
+        else if(k.startsWith("on") && typeof v==="function") e.addEventListener(k.slice(2), v);
+        else e.setAttribute(k, v);
       }
-      for(const c of children){ if(c!=null) e.append(c.nodeType?c:document.createTextNode(c)); }
+      for(const c of children){ e.append(c?.nodeType ? c : document.createTextNode(String(c))); }
       return e;
     }
 
+    // ===== Socket (optionnel) : ne bloque jamais l’affichage =====
+    let socket = null;
+    try {
+      socket = io({transports:["websocket","polling"], timeout: 1500});
+      socket.emit("join_event", {event_id: EVENT_ID});
+    } catch (e) {
+      console.warn("Socket.IO désactivé côté client :", e);
+    }
+
+    // ===== Rendu de l'arbre =====
     function renderItemActions(item) {
-      const disabled = !WHO;
       return el("div", {class:"item"},
-        el("div", null, el("span", {class:"muted"}, "Vérification")),
-        el("div", {class:"row"},
-          el("button", {class:"btn", disabled, onclick: () => verifyItem(item.id, "OK")}, "OK"),
-          el("button", {class:"btn ghost", disabled, onclick: () => verifyItem(item.id, "NOT_OK")}, "Non conforme"),
+        el("div", {class:"subtitle"}, "Vérification"),
+        el("div", {class:"row", style:"gap:6px;"},
+          el("button", {class:"btn", onclick: () => verifyItem(item.id, "OK")}, "OK"),
+          el("button", {class:"btn ghost", onclick: () => verifyItem(item.id, "NOT_OK")}, "Non conforme"),
         )
       );
     }
 
-    function renderTreeNode(root) {
-      const group = root.type === "GROUP";
-      const headRight = group
-        ? el("label", {class:"check"},
-            el("input", {type:"checkbox", id:"charged-"+root.id, onchange: e => setCharged(root.id, e.target.checked)}),
-            el("span", null, "Chargé dans le véhicule")
-          )
-        : el("span", {class:"qty"}, `Qté: ${root.quantity ?? 0}`);
-
-      return el("div", {class:"node", id:"node-"+root.id},
-        el("div", {class:"header"},
-          el("div", {class:"name"}, root.name),
-          headRight
-        ),
-        el("div", {class:"childs"},
-          ...(root.children || []).map(renderTreeNode),
-          ...(!group ? [renderItemActions(root)] : [])
-        )
+    function renderNode(node){
+      const isGroup = node.type === "GROUP";
+      const header = el("div", {class:"header"},
+        el("div", {class:"name"}, node.name),
+        isGroup
+          ? el("label", {class:"row", style:"gap:6px;"},
+              el("input", {type:"checkbox", id:`charged-${node.id}`, onchange: e => setCharged(node.id, e.target.checked)}),
+              el("span", {class:"subtitle"}, "Chargé dans le véhicule"))
+          : el("span", {class:"qty"}, `Qté: ${node.quantity ?? "—"}`)
       );
+
+      const childrenWrap = el("div", {class:"childs"});
+      (node.children || []).forEach(ch => childrenWrap.appendChild(renderNode(ch)));
+
+      // Pour les ITEM on affiche les boutons "OK/Non conforme"
+      if(!isGroup){
+        childrenWrap.appendChild(renderItemActions(node));
+      }
+
+      return el("div", {class:"node", id:`node-${node.id}`}, header, childrenWrap);
     }
 
-    function countItems(nodes){ let c=0; (function rec(n){ if(n.type==="ITEM") c++; (n.children||[]).forEach(rec); })(nodes); return c; }
-    function refreshProgress(tree){
-      const total = (tree||[]).reduce((acc,r)=>acc+countItems(r),0);
-      window.__TOTAL_ITEMS = total;
-      fetch(`/events/${EVENT_ID}/stats`, {credentials:"include"})
-        .then(r=>r.json()).then(s=>{
-          const ok = s.verified_ok || 0;
-          const pct = total ? Math.round(ok/total*100) : 0;
-          document.getElementById("progress-bar").style.width = pct+"%";
-          document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
-        }).catch(()=>{});
+    function flattenItems(nodes) {
+      const out = [];
+      (function rec(n){
+        if(n.type === "ITEM") out.push(n.id);
+        (n.children || []).forEach(rec);
+      })( {children: nodes} );
+      return out;
     }
 
-    async function loadTree(){
-      const r = await fetch(`/events/${EVENT_ID}/tree`, {credentials:"include"});
-      const TREE = await r.json();
-      const host = document.getElementById("tree");
-      host.innerHTML = "";
-      (TREE||[]).forEach(x => host.appendChild(renderTreeNode(x)));
-      refreshProgress(TREE||[]);
+    function buildUI(){
+      const treeEl = document.getElementById("tree");
+      treeEl.innerHTML = "";
+      if(!Array.isArray(TREE) || TREE.length === 0){
+        treeEl.append(el("div",{class:"alert"}, "Aucun stock parent associé à cet événement."));
+        updateProgress(0,0);
+        return;
+      }
+      TREE.forEach(root => treeEl.appendChild(renderNode(root)));
+      const total = flattenItems(TREE).length;
+      updateProgress(0, total);
     }
 
-    function setCharged(nodeId, checked){
-      fetch(`/events/${EVENT_ID}/parent-status`, {
-        method:"POST",
+    // ===== Progression =====
+    let okCount = 0;
+    let totalItems = 0;
+
+    function updateProgress(ok, total){
+      okCount = ok; totalItems = total;
+      const pct = total ? Math.round((ok/total)*100) : 0;
+      document.getElementById("progress-bar").style.width = pct + "%";
+      document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
+    }
+
+    // Si on reçoit des updates live
+    if (socket){
+      socket.on("event_update", (payload) => {
+        if(payload?.type === "item_verified"){
+          okCount = Math.min(totalItems, okCount + 1);
+          updateProgress(okCount, totalItems);
+        }
+      });
+    }
+
+    // ===== Actions serveur =====
+    function getGlobalName(){
+      return (document.getElementById("global-name").value || "").trim();
+    }
+
+    async function verifyItem(nodeId, status){
+      const name = getGlobalName();
+      if(!name){ alert("Merci de renseigner votre nom & prénom."); return; }
+      const r = await fetch(`/events/${EVENT_ID}/verify`, {
+        method:"POST", credentials:"include",
         headers:{"Content-Type":"application/json"},
-        credentials:"include",
+        body: JSON.stringify({node_id: nodeId, status, verifier_name: name})
+      });
+      if(!r.ok){
+        alert(await r.text());
+        return;
+      }
+      // Update immédiat
+      okCount = Math.min(totalItems, okCount + (status === "OK" ? 1 : 0));
+      updateProgress(okCount, totalItems);
+      // feedback visuel
+      const node = document.getElementById(`node-${nodeId}`);
+      if(node){ node.style.outline = status === "OK" ? "2px solid #12b886" : "2px solid #ff6b6b"; }
+    }
+
+    async function setCharged(nodeId, checked){
+      await fetch(`/events/${EVENT_ID}/parent-status`, {
+        method:"POST", credentials:"include",
+        headers:{"Content-Type":"application/json"},
         body: JSON.stringify({node_id: nodeId, charged_vehicle: checked})
       });
     }
 
-    function verifyItem(nodeId, status){
-      if(!WHO){ alert("Merci de renseigner votre nom & prénom"); return; }
-      fetch(`/events/${EVENT_ID}/verify`, {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        credentials:"include",
-        body: JSON.stringify({node_id: nodeId, status, verifier_name: WHO})
-      }).then(async r=>{
-        if(!r.ok){ alert(await r.text()); return; }
-      });
-    }
-
-    socket.on("event_update", (p) => {
-      if(p?.type === "item_verified" && typeof window.__TOTAL_ITEMS === "number"){
-        const text = document.getElementById("progress-text").textContent;
-        const m = text.match(/(\d+)\s*\/\s*(\d+)/);
-        let ok = 0, total = window.__TOTAL_ITEMS;
-        if(m){ ok = parseInt(m[1],10); total = parseInt(m[2],10); }
-        ok = Math.min(total, ok+1);
-        const pct = total ? Math.round(ok/total*100) : 0;
-        document.getElementById("progress-bar").style.width = pct+"%";
-        document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
-        const n = document.getElementById("node-"+p.node_id);
-        if(n){ n.style.outline="2px solid rgba(0,200,0,.5)"; setTimeout(()=>n.style.outline="", 800); }
-      } else if(p?.type === "event_closed"){
-        document.getElementById("status-badge").textContent = "Statut : CLOSED";
+    document.getElementById("btn-share").addEventListener("click", async () => {
+      const r = await fetch(`/events/${EVENT_ID}/share-link`, {method:"POST", credentials:"include"});
+      const res = await r.json().catch(()=>({}));
+      if(res?.url){
+        const absolute = location.origin + res.url;
+        try{ await navigator.clipboard.writeText(absolute); }catch{}
+        alert("Lien copié : " + absolute + "\n\nTransmets-le aux secouristes.");
+      }else{
+        alert("Impossible de générer le lien.");
       }
     });
 
-    document.getElementById("btn-share").addEventListener("click", () => {
-      fetch(`/events/${EVENT_ID}/share-link`, {method:"POST", credentials:"include"})
-      .then(r=>r.json()).then(res=>{
-        if(res.url){
-          const absolute = location.origin + res.url;
-          navigator.clipboard.writeText(absolute).catch(()=>{});
-          alert("Lien copié : " + absolute);
-        }
-      });
-    });
-
-    document.getElementById("btn-close").addEventListener("click", () => {
-      fetch(`/events/${EVENT_ID}/status`, {
-        method:"PATCH", headers:{"Content-Type":"application/json"}, credentials:"include",
+    document.getElementById("btn-close").addEventListener("click", async () => {
+      const r = await fetch(`/events/${EVENT_ID}/status`, {
+        method:"PATCH", credentials:"include",
+        headers:{"Content-Type":"application/json"},
         body: JSON.stringify({status:"CLOSED"})
-      }).then(()=> location.reload());
+      });
+      if(r.ok){ location.reload(); } else { alert(await r.text()); }
     });
 
-    document.getElementById("who").addEventListener("input", e=>{ WHO = e.target.value.trim(); });
+    // ===== Chargement initial =====
+    async function init(){
+      try{
+        // Si le TREE injecté est vide, on tente un fetch JSON
+        if(!Array.isArray(TREE) || TREE.length === 0){
+          const r = await fetch(`/events/${EVENT_ID}/tree`, {credentials:"include"});
+          if(r.ok){ TREE = await r.json(); }
+        }
+      }catch(e){ console.warn("Fetch /tree en secours a échoué :", e); }
+      buildUI();
+      // Compter total (après rendu)
+      totalItems = flattenItems(TREE).length;
+      updateProgress(0, totalItems);
+      console.debug("[EVENT PAGE] tree_roots=%s total_items=%s", Array.isArray(TREE)?TREE.length:0, totalItems);
+    }
 
-    loadTree();
+    init();
   </script>
 {% endblock %}
