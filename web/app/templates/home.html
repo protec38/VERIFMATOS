@@ -4,36 +4,35 @@
   <div class="grid cols-2">
     <div class="card">
       <div class="title">Créer un événement</div>
-      <div class="row">
-        <input id="ev-name" placeholder="Nom de l'événement" style="flex:1;">
-        <input id="ev-date" type="date" style="max-width: 200px;">
+      <div class="row wrap" style="margin-top:8px;">
+        <input id="ev-name" placeholder="Nom de l'événement" style="flex:1; min-width:240px;">
+        <input id="ev-date" type="date" style="max-width: 220px;">
       </div>
-      <div class="muted" style="margin-top:8px;">
-        Sélectionne les parents (stocks racine) à vérifier pour cet événement :
-      </div>
-      <div id="parents" class="row" style="flex-wrap:wrap; gap:10px; margin-top:6px;"></div>
-      <div class="row" style="margin-top:8px;">
+      <div class="subtitle">Sélectionne les parents (stocks racine) à vérifier pour cet événement :</div>
+      <div id="parents" class="row wrap" style="gap:10px; margin-top:6px;"></div>
+      <div class="row" style="margin-top:10px;">
         <a class="btn primary" id="btn-create">Créer l'événement</a>
       </div>
     </div>
 
     <div class="card">
       <div class="title">Accès rapides</div>
-      {% if current_user.role.name == 'ADMIN' %}
-        <div class="row" style="gap:8px; flex-wrap:wrap;">
+      {% set _cu = current_user if current_user is defined else None %}
+      {% if _cu and _cu.role.name == 'ADMIN' %}
+        <div class="row wrap" style="gap:8px; margin-top:8px;">
           <a class="btn" href="/manage">🧰 Stock</a>
           <a class="btn" href="/admin">🔧 Administration</a>
         </div>
       {% else %}
-        <div class="muted">Le Stock et l’Administration sont réservés aux administrateurs.</div>
+        <div class="alert">Le Stock et l’Administration sont réservés aux administrateurs.</div>
       {% endif %}
     </div>
   </div>
 
-  <div class="card" style="margin-top:12px;">
-    <div class="row" style="justify-content:space-between;">
+  <div class="card" style="margin-top:14px;">
+    <div class="row space-between">
       <div class="title">Événements récents</div>
-      <div class="muted">Clique “Export PDF” pour générer un récap.</div>
+      <div class="subtitle">Ouvre un événement pour voir le matériel et partager le lien.</div>
     </div>
     {% if events %}
       <table class="table">
@@ -49,11 +48,11 @@
             <td>{{ e.name }}</td>
             <td>{{ e.date or "—" }}</td>
             <td>{{ e.status if e.status is string else e.status.name }}</td>
-            <td class="row" style="gap:6px;">
+            <td class="row wrap" style="gap:6px;">
               <a class="btn" href="{{ url_for('pages.event_page', event_id=e.id) }}">Ouvrir</a>
               <a class="btn" href="/reports/event/{{ e.id }}/pdf" target="_blank">Export PDF</a>
               {% if current_user.role.name == 'ADMIN' %}
-              <a class="btn ghost" href="#" data-event-id="{{ e.id }}" onclick="return deleteEvent(this);">Supprimer</a>
+                <a class="btn danger" href="#" data-event-id="{{ e.id }}" onclick="return deleteEvent(this);">Supprimer</a>
               {% endif %}
             </td>
           </tr>
@@ -61,27 +60,26 @@
         </tbody>
       </table>
     {% else %}
-      <div class="muted">Aucun événement.</div>
+      <div class="muted" style="margin-top:6px;">Aucun événement.</div>
     {% endif %}
   </div>
 
   <script>
     async function api(url, opts={}){
       const r = await fetch(url, {credentials:'include', ...opts});
-      if(!r.ok){ let t=''; try{t=await r.text();}catch(e){}; throw new Error(t||('HTTP '+r.status)); }
+      if(!r.ok){ let t=''; try{t=await r.text();}catch{}; throw new Error(t||('HTTP '+r.status)); }
       const ct = r.headers.get('Content-Type') || '';
       if(ct.includes('application/json')) return r.json();
       return r.text();
     }
-
     async function loadParents(){
       try{
         const roots = await api('/stock/roots');
         const host = document.getElementById('parents');
         host.innerHTML = '';
         roots.forEach(r => {
-          const label = document.createElement('label'); label.className='check';
-          const inp = document.createElement('input'); inp.type='checkbox'; inp.value=String(r.id);
+          const label = document.createElement('label'); label.className='chip';
+          const inp = document.createElement('input'); inp.type='checkbox'; inp.value=String(r.id); inp.style.marginRight='6px';
           const span = document.createElement('span'); span.textContent = r.name;
           label.append(inp, span);
           host.append(label);
@@ -91,10 +89,9 @@
         }
       }catch(e){
         document.getElementById('parents').innerHTML =
-          '<div class="muted">Impossible de charger les racines (réservé admin ?)</div>';
+          '<div class="alert danger">Impossible de charger les racines (réservé admin ?)</div>';
       }
     }
-
     async function createEvent(){
       const name = (document.getElementById('ev-name').value || '').trim();
       const date = document.getElementById('ev-date').value || '';
@@ -109,7 +106,6 @@
       });
       if(res?.id){ location.href = '/events/' + res.id; }
     }
-
     document.getElementById('btn-create').onclick = ()=>createEvent().catch(e=>alert(e.message||e));
     loadParents();
 
