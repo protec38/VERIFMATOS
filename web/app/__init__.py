@@ -1,4 +1,4 @@
-# app/__init__.py — version robuste (injecte current_user et now dans Jinja)
+# app/__init__.py — FINAL
 from __future__ import annotations
 from datetime import datetime
 from flask import Flask, redirect, url_for
@@ -8,11 +8,11 @@ from flask_login import LoginManager, current_user
 from flask_socketio import SocketIO
 from .config import get_config
 
-# Extensions
+# Extensions globales
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
-# on crée une instance par défaut; si REDIS_URL vaut quelque chose, on réinitialisera plus bas
+# instance par défaut; si REDIS_URL est défini on reconfigurera plus bas
 socketio = SocketIO(message_queue=None, async_mode="eventlet", cors_allowed_origins="*")
 
 def create_app() -> Flask:
@@ -26,8 +26,23 @@ def create_app() -> Flask:
     login_manager.init_app(app)
     login_manager.login_view = "pages.login"
 
-    # Import models (pour migrations)
+    # Importer les modèles pour migrations & user_loader
     from . import models  # noqa: F401
+    from .models import User  # nécessaire pour user_loader
+
+    # >>>>>>> IMPORTANT : user_loader pour Flask-Login <<<<<<<
+    @login_manager.user_loader
+    def load_user(user_id: str):
+        """Recharge l'utilisateur depuis l'ID stocké en session."""
+        try:
+            # Flask-Login stocke des strings; on convertit prudemment
+            uid = int(user_id)
+        except Exception:
+            return None
+        try:
+            return db.session.get(User, uid)
+        except Exception:
+            return None
 
     # Socket.IO (option Redis)
     redis_url = app.config.get("REDIS_URL")
@@ -42,12 +57,12 @@ def create_app() -> Flask:
     else:
         socketio.init_app(app)
 
-    # Jinja globals — injecte now() ET current_user pour éviter les erreurs "undefined"
+    # Jinja globals — injecte now() ET current_user (LocalProxy)
     @app.context_processor
     def inject_globals():
         return {
             "now": datetime.utcnow,
-            "current_user": current_user,  # LocalProxy, safe en template (avec les guards côté Jinja)
+            "current_user": current_user,
         }
 
     # Blueprints API
@@ -81,7 +96,7 @@ def create_app() -> Flask:
     def health():
         return {"status": "healthy"}
 
-    # Socket handlers (si tu en as)
+    # Socket handlers (optionnel)
     try:
         from .sockets import register_socketio_handlers
         register_socketio_handlers(socketio)
