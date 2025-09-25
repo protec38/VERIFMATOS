@@ -1,10 +1,10 @@
-# app/views_html.py — Pages HTML (Jinja) : login/logout, dashboard, event, public
+# app/views_html.py — Pages HTML (Jinja) : login (GET), dashboard, event, public
 from __future__ import annotations
 from datetime import datetime
-from flask import Blueprint, render_template, render_template_string, request, redirect, url_for, abort, flash
-from flask_login import login_required, current_user, login_user, logout_user
+from flask import Blueprint, render_template, render_template_string, request, redirect, url_for, abort
+from flask_login import login_required, current_user, logout_user
 from . import db
-from .models import Event, EventStatus, Role, StockNode, NodeType, event_stock, EventShareLink, User
+from .models import Event, EventStatus, Role, EventShareLink, User
 from .tree_query import build_event_tree
 
 bp = Blueprint("pages", __name__)
@@ -16,32 +16,15 @@ def can_manage():
     return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF)
 
 # -------- Auth HTML --------
-
-@bp.route("/login", methods=["GET", "POST"])
+@bp.route("/login", methods=["GET"])
 def login():
-    if request.method == "POST":
-        username = (request.form.get("username") or "").strip()
-        password = (request.form.get("password") or "").strip()
-        user = User.query.filter_by(username=username).first()
-        if not user or not user.check_password(password) or not user.is_active:
-            return render_template_string(
-                '{% extends "base.html" %}{% block content %}'
-                '<div class="card"><div class="title">Connexion</div><p class="muted">Identifiants invalides.</p>'
-                '<form method="post" class="row" style="margin-top:10px;">'
-                '<input name="username" placeholder="Nom d’utilisateur">'
-                '<input name="password" type="password" placeholder="Mot de passe">'
-                '<button class="btn primary" type="submit">Se connecter</button>'
-                '</form></div>{% endblock %}'
-            )
-        login_user(user)
-        return redirect(url_for("pages.dashboard"))
-    # GET
+    # Le formulaire POST /login sera reçu par app/auth/views.py
     return render_template_string(
         '{% extends "base.html" %}{% block content %}'
         '<div class="card"><div class="title">Connexion</div>'
-        '<form method="post" class="row" style="margin-top:10px;">'
-        '<input name="username" placeholder="Nom d’utilisateur">'
-        '<input name="password" type="password" placeholder="Mot de passe">'
+        '<form method="post" action="/login" class="row" style="margin-top:10px;">'
+        '<input name="username" placeholder="Nom d’utilisateur" required>'
+        '<input name="password" type="password" placeholder="Mot de passe" required>'
         '<button class="btn primary" type="submit">Se connecter</button>'
         '</form></div>{% endblock %}'
     )
@@ -53,10 +36,10 @@ def logout():
     return redirect(url_for("pages.login"))
 
 # -------- Dashboard --------
-
 @bp.route("/dashboard", methods=["GET", "POST"])
 @login_required
 def dashboard():
+    from .models import Event  # import local pour éviter les cycles
     if request.method == "POST":
         if not can_manage():
             abort(403)
@@ -64,6 +47,7 @@ def dashboard():
         date_str = (request.form.get("date") or "").strip()
         if not name:
             abort(400)
+        from datetime import datetime
         date = None
         if date_str:
             try:
@@ -81,7 +65,6 @@ def dashboard():
     return render_template("home.html", events=events, can_manage=can_manage())
 
 # -------- Pages Événement / Public --------
-
 @bp.get("/events/<int:event_id>")
 @login_required
 def event_page(event_id: int):
