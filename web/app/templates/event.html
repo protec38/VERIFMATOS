@@ -3,19 +3,16 @@
 {% block content %}
   <div class="grid cols-2">
     <div class="card">
-      <div class="row">
+      <div class="row wrap">
         <div class="title">{{ event.name }}</div>
         <span class="badge" id="status-badge">Statut : {{ event.status if event.status is string else event.status.name }}</span>
       </div>
       <div class="muted">Date : {{ event.date or "—" }}</div>
 
-      <div class="row" style="margin-top:10px;">
+      <div class="row wrap" style="margin-top:10px;">
         <a class="btn" href="/dashboard">← Menu principal</a>
         <a class="btn ghost" href="/logout">Déconnexion</a>
-      </div>
-
-      <div class="row" style="margin-top:8px;">
-        <a class="btn primary" id="btn-share">Générer un lien pour les secouristes</a>
+        <a class="btn primary" id="btn-share">Générer un lien secouristes</a>
         <a class="btn" id="btn-close">Clôturer l'événement</a>
       </div>
     </div>
@@ -28,19 +25,21 @@
   </div>
 
   <div class="card" style="margin-top:12px;">
-    <div class="row" style="justify-content:space-between;">
+    <div class="row space-between wrap">
       <div class="title">Matériel à vérifier</div>
-      <div class="row">
+      <div class="row wrap">
         <label class="muted">Nom & prénom (pour enregistrer) :</label>
-        <input id="who" placeholder="Nom & prénom" style="max-width:240px;">
+        <input id="who" placeholder="Nom & prénom" style="max-width:260px;">
       </div>
     </div>
     <div id="tree" class="tree" style="margin-top:10px;"></div>
   </div>
 
   <script>
+    // Client Socket.IO v4 (chargé depuis base.html)
+    const socket = io({ transports: ['websocket','polling'], upgrade: true, path: '/socket.io/' });
+
     const EVENT_ID = {{ event.id }};
-    const socket = io();
     socket.emit("join_event", {event_id: EVENT_ID});
 
     let WHO = "";
@@ -59,14 +58,13 @@
 
     function renderItemActions(item) {
       const disabled = !WHO;
-      const wrap = el("div", {class:"item"},
+      return el("div", {class:"item"},
         el("div", null, el("span", {class:"muted"}, "Vérification")),
         el("div", {class:"row"},
           el("button", {class:"btn", disabled, onclick: () => verifyItem(item.id, "OK")}, "OK"),
           el("button", {class:"btn ghost", disabled, onclick: () => verifyItem(item.id, "NOT_OK")}, "Non conforme"),
         )
       );
-      return wrap;
     }
 
     function renderTreeNode(root) {
@@ -78,7 +76,7 @@
           )
         : el("span", {class:"qty"}, `Qté: ${root.quantity ?? 0}`);
 
-      const nodeEl = el("div", {class:"node", id:"node-"+root.id},
+      return el("div", {class:"node", id:"node-"+root.id},
         el("div", {class:"header"},
           el("div", {class:"name"}, root.name),
           headRight
@@ -88,20 +86,11 @@
           ...(!group ? [renderItemActions(root)] : [])
         )
       );
-      return nodeEl;
     }
 
-    function flattenItems(nodes) {
-      let count = 0;
-      (function rec(n){
-        if(n.type==="ITEM") count++;
-        (n.children||[]).forEach(rec);
-      })(nodes);
-      return count;
-    }
-
-    function refreshProgressFrom(tree){
-      const total = tree.reduce((acc,r)=>acc+flattenItems(r),0);
+    function countItems(nodes){ let c=0; (function rec(n){ if(n.type==="ITEM") c++; (n.children||[]).forEach(rec); })(nodes); return c; }
+    function refreshProgress(tree){
+      const total = (tree||[]).reduce((acc,r)=>acc+countItems(r),0);
       window.__TOTAL_ITEMS = total;
       fetch(`/events/${EVENT_ID}/stats`, {credentials:"include"})
         .then(r=>r.json()).then(s=>{
@@ -112,17 +101,13 @@
         }).catch(()=>{});
     }
 
-    function buildUI(tree){
-      const host = document.getElementById("tree");
-      host.innerHTML = "";
-      (tree || []).forEach(root => host.appendChild(renderTreeNode(root)));
-      refreshProgressFrom(tree);
-    }
-
     async function loadTree(){
       const r = await fetch(`/events/${EVENT_ID}/tree`, {credentials:"include"});
-      const data = await r.json();
-      buildUI(data || []);
+      const TREE = await r.json();
+      const host = document.getElementById("tree");
+      host.innerHTML = "";
+      (TREE||[]).forEach(x => host.appendChild(renderTreeNode(x)));
+      refreshProgress(TREE||[]);
     }
 
     function setCharged(nodeId, checked){
@@ -146,7 +131,6 @@
       });
     }
 
-    // Live updates
     socket.on("event_update", (p) => {
       if(p?.type === "item_verified" && typeof window.__TOTAL_ITEMS === "number"){
         const text = document.getElementById("progress-text").textContent;
@@ -157,7 +141,6 @@
         const pct = total ? Math.round(ok/total*100) : 0;
         document.getElementById("progress-bar").style.width = pct+"%";
         document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
-        // feedback visuel
         const n = document.getElementById("node-"+p.node_id);
         if(n){ n.style.outline="2px solid rgba(0,200,0,.5)"; setTimeout(()=>n.style.outline="", 800); }
       } else if(p?.type === "event_closed"){
@@ -165,7 +148,6 @@
       }
     });
 
-    // Actions de page
     document.getElementById("btn-share").addEventListener("click", () => {
       fetch(`/events/${EVENT_ID}/share-link`, {method:"POST", credentials:"include"})
       .then(r=>r.json()).then(res=>{
