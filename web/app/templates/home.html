@@ -60,6 +60,9 @@
           </div>
           <div class="row">
             <a class="btn" href="{{ url_for('pages.event_page', event_id=e.id) }}">Ouvrir</a>
+            {% if current_user.role.name == 'ADMIN' %}
+            <a class="btn ghost" href="#" data-event-id="{{ e.id }}" onclick="return deleteEvent(this);">Supprimer</a>
+            {% endif %}
             <a class="btn ghost" href="{{ url_for('reports.export_csv', event_id=e.id) }}">CSV</a>
             <a class="btn ghost" href="{{ url_for('reports.export_pdf', event_id=e.id) }}">PDF</a>
           </div>
@@ -69,4 +72,17 @@
       {% endfor %}
     </div>
   </div>
+
+  {% if current_user.role.name == 'ADMIN' %}
+  <script>
+    async function deleteEvent(a){
+      const id = a.getAttribute('data-event-id');
+      if(!confirm('Supprimer définitivement l\'événement #' + id + ' ?')) return false;
+      const r = await fetch('/events/' + id, {method:'DELETE', credentials:'include'});
+      if(!r.ok){ const t = await r.text(); alert('Suppression impossible: ' + t); return false; }
+      location.reload();
+      return false;
+    }
+  </script>
+  {% endif %}
 {% endblock %}
