@@ -11,11 +11,11 @@
 <body>
   <header class="appbar">
     <div class="left">
-      <img src="/static/logo_pc.png" alt="Protection Civile" style="height:22px;margin-right:8px;">
-      <span class="brand">Protection Civile&nbsp;</span>
+      <img src="/static/logo_pc.png" alt="Protection Civile" class="logo">
+      <span class="brand">Protection Civile</span>
       <span class="brand-sub">Préparation Matériel</span>
     </div>
-    <nav class="right" style="gap:8px;">
+    <nav class="right">
       <a class="btn" href="/dashboard">🏠 Menu</a>
       {% if current_user.is_authenticated and current_user.role.name == 'ADMIN' %}
         <a class="btn" href="/manage">🧰 Stock</a>
