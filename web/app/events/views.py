@@ -6,6 +6,7 @@ from flask import Blueprint, jsonify, request, abort
 from flask_login import login_required, current_user
 
 from .. import db, socketio
+from ..tree_query import build_event_tree
 from ..models import (
     Event,
     EventStatus,
@@ -55,6 +56,13 @@ def get_json() -> Dict[str, Any]:
 
 # -------------------------
 # Endpoints
+@bp.get("/events/<int:event_id>/tree")
+@login_required
+def get_event_tree(event_id: int):
+    ev = db.session.get(Event, event_id) or abort(404)
+    require_can_view_event(ev)
+    return jsonify(build_event_tree(event_id))
+
 # -------------------------
 
 @bp.get("/events/<int:event_id>/stock-roots")
@@ -78,6 +86,17 @@ def create_share_link(event_id: int):
     """Génère (ou réutilise) un lien public pour les secouristes."""
     ev = db.session.get(Event, event_id) or abort(404)
     require_can_manage_event(ev)
+@bp.get("/events/<int:event_id>/share-link")
+@login_required
+def get_share_link(event_id: int):
+    ev = db.session.get(Event, event_id) or abort(404)
+    require_can_view_event(ev)
+    link = EventShareLink.query.filter_by(event_id=event_id, active=True).first()
+    if not link:
+        return jsonify({"ok": False, "error": "no_active_link"}), 404
+    return jsonify({"ok": True, "token": link.token, "url": f"/public/event/{link.token}"})
+
+
 
     # Réutilise un lien actif s'il existe
     link = EventShareLink.query.filter_by(event_id=event_id, active=True).first()
@@ -89,7 +108,7 @@ def create_share_link(event_id: int):
 
     return jsonify({"ok": True, "token": link.token, "url": f"/public/event/{link.token}"}), 201
 
-@bp.patch("/events/<int:event_id>/status")
+@bp.route("/events/<int:event_id>/status", methods=["PATCH","POST"])
 @login_required
 def update_event_status(event_id: int):
     """Change le statut de l'événement (ex: CLOSED)."""
