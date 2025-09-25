@@ -8,10 +8,12 @@
           <div class="title">{{ event.name }}</div>
           <div class="subtitle">Date : {{ event.date or "—" }}</div>
         </div>
-        <span class="badge" id="status-badge">Statut : {{ event.status if event.status is string else event.status.name }}</span>
+        <span class="badge" id="status-badge">Statut :
+          {{ event.status if event.status is string else event.status.name }}
+        </span>
       </div>
 
-      <div class="row wrap" style="margin-top:10px;">
+      <div class="row wrap" style="margin-top:10px; gap:8px;">
         <a class="btn" href="{{ url_for('pages.dashboard') }}">← Menu principal</a>
         <a class="btn ghost" href="{{ url_for('pages.logout') }}">Déconnexion</a>
         <button class="btn primary" id="btn-share">Générer un lien secouristes</button>
@@ -37,13 +39,35 @@
     <div id="tree" class="tree" style="margin-top:10px;"></div>
   </div>
 
-  <script>
-    // ===== Données serveur =====
-    const EVENT_ID = {{ event.id }};
-    const SERVER_TREE = {{ tree|tojson }};
-    let TREE = Array.isArray(SERVER_TREE) ? SERVER_TREE : [];
+  <style>
+    .ok-flag { font-weight:700; margin-left:6px; }
+    .ok-flag.good { color:#12b886; }   /* vert */
+    .chip { border-radius: 12px; padding: 2px 8px; font-size: 12px; }
+    .chip.ok { background:#e6fcf5; color:#0ca678; border:1px solid #96f2d7; }
+    .chip.ko { background:#fff5f5; color:#e03131; border:1px solid #ffc9c9; }
+    .who { font-size:12px; color:#6b7280; margin-top:4px; }
+    .node.item-ok > .header { border-left:4px solid #12b886; padding-left:8px; }
+  </style>
 
-    // ===== Utilitaires DOM =====
+  <script>
+    const EVENT_ID = {{ event.id }};
+    let TREE = {{ (tree or [])|tojson }};
+    let okCount = 0, totalItems = 0;
+
+    // ===== Socket (optionnel, ne bloque jamais) =====
+    let socket = null;
+    try {
+      socket = io({transports:["websocket","polling"], timeout: 1500});
+      socket.emit("join_event", {event_id: EVENT_ID});
+      socket.on("event_update", (payload) => {
+        if(payload?.type === "item_verified"){
+          // Met à jour l'UI du node
+          applyVerificationToUI(payload.node_id, payload.status, payload.by || payload.verifier_name || "");
+        }
+      });
+    } catch (e) { console.warn("Socket.IO indisponible:", e); }
+
+    // ===== DOM util =====
     function el(tag, attrs={}, ...children){
       const e = document.createElement(tag);
       for(const [k,v] of Object.entries(attrs||{})){
@@ -56,114 +80,104 @@
       return e;
     }
 
-    // ===== Socket (optionnel) : ne bloque jamais l’affichage =====
-    let socket = null;
-    try {
-      socket = io({transports:["websocket","polling"], timeout: 1500});
-      socket.emit("join_event", {event_id: EVENT_ID});
-    } catch (e) {
-      console.warn("Socket.IO désactivé côté client :", e);
+    // ===== Rendu =====
+    function renderItemHeader(n){
+      const nameEl = el("div", {class:"name"}, n.name);
+      const chip = n.last_status
+        ? el("span", {class: "chip " + (n.last_status==="OK" ? "ok" : "ko")}, n.last_status==="OK" ? "OK" : "Non conforme")
+        : el("span", {class:"chip"}, "À vérifier");
+      return el("div", {class:"header"}, nameEl, el("span", {class:"qty"}, `Qté: ${n.quantity ?? "—"}`), chip);
     }
 
-    // ===== Rendu de l'arbre =====
-    function renderItemActions(item) {
-      return el("div", {class:"item"},
+    function renderItem(n){
+      const header = renderItemHeader(n);
+      const who = el("div", {class:"who", id:`who-${n.id}`},
+        n.last_by ? `Validé par : ${n.last_by}` : ""
+      );
+      const actions = el("div", {class:"item"},
         el("div", {class:"subtitle"}, "Vérification"),
         el("div", {class:"row", style:"gap:6px;"},
-          el("button", {class:"btn", onclick: () => verifyItem(item.id, "OK")}, "OK"),
-          el("button", {class:"btn ghost", onclick: () => verifyItem(item.id, "NOT_OK")}, "Non conforme"),
+          el("button", {class:"btn", onclick: () => verifyItem(n.id, "OK")}, "OK"),
+          el("button", {class:"btn ghost", onclick: () => verifyItem(n.id, "NOT_OK")}, "Non conforme"),
         )
       );
+      const node = el("div", {class:"node", id:`node-${n.id}`}, header, el("div",{class:"childs"}, who, actions));
+      if(n.last_status === "OK"){ node.classList.add("item-ok"); }
+      return node;
     }
 
-    function renderNode(node){
-      const isGroup = node.type === "GROUP";
-      const header = el("div", {class:"header"},
-        el("div", {class:"name"}, node.name),
-        isGroup
-          ? el("label", {class:"row", style:"gap:6px;"},
-              el("input", {type:"checkbox", id:`charged-${node.id}`, onchange: e => setCharged(node.id, e.target.checked)}),
-              el("span", {class:"subtitle"}, "Chargé dans le véhicule"))
-          : el("span", {class:"qty"}, `Qté: ${node.quantity ?? "—"}`)
+    function renderGroupHeader(n){
+      const nameEl = el("div", {class:"name"}, n.name);
+      const tick = el("span", {class:"ok-flag" + (n.complete ? " good" : ""), id:`tick-${n.id}`}, n.complete ? "✓" : "");
+      const chargedCtl = el("label", {class:"row", style:"gap:6px;"},
+        el("input", {type:"checkbox", id:`charged-${n.id}`, onchange: e => setCharged(n.id, e.target.checked)}),
+        el("span", {class:"subtitle"}, "Chargé dans le véhicule")
       );
-
-      const childrenWrap = el("div", {class:"childs"});
-      (node.children || []).forEach(ch => childrenWrap.appendChild(renderNode(ch)));
-
-      // Pour les ITEM on affiche les boutons "OK/Non conforme"
-      if(!isGroup){
-        childrenWrap.appendChild(renderItemActions(node));
-      }
-
-      return el("div", {class:"node", id:`node-${node.id}`}, header, childrenWrap);
+      const right = el("div", {class:"row", style:"gap:8px; align-items:center;"},
+        tick, chargedCtl
+      );
+      return el("div", {class:"header"}, nameEl, right);
     }
 
-    function flattenItems(nodes) {
+    function renderGroup(n){
+      const header = renderGroupHeader(n);
+      const childrenWrap = el("div", {class:"childs"});
+      (n.children || []).forEach(ch => childrenWrap.appendChild(renderNode(ch)));
+      const node = el("div", {class:"node", id:`node-${n.id}`}, header, childrenWrap);
+      return node;
+    }
+
+    function renderNode(n){
+      return n.type === "GROUP" ? renderGroup(n) : renderItem(n);
+    }
+
+    function flattenItems(nodes){
       const out = [];
-      (function rec(n){
-        if(n.type === "ITEM") out.push(n.id);
-        (n.children || []).forEach(rec);
-      })( {children: nodes} );
+      (function rec(list){
+        list.forEach(n => { if(n.type==="ITEM") out.push(n); if(n.children?.length) rec(n.children); });
+      })(nodes);
       return out;
     }
 
-    function buildUI(){
-      const treeEl = document.getElementById("tree");
-      treeEl.innerHTML = "";
-      if(!Array.isArray(TREE) || TREE.length === 0){
-        treeEl.append(el("div",{class:"alert"}, "Aucun stock parent associé à cet événement."));
-        updateProgress(0,0);
-        return;
-      }
-      TREE.forEach(root => treeEl.appendChild(renderNode(root)));
-      const total = flattenItems(TREE).length;
-      updateProgress(0, total);
+    function computeInitialProgress(){
+      const items = flattenItems(TREE);
+      totalItems = items.length;
+      okCount = items.filter(i => i.last_status === "OK").length;
+      updateProgress(okCount, totalItems);
     }
 
-    // ===== Progression =====
-    let okCount = 0;
-    let totalItems = 0;
-
     function updateProgress(ok, total){
-      okCount = ok; totalItems = total;
       const pct = total ? Math.round((ok/total)*100) : 0;
       document.getElementById("progress-bar").style.width = pct + "%";
       document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
     }
 
-    // Si on reçoit des updates live
-    if (socket){
-      socket.on("event_update", (payload) => {
-        if(payload?.type === "item_verified"){
-          okCount = Math.min(totalItems, okCount + 1);
-          updateProgress(okCount, totalItems);
-        }
-      });
+    function buildUI(){
+      const treeEl = document.getElementById("tree");
+      treeEl.innerHTML = "";
+      if(!Array.isArray(TREE) || TREE.length===0){
+        treeEl.append(el("div",{class:"item"}, el("div",{class:"subtitle"},"Aucun stock parent associé.")));
+        updateProgress(0,0);
+        return;
+      }
+      TREE.forEach(root => treeEl.appendChild(renderNode(root)));
+      computeInitialProgress();
     }
 
-    // ===== Actions serveur =====
-    function getGlobalName(){
-      return (document.getElementById("global-name").value || "").trim();
-    }
+    // ===== Actions =====
+    function getName(){ return (document.getElementById("global-name").value || "").trim(); }
 
     async function verifyItem(nodeId, status){
-      const name = getGlobalName();
-      if(!name){ alert("Merci de renseigner votre nom & prénom."); return; }
+      const name = getName();
+      if(!name){ alert("Merci d'indiquer votre nom & prénom."); return; }
       const r = await fetch(`/events/${EVENT_ID}/verify`, {
         method:"POST", credentials:"include",
         headers:{"Content-Type":"application/json"},
         body: JSON.stringify({node_id: nodeId, status, verifier_name: name})
       });
-      if(!r.ok){
-        alert(await r.text());
-        return;
-      }
-      // Update immédiat
-      okCount = Math.min(totalItems, okCount + (status === "OK" ? 1 : 0));
-      updateProgress(okCount, totalItems);
-      // feedback visuel
-      const node = document.getElementById(`node-${nodeId}`);
-      if(node){ node.style.outline = status === "OK" ? "2px solid #12b886" : "2px solid #ff6b6b"; }
+      if(!r.ok){ alert(await r.text().catch(()=> "Erreur")); return; }
+      // met à jour localement; le socket mettra à jour chez les autres
+      applyVerificationToUI(nodeId, status, name);
     }
 
     async function setCharged(nodeId, checked){
@@ -174,14 +188,95 @@
       });
     }
 
+    // ===== Update UI helpers =====
+    function applyVerificationToUI(nodeId, status, by){
+      // 1) met à jour l'objet dans TREE
+      const item = findNodeInTree(nodeId);
+      if(!item) return;
+      const prevOK = item.last_status === "OK";
+      item.last_status = status;
+      item.last_by = by || item.last_by || "";
+
+      // 2) met à jour DOM de l'item
+      const node = document.getElementById(`node-${nodeId}`);
+      if(node){
+        const header = node.querySelector(".header");
+        let chip = header?.querySelector(".chip");
+        if(!chip){ chip = el("span",{class:"chip"},""); header.appendChild(chip); }
+        chip.className = "chip " + (status==="OK" ? "ok" : "ko");
+        chip.textContent = (status==="OK" ? "OK" : "Non conforme");
+        const who = node.querySelector(`#who-${nodeId}`);
+        if(who){ who.textContent = by ? `Validé par : ${by}` : ""; }
+        if(status==="OK") node.classList.add("item-ok"); else node.classList.remove("item-ok");
+      }
+
+      // 3) progression
+      if(status==="OK" && !prevOK){ okCount = Math.min(totalItems, okCount+1); }
+      if(status==="NOT_OK" && prevOK){ okCount = Math.max(0, okCount-1); }
+      updateProgress(okCount, totalItems);
+
+      // 4) recalcul des ticks sur tous les parents du chemin
+      updateParentTicksFrom(nodeId);
+    }
+
+    function findNodeInTree(id){
+      let found=null;
+      (function rec(list){
+        for(const n of list){
+          if(n.id===id){ found=n; return; }
+          if(n.children?.length){ rec(n.children); if(found) return; }
+        }
+      })(TREE);
+      return found;
+    }
+
+    function parentMap(){
+      const map = new Map();
+      (function rec(list, parent){
+        for(const n of list){
+          map.set(n.id, parent || null);
+          if(n.children?.length) rec(n.children, n);
+        }
+      })(TREE, null);
+      return map;
+    }
+
+    const PARENT_MAP = parentMap();
+
+    function updateParentTicksFrom(nodeId){
+      let curId = nodeId;
+      while(PARENT_MAP.has(curId)){
+        const parent = PARENT_MAP.get(curId);
+        if(!parent) break;
+        // recompute complete = tous les items descendants OK
+        const agg = aggregate(parent);
+        parent.ok_count = agg.ok;
+        parent.total_items = agg.total;
+        parent.complete = (agg.total>0 && agg.ok===agg.total);
+        const tick = document.getElementById(`tick-${parent.id}`);
+        if(tick){ tick.textContent = parent.complete ? "✓" : ""; tick.classList.toggle("good", !!parent.complete); }
+        curId = parent.id;
+      }
+    }
+
+    function aggregate(node){
+      let ok=0, total=0;
+      (function rec(n){
+        if(n.type==="ITEM"){ total++; if(n.last_status==="OK") ok++; }
+        (n.children||[]).forEach(rec);
+      })(node);
+      return {ok, total};
+    }
+
+    // ===== Top buttons =====
     document.getElementById("btn-share").addEventListener("click", async () => {
       const r = await fetch(`/events/${EVENT_ID}/share-link`, {method:"POST", credentials:"include"});
-      const res = await r.json().catch(()=>({}));
+      const res = await r.json().catch(()=> ({}));
       if(res?.url){
         const absolute = location.origin + res.url;
-        try{ await navigator.clipboard.writeText(absolute); }catch{}
-        alert("Lien copié : " + absolute + "\n\nTransmets-le aux secouristes.");
-      }else{
+        try { await navigator.clipboard.writeText(absolute); } catch {}
+        alert("Lien copié : " + absolute);
+      } else {
         alert("Impossible de générer le lien.");
       }
     });
@@ -195,22 +290,21 @@
       if(r.ok){ location.reload(); } else { alert(await r.text()); }
     });
 
-    // ===== Chargement initial =====
-    async function init(){
-      try{
-        // Si le TREE injecté est vide, on tente un fetch JSON
-        if(!Array.isArray(TREE) || TREE.length === 0){
-          const r = await fetch(`/events/${EVENT_ID}/tree`, {credentials:"include"});
-          if(r.ok){ TREE = await r.json(); }
-        }
-      }catch(e){ console.warn("Fetch /tree en secours a échoué :", e); }
+    // ===== Init =====
+    function init(){
       buildUI();
-      // Compter total (après rendu)
-      totalItems = flattenItems(TREE).length;
-      updateProgress(0, totalItems);
-      console.debug("[EVENT PAGE] tree_roots=%s total_items=%s", Array.isArray(TREE)?TREE.length:0, totalItems);
+      // Les parents sont déjà marqués par le backend via "complete"
+      // On fixe les ticks initiaux (au cas où)
+      (function markAllParents(list){
+        list.forEach(n => {
+          if(n.type==="GROUP"){
+            const tick = document.getElementById(`tick-${n.id}`);
+            if(tick){ tick.textContent = n.complete ? "✓" : ""; tick.classList.toggle("good", !!n.complete); }
+          }
+          if(n.children?.length) markAllParents(n.children);
+        });
+      })(TREE);
     }
-
     init();
   </script>
 {% endblock %}
