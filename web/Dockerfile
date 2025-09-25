@@ -1,4 +1,4 @@
-# Dockerfile — uses entrypoint to wait for DB, migrate & seed automatically
+# Dockerfile — build context expected: ./web
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -7,11 +7,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Install requirements first for better layer caching
-COPY web/requirements.txt /app/requirements.txt
+COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy application
-COPY web /app
+# Copy application (everything from ./web)
+COPY . /app
 
 # Add entrypoint
 RUN chmod +x /app/entrypoint.sh
