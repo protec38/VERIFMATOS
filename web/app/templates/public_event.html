@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "base.html" import icon %}
 {% set title = "Vérification — Lien secouristes" %}
 {% block content %}
   <div class="grid cols-2">
@@ -16,9 +15,7 @@
     </div>
     <div class="card">
       <div class="title">Consignes</div>
-      <div class="muted">
-        Coche chaque élément vérifié. Plusieurs secouristes peuvent travailler en parallèle.
-      </div>
+      <div class="muted">Coche chaque élément vérifié. Plusieurs secouristes peuvent travailler en parallèle.</div>
     </div>
   </div>
 
@@ -82,14 +79,14 @@
         body: JSON.stringify({node_id: nodeId, status, verifier_name: WHO})
       });
       if(!r.ok){ const t = await r.text(); alert(t||"Erreur"); return; }
-      // Optionnel : feedback visuel immédiat
+      // feedback visuel
       const n = document.getElementById("node-"+nodeId);
       if(n){ n.style.outline = "2px solid rgba(0,200,0,.5)"; setTimeout(()=> n.style.outline="", 800); }
     }
 
     document.getElementById("who").addEventListener("input", (e) => {
       WHO = e.target.value.trim();
-      loadTree(); // reconstruit pour activer/désactiver les boutons
+      loadTree(); // active/désactive les boutons
     });
 
     loadTree();
