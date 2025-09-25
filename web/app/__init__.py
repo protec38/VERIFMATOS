@@ -1,19 +1,19 @@
-# app/__init__.py — FINAL
+# app/__init__.py — Socket.IO SANS Redis (message_queue=None)
 from __future__ import annotations
 from datetime import datetime
 from flask import Flask, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from flask_login import LoginManager, current_user
+from flask_login import LoginManager
 from flask_socketio import SocketIO
 from .config import get_config
 
-# Extensions globales
+# Extensions
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
-# instance par défaut; si REDIS_URL est défini on reconfigurera plus bas
-socketio = SocketIO(message_queue=None, async_mode="eventlet", cors_allowed_origins="*")
+# >>> IMPORTANT : pas de message_queue = Redis ici
+socketio = SocketIO(async_mode="eventlet", cors_allowed_origins="*")
 
 def create_app() -> Flask:
     app = Flask(__name__, instance_relative_config=False)
@@ -22,48 +22,19 @@ def create_app() -> Flask:
     # Init extensions
     db.init_app(app)
     migrate.init_app(app, db)
-
     login_manager.init_app(app)
     login_manager.login_view = "pages.login"
 
-    # Importer les modèles pour migrations & user_loader
+    # Import models pour migrations
     from . import models  # noqa: F401
-    from .models import User  # nécessaire pour user_loader
 
-    # >>>>>>> IMPORTANT : user_loader pour Flask-Login <<<<<<<
-    @login_manager.user_loader
-    def load_user(user_id: str):
-        """Recharge l'utilisateur depuis l'ID stocké en session."""
-        try:
-            # Flask-Login stocke des strings; on convertit prudemment
-            uid = int(user_id)
-        except Exception:
-            return None
-        try:
-            return db.session.get(User, uid)
-        except Exception:
-            return None
+    # Socket.IO : SANS Redis (inter-process MQ désactivée)
+    socketio.init_app(app, message_queue=None)
 
-    # Socket.IO (option Redis)
-    redis_url = app.config.get("REDIS_URL")
-    if redis_url:
-        try:
-            global socketio
-            socketio = SocketIO(async_mode="eventlet", message_queue=redis_url, cors_allowed_origins="*")
-            socketio.init_app(app)
-        except Exception as e:
-            app.logger.warning(f"SocketIO: Redis MQ désactivé (préflight KO: {e}). Démarrage sans MQ.")
-            socketio.init_app(app)
-    else:
-        socketio.init_app(app)
-
-    # Jinja globals — injecte now() ET current_user (LocalProxy)
+    # Jinja globals (now())
     @app.context_processor
-    def inject_globals():
-        return {
-            "now": datetime.utcnow,
-            "current_user": current_user,
-        }
+    def inject_now():
+        return {"now": datetime.utcnow}
 
     # Blueprints API
     from .auth.views import bp as auth_api_bp
@@ -87,7 +58,7 @@ def create_app() -> Flask:
     from .views_html import bp as pages_bp
     app.register_blueprint(pages_bp)
 
-    # Root/health
+    # Health / root
     @app.get("/")
     def index():
         return redirect(url_for("pages.dashboard"))
@@ -96,14 +67,11 @@ def create_app() -> Flask:
     def health():
         return {"status": "healthy"}
 
-    # Socket handlers (optionnel)
-    try:
-        from .sockets import register_socketio_handlers
-        register_socketio_handlers(socketio)
-    except Exception:
-        pass
+    # Socket handlers
+    from .sockets import register_socketio_handlers
+    register_socketio_handlers(socketio)
 
-    # CLI seeds (optionnel)
+    # CLI seed (optionnel)
     try:
         from .seeds_templates import register_cli as register_seed_cli
         register_seed_cli(app)
