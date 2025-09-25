@@ -143,8 +143,11 @@
       .then(r=>r.json()).then(res=>{
         if(res.url){
           const absolute = location.origin + res.url;
-          navigator.clipboard.writeText(absolute);
-          alert("Lien copié : " + absolute);
+          navigator.clipboard.writeText(absolute).then(()=>{
+            alert('Lien copié : ' + absolute);
+          }).catch(()=>{
+            prompt('Voici le lien à partager (copiez-collez) :', absolute);
+          });
         }
       });
     });
