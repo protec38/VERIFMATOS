@@ -6,9 +6,13 @@
     <div class="card">
       <div class="row">
         <div class="title">{{ event.name }}</div>
-        <span class="badge" id="status-badge">Statut : {{ event.status }}</span>
+        <span class="badge" id="status-badge">Statut : {{ event.status if event.status is string else event.status.name }}</span>
       </div>
       <div class="muted">Date : {{ event.date or "—" }}</div>
+      <div class="row" style="margin-top:10px;">
+        <a class="btn" href="{{ url_for('pages.dashboard') }}">← Menu principal</a>
+        <a class="btn ghost" href="{{ url_for('pages.logout') }}">Déconnexion</a>
+      </div>
       <div class="row" style="margin-top:10px;">
         <button class="btn primary" id="btn-share">Générer un lien pour les secouristes</button>
         <button class="btn" id="btn-close">Clôturer l'événement</button>
@@ -23,22 +27,14 @@
 
   <div class="card" style="margin-top:12px;">
     <div class="title">Matériel à vérifier</div>
-    <div id="tree" class="tree" style="margin-top:10px;">
-      <!-- Le backend injectera {{ tree|tojson }}. On reconstruit ci-dessous -->
-    </div>
+    <div id="tree" class="tree" style="margin-top:10px;"></div>
   </div>
 
   <script>
     const EVENT_ID = {{ event.id }};
     let TREE = {{ tree|tojson }};
-    async function loadTreeIfEmpty(){
-      if(Array.isArray(TREE) && TREE.length>0) return;
-      try {
-        const r = await fetch(`/events/${EVENT_ID}/tree`, {credentials:'include'});
-        if(r.ok){ TREE = await r.json(); buildUI(true); }
-      } catch(e) {}
-    } // [{id,name,level,type,quantity,children:[...]}]
-    const socket = io();
+
+    const socket = io({transports:['websocket']});
     socket.emit("join_event", {event_id: EVENT_ID});
 
     function el(tag, attrs={}, ...children){
@@ -53,28 +49,8 @@
       return e;
     }
 
-    function renderTree(root) {
-      const group = root.type === "GROUP";
-      const nodeEl = el("div", {class:"node", id:"node-"+root.id},
-        el("div", {class:"header"},
-          el("div", {class:"name"}, root.name),
-          group
-            ? el("label", {class:"check"},
-                el("input", {type:"checkbox", id:"charged-"+root.id, onchange: e => setCharged(root.id, e.target.checked)}),
-                el("span", null, "Chargé dans le véhicule")
-              )
-            : el("span", {class:"qty"}, `Qté: ${root.quantity}`)
-        ),
-        el("div", {class:"childs"},
-          ...root.children.map(renderTree),
-          ...(!group ? [renderItemActions(root)] : [])
-        )
-      );
-      return nodeEl;
-    }
-
     function renderItemActions(item) {
-      const wrap = el("div", {class:"item"},
+      return el("div", {class:"item"},
         el("div", null, el("span", {class:"muted"}, "Vérification")),
         el("div", {class:"row"},
           el("input", {type:"text", placeholder:"Nom & prénom", id:"name-"+item.id}),
@@ -82,86 +58,119 @@
           el("button", {class:"btn ghost", onclick: () => verifyItem(item.id, "NOT_OK")}, "Non conforme"),
         )
       );
-      return wrap;
+    }
+
+    function renderTree(root) {
+      const isGroup = (root.type === "GROUP");
+      return el("div", {class:"node", id:"node-"+root.id},
+        el("div", {class:"header"},
+          el("div", {class:"name"}, root.name),
+          isGroup
+            ? el("label", {class:"check"},
+                el("input", {type:"checkbox", id:"charged-"+root.id, onchange: e => setCharged(root.id, e.target.checked)}),
+                el("span", null, "Chargé dans le véhicule"))
+            : el("span", {class:"qty"}, `Qté: ${root.quantity ?? 0}`)
+        ),
+        el("div", {class:"childs"},
+          ...(root.children || []).map(renderTree),
+          ...(!isGroup ? [renderItemActions(root)] : [])
+        )
+      );
+    }
+
+    function buildUI() {
+      const treeEl = document.getElementById("tree");
+      treeEl.innerHTML = "";
+      (TREE || []).forEach(root => treeEl.appendChild(renderTree(root)));
+      recomputeProgressInitial();
+    }
+
+    // Fallback: si le serveur n'a pas injecté l'arbre (ou vide), on refetch côté client
+    async function loadTreeIfEmpty(){
+      try{
+        if(Array.isArray(TREE) && TREE.length > 0) return;
+        const r = await fetch(`/events/${EVENT_ID}/tree`, {credentials:"include"});
+        if(r.ok){ TREE = await r.json(); buildUI(); }
+      }catch(e){}
     }
 
     function flattenItems(nodes) {
       const out = [];
-      (function rec(n){
-        if(n.type==="ITEM") out.push(n.id);
-        (n.children||[]).forEach(rec);
-      })(nodes);
+      (function each(n){ if(n.type === "ITEM") out.push(n.id); (n.children||[]).forEach(each); })({children:nodes});
       return out;
     }
-
-    function recomputeProgress() {
-      fetch(`/events/${EVENT_ID}/stock-roots`, {credentials:"include"})
-        .then(r=>r.json())
-        .then(roots => {
-          // on compte via records live: demander nombre total d'items + endpoint de stats à venir
-          const totalItems = flattenItems(TREE).length;
-          // on ne connaît pas "ok count" ici, en attendant on met 0 et les updates Socket alimenteront côté client
-          document.getElementById("progress-bar").style.width = `${0}%`;
-          document.getElementById("progress-text").textContent = `0 / ${totalItems} vérifiés`;
-        });
-    }
-
-    function setCharged(nodeId, checked){
-      fetch(`/events/${EVENT_ID}/parent-status`, {
-        method:"POST", headers:{"Content-Type":"application/json"}, credentials:"include",
-        body: JSON.stringify({node_id: nodeId, charged_vehicle: checked})
-      });
-    }
-
-    function verifyItem(nodeId, status){
-      const name = document.getElementById("name-"+nodeId).value.trim();
-      if(!name){ alert("Merci de renseigner votre nom et prénom"); return; }
-      fetch(`/events/${EVENT_ID}/verify`, {
-        method:"POST", headers:{"Content-Type":"application/json"}, credentials:"include",
-        body: JSON.stringify({node_id: nodeId, status, verifier_name: name})
-      }).then(r=>r.json()).then(res=>{
-        if(!res.ok){ alert(res.error||"Erreur"); }
-      });
-    }
-
-    function buildUI(){
-      const treeEl = document.getElementById("tree");
-      treeEl.innerHTML = "";
-      TREE.forEach(root => treeEl.appendChild(renderTree(root)));
-      recomputeProgress();
-    }
-    buildUI();
-    loadTreeIfEmpty();
-
-    // Live updates
+    const totalItems = flattenItems(TREE || []).length;
     let okCount = 0;
-    const totalItems = (function getTotal(n){ let c=0; function rec(x){ if(x.type==="ITEM") c++; (x.children||[]).forEach(rec);} TREE.forEach(rec); return c; })();
+    function setProgress(ok){
+      const total = totalItems || flattenItems(TREE || []).length;
+      const pct = total ? Math.round(ok/total*100) : 0;
+      document.getElementById("progress-bar").style.width = pct + "%";
+      document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
+    }
+    function recomputeProgressInitial(){ setProgress(okCount); }
+
+    async function setCharged(nodeId, checked){
+      try{
+        await fetch(`/events/${EVENT_ID}/parent-status`, {
+          method:"POST", headers:{"Content-Type":"application/json"}, credentials:"include",
+          body: JSON.stringify({node_id: nodeId, charged_vehicle: checked})
+        });
+      }catch(e){}
+    }
+
+    async function verifyItem(nodeId, status){
+      const name = document.getElementById("name-"+nodeId)?.value.trim();
+      if(!name){ alert("Merci de renseigner votre nom et prénom"); return; }
+      try{
+        const r = await fetch(`/events/${EVENT_ID}/verify`, {
+          method:"POST", headers:{"Content-Type":"application/json"}, credentials:"include",
+          body: JSON.stringify({node_id: nodeId, status, verifier_name: name})
+        });
+        if(!r.ok){ const t = await r.text(); alert(t||"Erreur"); }
+      }catch(e){}
+    }
+
     socket.on("event_update", (payload) => {
-      if(payload.type==="item_verified"){
-        okCount++; // simpliste, on comptera distincts plus tard
-        const pct = Math.min(100, Math.round(okCount/totalItems*100));
-        document.getElementById("progress-bar").style.width = pct+"%";
-        document.getElementById("progress-text").textContent = okCount+" / "+totalItems+" vérifiés";
+      if(payload?.type === "item_verified"){
+        okCount = okCount + 1; setProgress(okCount);
+      }
+      if(payload?.type === "event_closed"){
+        document.getElementById("status-badge").textContent = "Statut : CLOSED";
       }
     });
 
-    // Actions haut de page
     document.getElementById("btn-share").addEventListener("click", async () => {
-      fetch(`/events/${EVENT_ID}/share-link`, {method:"POST", credentials:"include"})
-      .then(r=>r.json()).then(res=>{
-        if(res.url){
-          const absolute = location.origin + res.url;
-          navigator.clipboard.writeText(absolute).then(()=>{
-            alert('Lien copié : ' + absolute);
-          }).catch(()=>{
-            prompt('Voici le lien à partager (copiez-collez) :', absolute);
-          });
+      try {
+        let res = null;
+        const r = await fetch(`/events/${EVENT_ID}/share-link`, {method:"POST", credentials:"include"});
+        if(r.ok) res = await r.json();
+        if(!res || !res.url){
+          const rg = await fetch(`/events/${EVENT_ID}/share-link`, {credentials:"include"});
+          if(rg.ok) res = await rg.json();
         }
+        if(res?.url){
+          const absolute = res.url.startsWith("http") ? res.url : (location.origin + res.url);
+          try { await navigator.clipboard.writeText(absolute); alert("Lien copié : " + absolute); }
+          catch(e){ prompt("Voici le lien à partager :", absolute); }
+        } else {
+          alert("Impossible de générer / récupérer le lien.");
+        }
+      } catch(e) { alert("Erreur de génération de lien"); }
+    });
+
+    document.getElementById("btn-close").addEventListener("click", () => {
+      fetch(`/events/${EVENT_ID}/status`, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        credentials:"include",
+        body: JSON.stringify({status:"CLOSED"})
+      }).then(async r => {
+        if(!r.ok){ const t = await r.text(); alert(t||"Erreur"); return; }
+        location.reload();
       });
     });
-    document.getElementById("btn-close").addEventListener("click", () => {
-      fetch(`/events/${EVENT_ID}/status`, {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"include", body: JSON.stringify({status:"CLOSED"})})
-      .then(async r => { if(!r.ok){ const t = await r.text(); alert(t||"Erreur"); } else { location.reload(); } });
-    });
+
+    buildUI();
+    loadTreeIfEmpty();
   </script>
 {% endblock %}
