@@ -1,141 +1,160 @@
+# app/events/views.py — API JSON pour les événements (AUCUN HTML ici)
 from __future__ import annotations
 import uuid
-from datetime import date
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Iterable
 from flask import Blueprint, jsonify, request, abort
 from flask_login import login_required, current_user
+
 from .. import db, socketio
 from ..models import (
-    Event, EventStatus, Role,
-    StockNode, event_stock,
-    EventShareLink, EventNodeStatus,
-    VerificationRecord, ItemStatus,
+    Event,
+    EventStatus,
+    Role,
+    StockNode,
+    NodeType,
+    event_stock,             # Table d'association événement <-> parents racine
+    EventShareLink,          # Table des liens partagés
+    EventNodeStatus,         # Statut par parent (ex: chargé véhicule)
+    VerificationRecord,      # Enregistrements de vérification des items
 )
+from ..tree_query import build_event_tree
 
-bp = Blueprint("events", __name__)
+bp = Blueprint("events", __name__)  # enregistré dans create_app() sans prefix
 
-# ---------- helpers ----------
-def _json() -> Dict[str, Any]:
+# -------------------------
+# Helpers permissions
+# -------------------------
+def require_can_manage_event(ev: Event | None = None) -> None:
+    """Autorise ADMIN et CHEF. Si ev fourni, requiert aussi OPEN pour modifier."""
+    if not current_user.is_authenticated:
+        abort(401)
+    if current_user.role not in (Role.ADMIN, Role.CHEF):
+        abort(403)
+    if ev is not None and ev.status != EventStatus.OPEN:
+        abort(403)
+
+def require_can_view_event(ev: Event) -> None:
+    if not current_user.is_authenticated:
+        abort(401)
+    if current_user.role not in (Role.ADMIN, Role.CHEF, Role.VIEWER):
+        abort(403)
+
+# -------------------------
+# Utilitaires JSON
+# -------------------------
+def _normalize_ids(value) -> List[int]:
+    """Accepte liste, string CSV, ou None → liste d'int unique."""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        raw = value
+    elif isinstance(value, str):
+        raw = [x.strip() for x in value.split(",") if x.strip()]
+    else:
+        raw = [value]
+    out: List[int] = []
+    for v in raw:
+        try:
+            out.append(int(v))
+        except Exception:
+            continue
+    return list(sorted(set(out)))
+
+def get_json() -> Dict[str, Any]:
     data = request.get_json(silent=True)
     if data is None:
-        data = request.form.to_dict() if request.form else {}
+        # Supporte aussi form-urlencoded pour éviter "Unsupported Media Type"
+        data = request.form.to_dict(flat=True) if request.form else {}
+        # récupère aussi les listes form-data (root_ids[] / parent_ids[])
+        for key in ("root_ids", "parent_ids"):
+            vals = request.form.getlist(key)
+            if vals:
+                data[key] = vals
     return data
 
-def _require_admin():
-    if not current_user.is_authenticated or current_user.role != Role.ADMIN:
-        abort(403)
+# -------------------------
+# Endpoints
+# -------------------------
 
-def _require_manage(ev: Event):
-    if not current_user.is_authenticated or current_user.role not in (Role.ADMIN, Role.CHEF):
-        abort(403)
-    if ev.status != EventStatus.OPEN:
-        abort(403)
-
-def _require_view(ev: Event):
-    if not current_user.is_authenticated or current_user.role not in (Role.ADMIN, Role.CHEF, Role.VIEWER):
-        abort(403)
-
-# ---------- création / attache ----------
 @bp.post("/events")
 @login_required
 def create_event():
-    if current_user.role not in (Role.ADMIN, Role.CHEF):
-        abort(403)
-    data = _json()
+    """Création via JSON (utilisé par ta home en JS).
+       Accepte {name, date?, parent_ids? OU root_ids?} et associe les parents.
+    """
+    require_can_manage_event()
+
+    data = get_json()
     name = (data.get("name") or "").strip()
     date_str = (data.get("date") or "").strip()
-    parent_ids: List[int] = data.get("parent_ids") or []
+    parent_ids = _normalize_ids(data.get("parent_ids")) or _normalize_ids(data.get("root_ids"))
+
     if not name:
         abort(400, description="name requis")
+    if not parent_ids:
+        abort(400, description="parent_ids (ou root_ids) requis")
 
-    d = None
+    # Parse date optionnelle (YYYY-MM-DD)
+    date_val = None
     if date_str:
         try:
-            d = date.fromisoformat(date_str)
+            from datetime import date
+            date_val = date.fromisoformat(date_str)
         except Exception:
-            d = None
+            date_val = None
 
-    # created_by obligatoire
-    ev = Event(name=name, date=d, status=EventStatus.OPEN, created_by_id=current_user.id)
+    ev = Event(name=name, date=date_val, status=EventStatus.OPEN, created_by_id=current_user.id)
     db.session.add(ev)
     db.session.flush()  # pour ev.id
 
-    # attacher parents
-    if parent_ids:
-        rows = db.session.query(StockNode.id).filter(StockNode.id.in_(parent_ids)).all()
-        for (nid,) in rows:
-            db.session.execute(event_stock.insert().values(event_id=ev.id, node_id=nid))
+    # Associer seulement des GROUP level 0
+    added = 0
+    roots: Iterable[StockNode] = (
+        db.session.query(StockNode)
+        .filter(StockNode.id.in_(parent_ids), StockNode.type == NodeType.GROUP, StockNode.level == 0)
+        .all()
+    )
+    for r in roots:
+        db.session.execute(event_stock.insert().values(event_id=ev.id, node_id=r.id))
+        added += 1
+
+    if not added:
+        db.session.rollback()
+        abort(400, description="Aucun parent racine valide fourni")
 
     db.session.commit()
-    return jsonify({"ok": True, "id": ev.id})
-
-@bp.post("/events/<int:event_id>/attach-parents")
-@login_required
-def attach_parents(event_id: int):
-    ev = db.session.get(Event, event_id) or abort(404)
-    _require_manage(ev)
-    data = _json()
-    parent_ids: List[int] = data.get("parent_ids") or []
-    if not parent_ids:
-        return jsonify({"ok": True, "attached": 0})
-    existing = {
-        row[0] for row in db.session.execute(
-            db.select(event_stock.c.node_id).where(event_stock.c.event_id == event_id)
-        ).all()
-    }
-    add_ids = [pid for pid in parent_ids if pid not in existing]
-    for pid in add_ids:
-        db.session.execute(event_stock.insert().values(event_id=event_id, node_id=pid))
-    db.session.commit()
-    return jsonify({"ok": True, "attached": len(add_ids)})
-
-# ---------- arbre de l'événement ----------
-def _serialize_subtree(n: StockNode) -> Dict[str, Any]:
-    return {
-        "id": n.id,
-        "name": n.name,
-        "type": n.type.name,
-        "level": n.level,
-        "quantity": n.quantity,
-        "children": [_serialize_subtree(c) for c in sorted(n.children, key=lambda x: (x.type.name, x.name.lower()))],
-    }
+    return jsonify({"ok": True, "id": ev.id}), 201
 
 @bp.get("/events/<int:event_id>/tree")
 @login_required
 def get_event_tree(event_id: int):
+    """Renvoie l'arbre complet pour l'événement (utile si le template fetch)."""
     ev = db.session.get(Event, event_id) or abort(404)
-    _require_view(ev)
-
-    # Fallback robuste: reconstruit l'arbre à partir des racines associées
-    root_ids = [row[0] for row in db.session.execute(
-        db.select(event_stock.c.node_id).where(event_stock.c.event_id == event_id)
-    ).all()]
-    if not root_ids:
-        return jsonify([])
-    roots = db.session.query(StockNode).filter(StockNode.id.in_(root_ids)).all()
-    data = [_serialize_subtree(r) for r in sorted(roots, key=lambda x: x.name.lower())]
-    return jsonify(data)
+    require_can_view_event(ev)
+    tree = build_event_tree(event_id)
+    return jsonify(tree)
 
 @bp.get("/events/<int:event_id>/stock-roots")
 @login_required
-def get_event_roots(event_id: int):
+def get_event_stock_roots(event_id: int):
+    """Parents racine associés à l'événement (id + name)."""
     ev = db.session.get(Event, event_id) or abort(404)
-    _require_view(ev)
-    roots = (
+    require_can_view_event(ev)
+    q = (
         db.session.query(StockNode)
         .join(event_stock, event_stock.c.node_id == StockNode.id)
         .filter(event_stock.c.event_id == event_id)
         .order_by(StockNode.name.asc())
-        .all()
     )
-    return jsonify([{"id": r.id, "name": r.name} for r in roots])
+    roots = [{"id": n.id, "name": n.name} for n in q.all()]
+    return jsonify(roots)
 
-# ---------- partage / statut ----------
 @bp.post("/events/<int:event_id>/share-link")
 @login_required
 def create_share_link(event_id: int):
+    """Génère (ou réutilise) un lien public pour les secouristes."""
     ev = db.session.get(Event, event_id) or abort(404)
-    _require_manage(ev)
+    require_can_manage_event(ev)
     link = EventShareLink.query.filter_by(event_id=event_id, active=True).first()
     if not link:
         token = uuid.uuid4().hex
@@ -144,24 +163,16 @@ def create_share_link(event_id: int):
         db.session.commit()
     return jsonify({"ok": True, "token": link.token, "url": f"/public/event/{link.token}"}), 201
 
-@bp.get("/events/<int:event_id>/share-link")
+@bp.patch("/events/<int:event_id>/status")
 @login_required
-def get_share_link(event_id: int):
+def update_event_status(event_id: int):
+    """Change le statut de l'événement (ex: CLOSED / OPEN)."""
     ev = db.session.get(Event, event_id) or abort(404)
-    _require_view(ev)
-    link = EventShareLink.query.filter_by(event_id=event_id, active=True).first()
-    if not link:
-        return jsonify({"ok": False, "error": "no_active_link"}), 404
-    return jsonify({"ok": True, "token": link.token, "url": f"/public/event/{link.token}"})
+    data = get_json()
+    status_str = (data.get("status") or "").upper()
 
-@bp.route("/events/<int:event_id>/status", methods=["PATCH", "POST"])
-@login_required
-def update_status(event_id: int):
-    ev = db.session.get(Event, event_id) or abort(404)
-    data = _json()
-    status = (data.get("status") or "").upper()
-    if status == "CLOSED":
-        _require_manage(ev)
+    if status_str == "CLOSED":
+        require_can_manage_event(ev)
         ev.status = EventStatus.CLOSED
         db.session.commit()
         try:
@@ -169,8 +180,10 @@ def update_status(event_id: int):
         except Exception:
             pass
         return jsonify({"ok": True, "status": "CLOSED"})
-    elif status == "OPEN":
-        _require_admin()
+
+    if status_str == "OPEN":
+        if current_user.role != Role.ADMIN:
+            abort(403)
         ev.status = EventStatus.OPEN
         db.session.commit()
         try:
@@ -178,28 +191,33 @@ def update_status(event_id: int):
         except Exception:
             pass
         return jsonify({"ok": True, "status": "OPEN"})
-    abort(400, description="Statut invalide.")
 
-# ---------- vérification (interne) ----------
+    abort(400, description="Statut invalide")
+
 @bp.post("/events/<int:event_id>/parent-status")
 @login_required
 def update_parent_status(event_id: int):
+    """Marque un parent (sac/ambulance…) comme 'chargé dans le véhicule'."""
     ev = db.session.get(Event, event_id) or abort(404)
-    _require_manage(ev)
-    data = _json()
+    require_can_manage_event(ev)
+    data = get_json()
     node_id = int(data.get("node_id") or 0)
     charged = bool(data.get("charged_vehicle"))
     if not node_id:
         abort(400, description="node_id manquant")
-    ens = EventNodeStatus.query.filter_by(event_id=event_id, node_id=node_id).first()
-    if not ens:
-        ens = EventNodeStatus(event_id=event_id, node_id=node_id, charged_vehicle=charged)
-    else:
-        ens.charged_vehicle = charged
+    ens = (
+        EventNodeStatus.query.filter_by(event_id=event_id, node_id=node_id).first()
+        or EventNodeStatus(event_id=event_id, node_id=node_id)
+    )
+    ens.charged_vehicle = charged
     db.session.add(ens)
     db.session.commit()
     try:
-        socketio.emit("event_update", {"type": "parent_charged", "event_id": ev.id, "node_id": node_id, "charged": charged}, room=f"event_{ev.id}")
+        socketio.emit(
+            "event_update",
+            {"type": "parent_charged", "event_id": ev.id, "node_id": node_id, "charged": charged},
+            room=f"event_{ev.id}",
+        )
     except Exception:
         pass
     return jsonify({"ok": True, "node_id": node_id, "charged_vehicle": charged})
@@ -207,42 +225,56 @@ def update_parent_status(event_id: int):
 @bp.post("/events/<int:event_id>/verify")
 @login_required
 def verify_item(event_id: int):
+    """Ajoute un enregistrement de vérification pour un item (OK / NOT_OK)."""
     ev = db.session.get(Event, event_id) or abort(404)
-    _require_manage(ev)
-    data = _json()
+    require_can_manage_event(ev)  # CHEF/ADMIN
+    data = get_json()
     node_id = int(data.get("node_id") or 0)
-    status_raw = (data.get("status") or "").upper()
+    status = (data.get("status") or "").upper()  # "OK" | "NOT_OK"
     verifier_name = (data.get("verifier_name") or "").strip()
-    if not node_id or status_raw not in ("OK", "NOT_OK") or not verifier_name:
-        abort(400, description="Paramètres invalides (node_id, status, verifier_name).")
-    status = ItemStatus.OK if status_raw == "OK" else ItemStatus.NOT_OK
-    rec = VerificationRecord(event_id=event_id, node_id=node_id, status=status, verifier_name=verifier_name)
+    if not node_id or status not in ("OK", "NOT_OK") or not verifier_name:
+        abort(400, description="Paramètres invalides (node_id, status, verifier_name)")
+    rec = VerificationRecord(
+        event_id=event_id,
+        node_id=node_id,
+        status=status,
+        verifier_name=verifier_name,
+    )
     db.session.add(rec)
     db.session.commit()
     try:
-        socketio.emit("event_update", {"type": "item_verified", "event_id": ev.id, "node_id": node_id, "status": status_raw, "by": verifier_name}, room=f"event_{ev.id}")
+        socketio.emit(
+            "event_update",
+            {"type": "item_verified", "event_id": ev.id, "node_id": node_id, "status": status, "by": verifier_name},
+            room=f"event_{ev.id}",
+        )
     except Exception:
         pass
     return jsonify({"ok": True, "record_id": rec.id})
 
 @bp.get("/events/<int:event_id>/stats")
 @login_required
-def stats(event_id: int):
+def event_stats(event_id: int):
     ev = db.session.get(Event, event_id) or abort(404)
-    _require_view(ev)
-    total_ok = db.session.query(VerificationRecord).filter_by(event_id=event_id, status=ItemStatus.OK).count()
+    require_can_view_event(ev)
+    total_ok = db.session.query(VerificationRecord).filter_by(event_id=event_id, status="OK").count()
     total_all = db.session.query(VerificationRecord).filter_by(event_id=event_id).count()
     return jsonify({"ok": True, "verified_ok": total_ok, "verified_total": total_all})
 
+# --------- Admin: suppression d’événement ----------
 @bp.delete("/events/<int:event_id>")
 @login_required
 def delete_event(event_id: int):
-    _require_admin()
-    ev = db.session.get(Event, event_id) or abort(404)
-    VerificationRecord.query.filter_by(event_id=event_id).delete(synchronize_session=False)
-    EventNodeStatus.query.filter_by(event_id=event_id).delete(synchronize_session=False)
-    EventShareLink.query.filter_by(event_id=event_id).delete(synchronize_session=False)
+    if not current_user.is_authenticated or current_user.role != Role.ADMIN:
+        abort(403)
+    ev = db.session.get(Event, event_id)
+    if not ev:
+        abort(404)
+    # on supprime les liens et enregistrements liés (FK ON DELETE CASCADE si défini; sinon manual)
+    db.session.query(EventShareLink).filter_by(event_id=event_id).delete()
+    db.session.query(EventNodeStatus).filter_by(event_id=event_id).delete()
+    db.session.query(VerificationRecord).filter_by(event_id=event_id).delete()
     db.session.execute(event_stock.delete().where(event_stock.c.event_id == event_id))
     db.session.delete(ev)
     db.session.commit()
-    return jsonify({"ok": True, "deleted": event_id})
+    return jsonify({"ok": True})
