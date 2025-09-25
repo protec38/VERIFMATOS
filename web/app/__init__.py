@@ -1,4 +1,4 @@
-# app/__init__.py — FINAL DEFINITIF
+# app/__init__.py — FINAL DEFINITIF (avec fallback Redis sûr)
 from __future__ import annotations
 from datetime import datetime
 from flask import Flask, redirect, url_for
@@ -12,7 +12,8 @@ from .config import get_config
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
-socketio = SocketIO(message_queue=None, async_mode="eventlet", cors_allowed_origins="*")
+# Crée l’instance SocketIO sans MQ, on décidera au runtime si on active Redis
+socketio = SocketIO(async_mode="eventlet", cors_allowed_origins="*")
 
 def create_app() -> Flask:
     app = Flask(__name__, instance_relative_config=False)
@@ -29,12 +30,20 @@ def create_app() -> Flask:
     # Import models to make migrations aware
     from . import models  # noqa: F401
 
-    # Socket.IO (Redis backend if configured)
+    # Socket.IO — tente d'activer Redis MQ seulement si possible
     redis_url = app.config.get("REDIS_URL")
     if redis_url:
-        global socketio
-        socketio = SocketIO(async_mode="eventlet", message_queue=redis_url, cors_allowed_origins="*")
+        try:
+            import redis  # Vérifie la présence du client Python
+            socketio.init_app(app, message_queue=redis_url)
+            app.logger.info("SocketIO: Redis MQ activé (%s).", redis_url)
+        except Exception as e:
+            # Fallback: pas de MQ, évite le crash "Redis package is not installed"
+            socketio.init_app(app)
+            app.logger.warning("SocketIO: Redis MQ indisponible (%s). Démarrage sans MQ.", e)
+    else:
         socketio.init_app(app)
+        app.logger.info("SocketIO: démarrage sans message queue (REDIS_URL vide).")
 
     # Jinja globals
     @app.context_processor
