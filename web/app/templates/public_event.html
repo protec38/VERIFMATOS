@@ -1,94 +1,208 @@
 {% extends "base.html" %}
-{% set title = "Vérification — Lien secouristes" %}
+{% set title = "Vérification du matériel (secouristes)" %}
 {% block content %}
   <div class="grid cols-2">
     <div class="card">
-      <div class="row wrap">
-        <div class="title">{{ event.name }}</div>
-        <span class="badge">Statut : {{ event.status if event.status is string else event.status.name }}</span>
+      <div class="row space-between">
+        <div>
+          <div class="title">{{ event.name }}</div>
+          <div class="subtitle">Date : {{ event.date or "—" }}</div>
+        </div>
+        <span class="badge">Statut :
+          {{ event.status if event.status is string else event.status.name }}
+        </span>
       </div>
-      <div class="muted">Date : {{ event.date or "—" }}</div>
-      <div class="row" style="margin-top:10px;">
-        <input id="who" placeholder="Nom & prénom (obligatoire)" style="max-width:260px;">
+      <div class="subtitle" style="margin-top:6px;">
+        Cette page est dédiée aux secouristes via le lien partagé.
       </div>
     </div>
+
     <div class="card">
-      <div class="title">Consignes</div>
-      <div class="subtitle">Valide chaque élément. Plusieurs secouristes peuvent travailler en parallèle.</div>
+      <div class="title">Progression</div>
+      <div class="progress" style="margin-top:8px;"><div id="progress-bar" style="width:0%"></div></div>
+      <div class="subtitle" id="progress-text" style="margin-top:6px;">0 / 0 vérifiés</div>
     </div>
   </div>
 
-  <div class="card" style="margin-top:12px;">
-    <div class="title">Matériel à vérifier</div>
+  <div class="card" id="intro-card" style="margin-top:12px;">
+    <div class="title">Avant de commencer</div>
+    <div class="row wrap" style="gap:8px; margin-top:8px;">
+      <div class="subtitle">Merci de saisir votre nom & prénom :</div>
+      <input id="secu-name" placeholder="Nom & prénom" style="min-width:220px;">
+      <button class="btn primary" id="btn-start">Commencer la vérification</button>
+    </div>
+    <div class="subtitle" style="margin-top:6px;">
+      Votre nom sera enregistré à chaque validation d'item pour assurer la traçabilité.
+    </div>
+  </div>
+
+  <div class="card" id="tree-card" style="margin-top:12px; display:none;">
+    <div class="row space-between">
+      <div class="title">Matériel à vérifier</div>
+      <div class="row" style="gap:8px;">
+        <div class="subtitle">Nom & prénom :</div>
+        <input id="name-inline" placeholder="Nom & prénom" style="min-width:220px;">
+        <button class="btn" id="btn-change-name">Mettre à jour</button>
+      </div>
+    </div>
     <div id="tree" class="tree" style="margin-top:10px;"></div>
   </div>
 
   <script>
-    // Client Socket.IO v4 (déjà chargé dans base.html). Ici on n'utilise que l'API HTTP publique.
+    // ===== Données serveur =====
     const TOKEN = "{{ token }}";
-    let WHO = "";
+    const SERVER_TREE = {{ tree|tojson }};
+    let TREE = Array.isArray(SERVER_TREE) ? SERVER_TREE : [];
 
+    // ===== State nom/prénom =====
+    function getStoredName(){ try{ return localStorage.getItem("pcprep_name") || ""; }catch(e){ return ""; } }
+    function setStoredName(v){ try{ localStorage.setItem("pcprep_name", v || ""); }catch(e){} }
+
+    // ===== Utilitaires DOM =====
     function el(tag, attrs={}, ...children){
       const e = document.createElement(tag);
-      for(const [k,v] of Object.entries(attrs)){
+      for(const [k,v] of Object.entries(attrs||{})){
         if(k==="class") e.className = v;
+        else if(k==="html") e.innerHTML = v;
         else if(k.startsWith("on") && typeof v==="function") e.addEventListener(k.slice(2), v);
-        else e.setAttribute(k,v);
+        else e.setAttribute(k, v);
       }
-      for(const c of children){ if(c!=null) e.append(c.nodeType?c:document.createTextNode(c)); }
+      for(const c of children){ e.append(c?.nodeType ? c : document.createTextNode(String(c))); }
       return e;
     }
 
+    // ===== Rendu arbre =====
     function renderItemActions(item) {
-      const disabled = !WHO;
       return el("div", {class:"item"},
-        el("div", null, el("span", {class:"muted"}, "Vérification")),
-        el("div", {class:"row"},
-          el("button", {class:"btn", disabled, onclick: () => verifyItem(item.id, "OK")}, "OK"),
-          el("button", {class:"btn ghost", disabled, onclick: () => verifyItem(item.id, "NOT_OK")}, "Non conforme"),
+        el("div", {class:"subtitle"}, "Vérification"),
+        el("div", {class:"row", style:"gap:6px;"},
+          el("button", {class:"btn", onclick: () => verifyItem(item.id, "OK")}, "OK"),
+          el("button", {class:"btn ghost", onclick: () => verifyItem(item.id, "NOT_OK")}, "Non conforme")
         )
       );
     }
 
-    function renderTree(root) {
-      const isGroup = (root.type === "GROUP");
-      return el("div", {class:"node", id:"node-"+root.id},
-        el("div", {class:"header"},
-          el("div", {class:"name"}, root.name),
-          isGroup ? el("span", {class:"muted"}, "Parent") : el("span", {class:"qty"}, `Qté: ${root.quantity ?? 0}`)
-        ),
-        el("div", {class:"childs"},
-          ...(root.children || []).map(renderTree),
-          ...(!isGroup ? [renderItemActions(root)] : [])
-        )
+    function renderNode(node){
+      const isGroup = node.type === "GROUP";
+      const header = el("div", {class:"header"},
+        el("div", {class:"name"}, node.name),
+        isGroup ? el("span", {class:"badge"}, "Conteneur") : el("span", {class:"qty"}, `Qté: ${node.quantity ?? "—"}`)
       );
+      const childrenWrap = el("div", {class:"childs"});
+      (node.children || []).forEach(ch => childrenWrap.appendChild(renderNode(ch)));
+      if(!isGroup){
+        childrenWrap.appendChild(renderItemActions(node));
+      }
+      return el("div", {class:"node", id:`node-${node.id}`}, header, childrenWrap);
     }
 
-    async function loadTree(){
-      const r = await fetch(`/public/event/${TOKEN}/tree`);
-      const TREE = await r.json();
-      const host = document.getElementById("tree");
-      host.innerHTML = "";
-      (TREE || []).forEach(root => host.appendChild(renderTree(root)));
+    function flattenItems(nodes) {
+      const out = [];
+      (function rec(n){
+        if(n.type === "ITEM") out.push(n.id);
+        (n.children || []).forEach(rec);
+      })({children:nodes});
+      return out;
+    }
+
+    function buildUI(){
+      const treeEl = document.getElementById("tree");
+      treeEl.innerHTML = "";
+      if(!Array.isArray(TREE) || TREE.length===0){
+        treeEl.append(el("div",{class:"item"}, el("div",{class:"subtitle"},"Aucun matériel à afficher.")));
+        updateProgress(0,0);
+        return;
+      }
+      TREE.forEach(root => treeEl.appendChild(renderNode(root)));
+      const total = flattenItems(TREE).length;
+      updateProgress(0,total);
+    }
+
+    // ===== Progression =====
+    let okCount = 0;
+    let totalItems = 0;
+    function updateProgress(ok, total){
+      okCount = ok; totalItems = total;
+      const pct = total ? Math.round((ok/total)*100) : 0;
+      document.getElementById("progress-bar").style.width = pct + "%";
+      document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
+    }
+
+    // ===== Actions publiques =====
+    function getCurrentName(){
+      return (document.getElementById("name-inline").value || "").trim();
     }
 
     async function verifyItem(nodeId, status){
-      if(!WHO){ alert("Merci de renseigner votre nom & prénom."); return; }
+      const name = getCurrentName();
+      if(!name){ alert("Merci d'indiquer votre nom & prénom."); return; }
       const r = await fetch(`/public/event/${TOKEN}/verify`, {
-        method:"POST", headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ node_id: nodeId, status, verifier_name: WHO })
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({node_id: nodeId, status, verifier_name: name})
       });
-      if(!r.ok){ const t = await r.text(); alert(t||"Erreur"); return; }
-      const n = document.getElementById("node-"+nodeId);
-      if(n){ n.style.outline = "2px solid rgba(0,200,0,.5)"; setTimeout(()=> n.style.outline="", 800); }
+      if(!r.ok){
+        const t = await r.text().catch(()=> "Erreur");
+        alert(t);
+        return;
+      }
+      if(status==="OK"){
+        okCount = Math.min(totalItems, okCount+1);
+        updateProgress(okCount, totalItems);
+      }
+      const node = document.getElementById(`node-${nodeId}`);
+      if(node){ node.style.outline = status==="OK" ? "2px solid #12b886" : "2px solid #ff6b6b"; }
     }
 
-    document.getElementById("who").addEventListener("input", (e) => {
-      WHO = e.target.value.trim();
-      // rafraîchit pour activer/désactiver les boutons
-      loadTree();
-    });
+    // ===== Initialisation (gating nom) =====
+    async function init(){
+      // Arbre
+      try{
+        if(!Array.isArray(TREE) || TREE.length===0){
+          const r = await fetch(`/public/event/${TOKEN}/tree`);
+          if(r.ok){ TREE = await r.json(); }
+        }
+      }catch(e){ console.warn("Fetch tree public échoué:", e); }
 
-    loadTree();
+      // Gating nom
+      const stored = getStoredName();
+      const intro = document.getElementById("intro-card");
+      const treeCard = document.getElementById("tree-card");
+      const inputStart = document.getElementById("secu-name");
+      const inputInline = document.getElementById("name-inline");
+
+      if(stored){
+        inputInline.value = stored;
+        intro.style.display = "none";
+        treeCard.style.display = "";
+        buildUI();
+        totalItems = flattenItems(TREE).length;
+        updateProgress(0, totalItems);
+      }else{
+        intro.style.display = "";
+        treeCard.style.display = "none";
+      }
+
+      document.getElementById("btn-start").onclick = () => {
+        const v = (inputStart.value || "").trim();
+        if(!v){ alert("Merci d'indiquer votre nom & prénom."); return; }
+        setStoredName(v);
+        inputInline.value = v;
+        intro.style.display = "none";
+        treeCard.style.display = "";
+        buildUI();
+        totalItems = flattenItems(TREE).length;
+        updateProgress(0, totalItems);
+      };
+
+      document.getElementById("btn-change-name").onclick = () => {
+        const v = (inputInline.value || "").trim();
+        if(!v){ alert("Nom & prénom requis."); return; }
+        setStoredName(v);
+        alert("Nom mis à jour.");
+      };
+    }
+
+    init();
   </script>
 {% endblock %}
