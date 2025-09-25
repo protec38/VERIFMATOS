@@ -1,17 +1,18 @@
 version: "3.9"
+
 services:
   web:
     build: ./web
     container_name: pcprep_web
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
     environment:
       FLASK_ENV: production
       SECRET_KEY: ${SECRET_KEY:-change-me}
       DATABASE_URL: postgresql+psycopg2://pcprep:pcprep@db:5432/pcprep
-      REDIS_URL: redis://redis:6379/0
-      # Pour la génération de PDF plus tard si besoin (wkhtmltopdf via service séparé si nécessaire)
+      # 1 seul worker + eventlet (temps réel local sans MQ)
+      GUNICORN_CMD_ARGS: "-w 1 -k eventlet -t 120 -b 0.0.0.0:8000"
     ports:
       - "7000:8000"
     restart: unless-stopped
@@ -23,13 +24,13 @@ services:
       POSTGRES_DB: pcprep
       POSTGRES_USER: pcprep
       POSTGRES_PASSWORD: pcprep
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pcprep -d pcprep || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     volumes:
       - pgdata:/var/lib/postgresql/data
-    restart: unless-stopped
-
-  redis:
-    image: redis:7-alpine
-    container_name: pcprep_redis
     restart: unless-stopped
 
 volumes:
