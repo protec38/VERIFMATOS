@@ -49,16 +49,13 @@
   </div>
 
   <script>
-    // ===== Données serveur =====
     const TOKEN = "{{ token }}";
-    const SERVER_TREE = {{ tree|tojson }};
+    const SERVER_TREE = {{ (tree or [])|tojson }};  // << sécurisé
     let TREE = Array.isArray(SERVER_TREE) ? SERVER_TREE : [];
 
-    // ===== State nom/prénom =====
     function getStoredName(){ try{ return localStorage.getItem("pcprep_name") || ""; }catch(e){ return ""; } }
     function setStoredName(v){ try{ localStorage.setItem("pcprep_name", v || ""); }catch(e){} }
 
-    // ===== Utilitaires DOM =====
     function el(tag, attrs={}, ...children){
       const e = document.createElement(tag);
       for(const [k,v] of Object.entries(attrs||{})){
@@ -71,7 +68,6 @@
       return e;
     }
 
-    // ===== Rendu arbre =====
     function renderItemActions(item) {
       return el("div", {class:"item"},
         el("div", {class:"subtitle"}, "Vérification"),
@@ -90,9 +86,7 @@
       );
       const childrenWrap = el("div", {class:"childs"});
       (node.children || []).forEach(ch => childrenWrap.appendChild(renderNode(ch)));
-      if(!isGroup){
-        childrenWrap.appendChild(renderItemActions(node));
-      }
+      if(!isGroup){ childrenWrap.appendChild(renderItemActions(node)); }
       return el("div", {class:"node", id:`node-${node.id}`}, header, childrenWrap);
     }
 
@@ -118,9 +112,7 @@
       updateProgress(0,total);
     }
 
-    // ===== Progression =====
-    let okCount = 0;
-    let totalItems = 0;
+    let okCount = 0, totalItems = 0;
     function updateProgress(ok, total){
       okCount = ok; totalItems = total;
       const pct = total ? Math.round((ok/total)*100) : 0;
@@ -128,7 +120,6 @@
       document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
     }
 
-    // ===== Actions publiques =====
     function getCurrentName(){
       return (document.getElementById("name-inline").value || "").trim();
     }
@@ -142,8 +133,7 @@
         body: JSON.stringify({node_id: nodeId, status, verifier_name: name})
       });
       if(!r.ok){
-        const t = await r.text().catch(()=> "Erreur");
-        alert(t);
+        alert(await r.text().catch(()=> "Erreur"));
         return;
       }
       if(status==="OK"){
@@ -154,17 +144,14 @@
       if(node){ node.style.outline = status==="OK" ? "2px solid #12b886" : "2px solid #ff6b6b"; }
     }
 
-    // ===== Initialisation (gating nom) =====
     async function init(){
-      // Arbre
       try{
         if(!Array.isArray(TREE) || TREE.length===0){
           const r = await fetch(`/public/event/${TOKEN}/tree`);
           if(r.ok){ TREE = await r.json(); }
         }
-      }catch(e){ console.warn("Fetch tree public échoué:", e); }
+      }catch(e){ console.warn("fetch tree public KO", e); }
 
-      // Gating nom
       const stored = getStoredName();
       const intro = document.getElementById("intro-card");
       const treeCard = document.getElementById("tree-card");
@@ -177,7 +164,7 @@
         treeCard.style.display = "";
         buildUI();
         totalItems = flattenItems(TREE).length;
-        updateProgress(0, totalItems);
+        updateProgress(0,totalItems);
       }else{
         intro.style.display = "";
         treeCard.style.display = "none";
@@ -192,7 +179,7 @@
         treeCard.style.display = "";
         buildUI();
         totalItems = flattenItems(TREE).length;
-        updateProgress(0, totalItems);
+        updateProgress(0,totalItems);
       };
 
       document.getElementById("btn-change-name").onclick = () => {
@@ -202,7 +189,6 @@
         alert("Nom mis à jour.");
       };
     }
-
     init();
   </script>
 {% endblock %}
