@@ -1,6 +1,15 @@
 {% extends "base.html" %}
 {% set title = "Tableau de bord" %}
 {% block content %}
+  <div class="row" style="margin-bottom:10px;">
+    {% if can_manage %}
+      <a class="btn" href="{{ url_for('pages.stock_page') }}">🧰 Stock</a>
+      {% if current_user.role.name == 'ADMIN' %}
+        <a class="btn" href="{{ url_for('pages.admin_page') }}">⚙️ Administration</a>
+      {% endif %}
+    {% endif %}
+  </div>
+
   <div class="grid cols-2">
     <div class="card">
       <div class="title">Créer un événement</div>
@@ -8,8 +17,15 @@
       <form method="post" class="row" style="margin-top:8px;">
         <input type="text" name="name" placeholder="Nom de l'événement" required>
         <input type="date" name="date">
+        <select name="stock_root_id" required>
+          <option value="" disabled selected>Choisir le stock parent…</option>
+          {% for r in roots %}
+            <option value="{{ r.id }}">{{ r.name }}</option>
+          {% endfor %}
+        </select>
         <button class="btn primary" type="submit">Créer</button>
       </form>
+      <div class="muted" style="margin-top:6px;">Le stock sélectionné sera associé à cet événement (arbre de vérification).</div>
       {% else %}
       <div class="muted">Lecture seule — création désactivée.</div>
       {% endif %}
@@ -17,9 +33,9 @@
     <div class="card">
       <div class="title">Aide rapide</div>
       <ul class="muted">
-        <li>Ouvrez un événement pour voir la vérification en direct.</li>
-        <li>Depuis la page événement : générez un lien pour les secouristes.</li>
-        <li>Clôturez l’événement pour verrouiller les modifications.</li>
+        <li>Utilisez <strong>Stock</strong> pour créer/éditer vos sacs, ambulances, etc.</li>
+        <li>Lors de la création d’un événement, choisissez le <em>stock parent</em> à vérifier.</li>
+        <li>Sur la page événement : lien de partage secouristes + statut “chargé véhicule”.</li>
       </ul>
     </div>
   </div>
