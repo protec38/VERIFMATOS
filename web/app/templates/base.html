@@ -82,7 +82,7 @@
   <header class="nav">
     <img class="logo" src="/static/pc_logo.webp" alt="Protection Civile">
     <div class="brand">Préparation Matériel</div>
-    {% if current_user.is_authenticated %}
+    {% if current_user is defined and current_user.is_authenticated %}
       <div class="pill">Connecté : <strong>{{ current_user.username }}</strong></div>
     {% endif %}
   </header>
