@@ -68,9 +68,12 @@
     .pill-ko { color:#ff7a7a; }
     footer { padding:30px 16px; color:var(--muted); font-size:12px; text-align:center;}
   </style>
+
+  <!-- Socket.IO client v4 (compatible Flask-SocketIO 5.x) -->
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+
+  <!-- PWA registration -->
   <script>
-    // Register Service Worker for PWA offline support
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('/sw.js').catch(() => {});
@@ -90,7 +93,11 @@
     {% block content %}{% endblock %}
   </div>
   <footer>
-    © {{ now().year }} Protection Civile — Interface de préparation (DPS)
+    © <span id="year"></span> Protection Civile — Interface de préparation (DPS)
   </footer>
+  <script>
+    // Année dynamique pour éviter la dépendance à 'now' côté serveur
+    (function(){ try { document.getElementById('year').textContent = new Date().getFullYear(); } catch(e){} })();
+  </script>
 </body>
 </html>
