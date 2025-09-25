@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <title>{{ title or "Protection Civile — Préparation Matériel" }}</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <link rel="manifest" href="/manifest.json">
-  <link rel="icon" href="/static/favicon.ico">
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <!-- IMPORTANT : charge le CSS via url_for pour éviter les 404 selon la config -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
   <header class="appbar">
     <div class="left">
-      <img src="/static/logo_pc.png" alt="Protection Civile" class="logo">
+      <img src="{{ url_for('static', filename='logo_pc.png') }}" alt="Protection Civile" class="logo">
       <span class="brand">Protection Civile</span>
       <span class="brand-sub">Préparation Matériel</span>
     </div>
@@ -35,6 +35,7 @@
     © {{ now().year }} Protection Civile — Interface de préparation (DPS)
   </footer>
 
+  <!-- Socket.IO (optionnel) -->
   <script src="/socket.io/socket.io.js"></script>
 
   {% macro icon(name) -%}
