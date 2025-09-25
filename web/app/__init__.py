@@ -5,6 +5,7 @@ from flask import Flask, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager
+from flask_login import current_user as login_current_user
 from flask_socketio import SocketIO
 from .config import get_config
 
@@ -51,10 +52,11 @@ def create_app() -> Flask:
         socketio.init_app(app)
         app.logger.info("SocketIO: démarrage sans message queue (REDIS_URL vide).")
 
-    # Jinja globals
+    
     @app.context_processor
-    def inject_now():
-        return {"now": datetime.utcnow}
+    def inject_globals():
+    # 'now' pour les templates + 'current_user' directement dispo dans Jinja
+        return {"now": datetime.utcnow, "current_user": login_current_user}
 
     # Blueprints API
     from .auth.views import bp as auth_api_bp
