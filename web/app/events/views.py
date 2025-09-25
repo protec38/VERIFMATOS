@@ -2,7 +2,7 @@
 from __future__ import annotations
 import uuid
 from typing import Any, Dict, List, Iterable
-from flask import Blueprint, jsonify, request, abort
+from flask import Blueprint, jsonify, request, abort, current_app
 from flask_login import login_required, current_user
 
 from .. import db, socketio
@@ -43,7 +43,7 @@ def require_can_view_event(ev: Event) -> None:
 # Utilitaires JSON
 # -------------------------
 def _normalize_ids(value) -> List[int]:
-    """Accepte liste, string CSV, ou None → liste d'int unique."""
+    """Accepte liste, string CSV, ou None → liste d'int unique triée."""
     if value is None:
         return []
     if isinstance(value, (list, tuple, set)):
@@ -79,8 +79,8 @@ def get_json() -> Dict[str, Any]:
 @bp.post("/events")
 @login_required
 def create_event():
-    """Création via JSON (utilisé par ta home en JS).
-       Accepte {name, date?, parent_ids? OU root_ids?} et associe les parents.
+    """Création via JSON/form :
+       Accepte {name, date?, parent_ids? OU root_ids?} et associe les parents level 0.
     """
     require_can_manage_event()
 
@@ -108,17 +108,22 @@ def create_event():
     db.session.flush()  # pour ev.id
 
     # Associer seulement des GROUP level 0
-    added = 0
     roots: Iterable[StockNode] = (
         db.session.query(StockNode)
         .filter(StockNode.id.in_(parent_ids), StockNode.type == NodeType.GROUP, StockNode.level == 0)
+        .order_by(StockNode.name.asc())
         .all()
     )
+
+    added = 0
     for r in roots:
         db.session.execute(event_stock.insert().values(event_id=ev.id, node_id=r.id))
         added += 1
 
-    if not added:
+    current_app.logger.info("[EVENT CREATE] ev_id=%s name=%s parents_in=%s parents_added=%s",
+                            ev.id, ev.name, parent_ids, added)
+
+    if added == 0:
         db.session.rollback()
         abort(400, description="Aucun parent racine valide fourni")
 
@@ -270,7 +275,7 @@ def delete_event(event_id: int):
     ev = db.session.get(Event, event_id)
     if not ev:
         abort(404)
-    # on supprime les liens et enregistrements liés (FK ON DELETE CASCADE si défini; sinon manual)
+    # Nettoyage manuel si cascade non définie
     db.session.query(EventShareLink).filter_by(event_id=event_id).delete()
     db.session.query(EventNodeStatus).filter_by(event_id=event_id).delete()
     db.session.query(VerificationRecord).filter_by(event_id=event_id).delete()
@@ -278,3 +283,41 @@ def delete_event(event_id: int):
     db.session.delete(ev)
     db.session.commit()
     return jsonify({"ok": True})
+
+# --------- DEBUG: vérifier les associations et l’arbre ----------
+@bp.get("/events/<int:event_id>/debug")
+@login_required
+def event_debug(event_id: int):
+    ev = db.session.get(Event, event_id) or abort(404)
+    require_can_view_event(ev)
+
+    roots = (
+        db.session.query(StockNode)
+        .join(event_stock, event_stock.c.node_id == StockNode.id)
+        .filter(event_stock.c.event_id == event_id)
+        .order_by(StockNode.name.asc())
+        .all()
+    )
+    root_ids = [r.id for r in roots]
+    root_names = [r.name for r in roots]
+
+    tree = build_event_tree(event_id)
+
+    def _count_items(nodes):
+        c = 0
+        for n in nodes:
+            if str(n.get("type")) == "ITEM":
+                c += 1
+            c += _count_items(n.get("children", []))
+        return c
+
+    payload = {
+        "event": {"id": ev.id, "name": ev.name, "status": ev.status.name if hasattr(ev.status, "name") else str(ev.status)},
+        "root_ids": root_ids,
+        "root_names": root_names,
+        "tree_roots": len(tree),
+        "tree_items": _count_items(tree),
+        "tree": tree,
+    }
+    current_app.logger.info("[EVENT DEBUG] %s", payload)
+    return jsonify(payload)
