@@ -1,4 +1,4 @@
-# app/events/views.py — API JSON pour les événements (complet)
+# app/events/views.py — API JSON pour les événements (corrigé)
 from __future__ import annotations
 import uuid
 from datetime import date
@@ -12,7 +12,6 @@ from ..models import (
     EventStatus,
     Role,
     StockNode,
-    NodeType,
     event_stock,
     EventShareLink,
     EventNodeStatus,
@@ -22,7 +21,7 @@ from ..models import (
 
 bp = Blueprint("events", __name__)
 
-# -------- Helpers --------
+# ---------- helpers ----------
 def _json() -> Dict[str, Any]:
     data = request.get_json(silent=True)
     if data is None:
@@ -43,7 +42,7 @@ def _require_view(ev: Event):
     if not current_user.is_authenticated or current_user.role not in (Role.ADMIN, Role.CHEF, Role.VIEWER):
         abort(403)
 
-# -------- Création / attache --------
+# ---------- création / attache ----------
 @bp.post("/events")
 @login_required
 def create_event():
@@ -64,18 +63,19 @@ def create_event():
         except Exception:
             d = None
 
-    ev = Event(name=name, date=d, status=EventStatus.OPEN)
+    # >>> CORRECTION ICI: on renseigne created_by_id <<<
+    ev = Event(name=name, date=d, status=EventStatus.OPEN, created_by_id=current_user.id)
     db.session.add(ev)
     db.session.flush()  # pour ev.id
 
     # Attacher les parents si fournis
     if parent_ids:
-        roots = (
+        rows = (
             db.session.query(StockNode.id)
             .filter(StockNode.id.in_(parent_ids))
             .all()
         )
-        for (nid,) in roots:
+        for (nid,) in rows:
             db.session.execute(event_stock.insert().values(event_id=ev.id, node_id=nid))
 
     db.session.commit()
@@ -92,17 +92,19 @@ def attach_parents(event_id: int):
     if not parent_ids:
         return jsonify({"ok": True, "attached": 0})
 
-    # Eviter les doublons
-    existing = {row[0] for row in db.session.execute(
-        db.select(event_stock.c.node_id).where(event_stock.c.event_id == event_id)
-    ).all()}
+    existing = {
+        row[0]
+        for row in db.session.execute(
+            db.select(event_stock.c.node_id).where(event_stock.c.event_id == event_id)
+        ).all()
+    }
     add_ids = [pid for pid in parent_ids if pid not in existing]
     for pid in add_ids:
         db.session.execute(event_stock.insert().values(event_id=event_id, node_id=pid))
     db.session.commit()
     return jsonify({"ok": True, "attached": len(add_ids)})
 
-# -------- Lecture arbre / racines --------
+# ---------- lecture arbre / racines ----------
 @bp.get("/events/<int:event_id>/tree")
 @login_required
 def get_event_tree(event_id: int):
@@ -124,7 +126,7 @@ def get_event_roots(event_id: int):
     )
     return jsonify([{"id": r.id, "name": r.name} for r in roots])
 
-# -------- Partage / statut --------
+# ---------- partage / statut ----------
 @bp.post("/events/<int:event_id>/share-link")
 @login_required
 def create_share_link(event_id: int):
@@ -174,7 +176,7 @@ def update_status(event_id: int):
         return jsonify({"ok": True, "status": "OPEN"})
     abort(400, description="Statut invalide.")
 
-# -------- Vérification (interface interne — CHEF/ADMIN) --------
+# ---------- vérification (interne) ----------
 @bp.post("/events/<int:event_id>/parent-status")
 @login_required
 def update_parent_status(event_id: int):
