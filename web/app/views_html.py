@@ -1,7 +1,7 @@
-# app/views_html.py — Pages HTML (Jinja): login GET, dashboard (avec choix stock), event, public, stock/admin pages
+# app/views_html.py — Pages HTML (Jinja): Admin-only Stock/Admin; event creation with MULTI parent selection
 from __future__ import annotations
 from datetime import datetime
-from flask import Blueprint, render_template, render_template_string, request, redirect, url_for, abort
+from flask import Blueprint, render_template, render_template_string, request, redirect, url_for, abort, flash
 from flask_login import login_required, current_user, logout_user
 from . import db
 from .models import Event, EventStatus, Role, EventShareLink, StockNode, NodeType, event_stock
@@ -9,10 +9,14 @@ from .tree_query import build_event_tree
 
 bp = Blueprint("pages", __name__)
 
+def is_admin():
+    return current_user.is_authenticated and current_user.role == Role.ADMIN
+
 def can_view():
     return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF, Role.VIEWER)
 
-def can_manage():
+def can_manage_event():
+    # Création d'événement autorisée pour ADMIN et CHEF (conforme au besoin initial)
     return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF)
 
 # -------- Auth HTML --------
@@ -40,12 +44,13 @@ def logout():
 @login_required
 def dashboard():
     if request.method == "POST":
-        if not can_manage():
+        if not can_manage_event():
             abort(403)
         name = (request.form.get("name") or "").strip()
         date_str = (request.form.get("date") or "").strip()
-        root_id = request.form.get("stock_root_id")
-        if not name or not root_id:
+        root_ids = request.form.getlist("root_ids")
+        root_ids = [int(r) for r in root_ids if r and r.isdigit()]
+        if not name or not root_ids:
             abort(400)
         date = None
         if date_str:
@@ -53,14 +58,22 @@ def dashboard():
                 date = datetime.fromisoformat(date_str).date()
             except Exception:
                 date = None
+
         ev = Event(name=name, date=date, status=EventStatus.OPEN, created_by_id=current_user.id)
         db.session.add(ev)
         db.session.flush()
-        # Associer le stock parent choisi
-        root = db.session.get(StockNode, int(root_id))
-        if not root or root.type != NodeType.GROUP or root.level != 0:
+
+        # Associer tous les parents sélectionnés
+        added = 0
+        for rid in sorted(set(root_ids)):
+            root = db.session.get(StockNode, rid)
+            if not root or root.type != NodeType.GROUP or root.level != 0:
+                continue  # ignore invalid entries
+            db.session.execute(event_stock.insert().values(event_id=ev.id, node_id=root.id))
+            added += 1
+        if not added:
             abort(400)
-        db.session.execute(event_stock.insert().values(event_id=ev.id, node_id=root.id))
+
         db.session.commit()
         return redirect(url_for("pages.event_page", event_id=ev.id))
 
@@ -69,7 +82,7 @@ def dashboard():
     events = Event.query.order_by(Event.created_at.desc()).all()
     # Récupère les stocks racines (parents niveau 0)
     roots = StockNode.query.filter(StockNode.level == 0, StockNode.type == NodeType.GROUP).order_by(StockNode.name.asc()).all()
-    return render_template("home.html", events=events, can_manage=can_manage(), roots=roots)
+    return render_template("home.html", events=events, can_manage=can_manage_event(), roots=roots)
 
 # -------- Pages Événement / Public --------
 @bp.get("/events/<int:event_id>")
@@ -92,18 +105,18 @@ def public_event_page(token: str):
     tree = build_event_tree(ev.id)
     return render_template("public_event.html", event=ev, tree=tree, token=token)
 
-# -------- Gestion Stock (UI) --------
+# -------- Gestion Stock (UI) — ADMIN ONLY --------
 @bp.get("/stock")
 @login_required
 def stock_page():
-    if not can_manage():
+    if not is_admin():
         abort(403)
     return render_template("manage.html", active_tab="stock")
 
-# -------- Gestion Admin (UI) --------
+# -------- Gestion Admin (UI) — ADMIN ONLY --------
 @bp.get("/admin")
 @login_required
 def admin_page():
-    if current_user.role != Role.ADMIN:
+    if not is_admin():
         abort(403)
     return render_template("manage.html", active_tab="admin")
