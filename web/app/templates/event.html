@@ -33,6 +33,7 @@
 <script>
 const EVENT_ID = {{ event.id }};
 let TREE = {{ (tree or [])|tojson }};
+const CURRENT_USER = "{{ (current_user.username if current_user is defined and current_user.is_authenticated else '')|e }}";
 
 function el(tag, attrs={}, ...children){
   const e = document.createElement(tag);
@@ -45,24 +46,18 @@ function el(tag, attrs={}, ...children){
   for(const c of children){ if(c!=null) e.append(c.nodeType?c:document.createTextNode(c)); }
   return e;
 }
-
 function isItem(n){ return (n.type||"").toUpperCase()==="ITEM"; }
 function isGroup(n){ return (n.type||"").toUpperCase()==="GROUP"; }
 
 function groupAllOk(n){
-  let ok = true, hasItem = false;
-  (function rec(x){
-    if (isItem(x)){ hasItem = true; ok = ok && (x.last_status==="OK"); }
-    (x.children||[]).forEach(rec);
-  })(n);
+  let ok = true, hasItem=false;
+  (function rec(x){ if(isItem(x)){hasItem=true; ok = ok && (x.last_status==="OK");} (x.children||[]).forEach(rec); })(n);
   return hasItem && ok;
 }
-
 function flattenItems(nodes){
   const out=[]; (nodes||[]).forEach(function rec(n){ if(isItem(n)) out.push(n); (n.children||[]).forEach(rec); });
   return out;
 }
-
 function recomputeProgress(){
   const items = flattenItems(TREE);
   const total = items.length;
@@ -73,14 +68,12 @@ function recomputeProgress(){
 }
 
 function renderItem(n){
+  const status = n.last_status ? (n.last_status==="OK" ? "✅ OK" : "⚠️ Non conforme") : "—";
+  const by = n.last_by ? ` (${n.last_by})` : "";
   const right = el("div", {class:"row"},
-    el("input", {type:"text", placeholder:"Nom & prénom", id:`name-${n.id}`}),
     el("button", {class:"btn success", onclick:()=>verify(n.id,"OK")}, "OK"),
     el("button", {class:"btn ghost", onclick:()=>verify(n.id,"NOT_OK")}, "Non conforme"),
   );
-
-  const status = n.last_status ? (n.last_status==="OK" ? "✅ OK" : "⚠️ Non conforme") : "—";
-  const by = n.last_by ? ` (${n.last_by})` : "";
   return el("div", {class:"item"},
     el("div", null,
       el("div", {class:"name"}, `${n.name} `, el("span", {class:"qty"}, `Qté: ${n.quantity ?? 1}`)),
@@ -89,7 +82,6 @@ function renderItem(n){
     right
   );
 }
-
 function renderGroup(n){
   const okIcon = groupAllOk(n) ? "✅" : "";
   const header = el("div", {class:"header"},
@@ -102,11 +94,7 @@ function renderGroup(n){
   const children = el("div", {class:"childs"}, ...(n.children||[]).map(renderNode));
   return el("div", {class:"node", id:`node-${n.id}`}, header, children);
 }
-
-function renderNode(n){
-  if(isGroup(n)) return renderGroup(n);
-  return renderItem(n);
-}
+function renderNode(n){ return isGroup(n) ? renderGroup(n) : renderItem(n); }
 
 function buildUI(){
   const root = document.getElementById("tree");
@@ -114,24 +102,20 @@ function buildUI(){
   (TREE||[]).forEach(n => root.appendChild(renderNode(n)));
   recomputeProgress();
 }
-
 function fetchTree(){
   fetch(`/events/${EVENT_ID}/tree`, {credentials:"include"})
     .then(r=>r.json())
     .then(json => { TREE = json; buildUI(); })
-    .catch(()=>{ /* silencieux */});
+    .catch(()=>{});
 }
-
 function verify(nodeId, status){
-  const name = (document.getElementById(`name-${nodeId}`)?.value||"").trim();
-  if(!name){ alert("Merci de renseigner votre nom et prénom"); return; }
+  const payload = { node_id: nodeId, status, verifier_name: CURRENT_USER || undefined };
   fetch(`/events/${EVENT_ID}/verify`, {
     method:"POST", credentials:"include",
     headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({node_id: nodeId, status, verifier_name: name})
+    body: JSON.stringify(payload)
   }).then(()=> fetchTree());
 }
-
 function setCharged(nodeId, checked){
   fetch(`/events/${EVENT_ID}/parent-status`, {
     method:"POST", credentials:"include",
@@ -142,8 +126,7 @@ function setCharged(nodeId, checked){
 
 document.getElementById("btn-share").addEventListener("click", ()=>{
   fetch(`/events/${EVENT_ID}/share-link`, {method:"POST", credentials:"include"})
-    .then(r=>r.json())
-    .then(res=>{
+    .then(r=>r.json()).then(res=>{
       if(res.url){
         const absolute = location.origin + res.url;
         navigator.clipboard.writeText(absolute);
@@ -151,7 +134,6 @@ document.getElementById("btn-share").addEventListener("click", ()=>{
       }
     });
 });
-
 document.getElementById("btn-close").addEventListener("click", ()=>{
   fetch(`/events/${EVENT_ID}/status`, {
     method:"PATCH", credentials:"include",
@@ -160,7 +142,7 @@ document.getElementById("btn-close").addEventListener("click", ()=>{
   }).then(()=>{ document.getElementById("status-badge").textContent = "Statut : CLOSED"; });
 });
 
-// Premier rendu à partir du serveur puis polling toutes les 2s
+// Premier rendu serveur puis polling
 buildUI();
 setInterval(fetchTree, 2000);
 </script>
