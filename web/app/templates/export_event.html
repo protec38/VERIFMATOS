@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% set title = "Export — " ~ (event.name or "Événement") %}
+{% block content %}
+
+<style>
+  /* Mise en page imprimable sobre */
+  @media print {
+    .appbar, .footer { display:none !important; }
+    .no-print { display:none !important; }
+    body { background:#fff; color:#000; }
+    .card { box-shadow:none; border:0; }
+  }
+  .tree-export { margin-top:10px; }
+  .tree-export .g { margin:10px 0; padding:10px; border:1px solid var(--border); border-radius:10px; }
+  .tree-export .i { padding:6px 8px; border-radius:8px; margin:4px 0; border:1px dashed var(--border); display:flex; justify-content:space-between; gap:12px; }
+  .ok { border-color: var(--success) !important; background: rgba(18,184,134,.08); }
+  .bad { border-color: var(--danger) !important; background: rgba(255,107,107,.08); }
+  .wait { opacity: .85; }
+  .muted-small { color: var(--muted); font-size: 12px; }
+</style>
+
+<div class="no-print" style="margin-bottom:8px">
+  <a class="btn" href="{{ url_for('pages.event_page', event_id=event.id) }}">← Retour à l'événement</a>
+  <button class="btn primary" onclick="window.print()">Imprimer / PDF</button>
+</div>
+
+<div class="card">
+  <div class="row space-between">
+    <div>
+      <div class="title">{{ event.name }}</div>
+      <div class="muted">Date : {{ event.date or "—" }}</div>
+    </div>
+    <span class="badge">Statut : {{ event.status }}</span>
+  </div>
+</div>
+
+<div class="card" style="margin-top:12px">
+  <div class="title">Matériel</div>
+  <div class="muted-small">Vert = OK • Rouge = Non conforme • Gris = En attente</div>
+
+  <div class="tree-export">
+    {% macro render_node(n) -%}
+      {% if (n.type or '').upper() == 'GROUP' %}
+        <div class="g {{ 'ok' if n._all_ok else ( 'bad' if n._has_bad else 'wait') }}">
+          <div style="font-weight:800">{{ n.name }}</div>
+          <div style="margin-left:12px">
+            {% for c in n.children or [] %}
+              {{ render_node(c) }}
+            {% endfor %}
+          </div>
+        </div>
+      {% else %}
+        {# ITEM #}
+        {% set cls = 'wait' %}
+        {% if n.last_status == 'OK' %}{% set cls = 'ok' %}
+        {% elif n.last_status == 'NOT_OK' %}{% set cls = 'bad' %}{% endif %}
+        <div class="i {{ cls }}">
+          <div>
+            <div style="font-weight:700">{{ n.name }}</div>
+            <div class="muted-small">Qté: {{ n.quantity or 1 }}</div>
+          </div>
+          <div class="muted-small">
+            {% if n.last_status %}Statut: {{ 'OK' if n.last_status=='OK' else 'Non conforme' }}{% else %}En attente{% endif %}
+            {% if n.last_by %} — {{ n.last_by }}{% endif %}
+          </div>
+        </div>
+      {% endif %}
+    {%- endmacro %}
+
+    {# pré-calcul des états agrégés pour les groupes #}
+    {% macro compute_states(n) -%}
+      {% if (n.type or '').upper() == 'GROUP' %}
+        {% set _all_ok = true %}
+        {% set _has_bad = false %}
+        {% for c in n.children or [] %}
+          {{ compute_states(c) }}
+          {% if (c.type or '').upper() == 'ITEM' %}
+            {% if c.last_status != 'OK' %}{% set _all_ok = false %}{% endif %}
+            {% if c.last_status == 'NOT_OK' %}{% set _has_bad = true %}{% endif %}
+          {% endif %}
+          {% if (c.type or '').upper() == 'GROUP' %}
+            {% if not c._all_ok %}{% set _all_ok = false %}{% endif %}
+            {% if c._has_bad %}{% set _has_bad = true %}{% endif %}
+          {% endif %}
+        {% endfor %}
+        {% set n = n.update({'_all_ok': _all_ok, '_has_bad': _has_bad}) %}
+      {% endif %}
+    {%- endmacro %}
+
+    {% for r in tree or [] %}
+      {{ compute_states(r) }}
+    {% endfor %}
+
+    {% for r in tree or [] %}
+      {{ render_node(r) }}
+    {% endfor %}
+  </div>
+</div>
+
+<script>
+  // Option : ouverture auto du dialogue d’impression si tu veux
+  // setTimeout(()=>window.print(), 200);
+</script>
+{% endblock %}
