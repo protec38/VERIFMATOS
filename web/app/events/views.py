@@ -1,8 +1,8 @@
-# app/events/views.py — API JSON pour les événements (création + opérations)
+# app/events/views.py — API JSON pour les événements (création, suppression, opérations)
 from __future__ import annotations
 import uuid
 from datetime import date
-from typing import Any, Dict, List, Iterable
+from typing import Any, Dict, List
 
 from flask import Blueprint, jsonify, request, abort, redirect, url_for
 from flask_login import login_required, current_user
@@ -14,43 +14,34 @@ from ..models import (
     Role,
     StockNode,
     NodeType,
-    event_stock,             # Table d'association événement <-> parents racine
-    EventShareLink,          # Lien public
-    EventNodeStatus,         # Statut par parent (ex: chargé véhicule)
-    VerificationRecord,      # Enregistrements de vérification
+    event_stock,             # association évènement <-> parents racine
+    EventShareLink,          # lien public
+    EventNodeStatus,         # statut par parent (chargé, etc.)
+    VerificationRecord,      # vérifications
 )
 from ..tree_query import build_event_tree
 
 bp = Blueprint("events", __name__)
 
-# ---------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------
+# ---------- Helpers ----------
 def _json_or_form() -> Dict[str, Any]:
-    """Récupère un payload JSON ou form-urlencoded sans lever d'erreur 415."""
     data = request.get_json(silent=True)
     if data is None:
-        # form multi-value -> dict (liste si champs répétés)
         data = request.form.to_dict(flat=False) if request.form else {}
-        # normaliser: si simple champ non répété -> str
-        flat = {}
+        flat: Dict[str, Any] = {}
         for k, v in data.items():
-            if isinstance(v, list) and len(v) == 1:
-                flat[k] = v[0]
-            else:
-                flat[k] = v
+            flat[k] = v[0] if isinstance(v, list) and len(v) == 1 else v
         data = flat
     return data
 
 def _as_int_list(value: Any) -> List[int]:
-    """Accepte: [1,2], '1,2', ['1','2'], ou '1' -> [1]."""
     if value is None:
         return []
     if isinstance(value, (list, tuple)):
         raw = value
     else:
         raw = str(value).split(",")
-    out = []
+    out: List[int] = []
     for x in raw:
         s = str(x).strip()
         if s.isdigit():
@@ -71,23 +62,31 @@ def _require_can_view_event(ev: Event) -> None:
     if current_user.role not in (Role.ADMIN, Role.CHEF, Role.VIEWER):
         abort(403)
 
-# ---------------------------------------------------------------------
-# CREATE EVENT  (ce que ton front appelle via POST /events)
-# ---------------------------------------------------------------------
+def _delete_event_rows(ev: Event) -> None:
+    # nettoyage “soft” si les relations ne sont pas en cascade
+    db.session.query(VerificationRecord).filter_by(event_id=ev.id).delete(synchronize_session=False)
+    db.session.query(EventNodeStatus).filter_by(event_id=ev.id).delete(synchronize_session=False)
+    db.session.query(EventShareLink).filter_by(event_id=ev.id).delete(synchronize_session=False)
+    db.session.execute(event_stock.delete().where(event_stock.c.event_id == ev.id))
+    db.session.delete(ev)
+
+# ---------- CREATE ----------
 @bp.post("/events")
 @login_required
 def create_event():
     """
-    Crée un événement à partir de:
-    - name: str
-    - date: YYYY-MM-DD (optionnel)
-    - root_ids: liste de parents racine (ids) — ex: [1,2] ou "1,2" ou champs répétés
+    Crée un évènement.
+    Attend:
+      - name: str
+      - date: "YYYY-MM-DD" (optionnel)
+      - root_ids: liste d'ids (checkbox) -> [1,2] ou "1,2" ou champs répétés.
     """
     _require_can_manage_event()
 
     payload = _json_or_form()
     name = (payload.get("name") or "").strip()
     date_str = (payload.get("date") or "").strip()
+    # accepte 'root_ids' ou 'root_ids[]'
     root_ids = _as_int_list(payload.get("root_ids") or payload.get("root_ids[]"))
 
     if not name:
@@ -104,9 +103,8 @@ def create_event():
 
     ev = Event(name=name, date=ev_date, status=EventStatus.OPEN, created_by_id=current_user.id)
     db.session.add(ev)
-    db.session.flush()  # ev.id
+    db.session.flush()  # pour ev.id
 
-    # Associer uniquement des GROUP level=0
     added = 0
     for rid in sorted(set(root_ids)):
         root = db.session.get(StockNode, rid)
@@ -114,22 +112,17 @@ def create_event():
             continue
         db.session.execute(event_stock.insert().values(event_id=ev.id, node_id=root.id))
         added += 1
-
     if not added:
         db.session.rollback()
         abort(400, description="Aucun parent racine valide trouvé")
 
     db.session.commit()
 
-    # JSON -> renvoie URL; sinon redirection (compat gabarit existant)
     if request.is_json:
         return jsonify({"ok": True, "id": ev.id, "url": url_for("pages.event_page", event_id=ev.id)}), 201
-    # fallback si form classique
     return redirect(url_for("pages.event_page", event_id=ev.id), code=303)
 
-# ---------------------------------------------------------------------
-# TREE pour rafraîchissement
-# ---------------------------------------------------------------------
+# ---------- READ TREE (polling) ----------
 @bp.get("/events/<int:event_id>/tree")
 @login_required
 def get_event_tree(event_id: int):
@@ -138,9 +131,7 @@ def get_event_tree(event_id: int):
     tree = build_event_tree(event_id)
     return jsonify(tree)
 
-# ---------------------------------------------------------------------
-# STOCK ROOTS (liste des parents rattachés à un événement)
-# ---------------------------------------------------------------------
+# ---------- STOCK ROOTS LIST ----------
 @bp.get("/events/<int:event_id>/stock-roots")
 @login_required
 def get_event_stock_roots(event_id: int):
@@ -155,9 +146,7 @@ def get_event_stock_roots(event_id: int):
     roots = [{"id": n.id, "name": n.name} for n in q.all()]
     return jsonify(roots)
 
-# ---------------------------------------------------------------------
-# SHARE LINK
-# ---------------------------------------------------------------------
+# ---------- SHARE LINK ----------
 @bp.post("/events/<int:event_id>/share-link")
 @login_required
 def create_share_link(event_id: int):
@@ -170,12 +159,9 @@ def create_share_link(event_id: int):
         link = EventShareLink(event_id=event_id, token=token, active=True)
         db.session.add(link)
         db.session.commit()
-
     return jsonify({"ok": True, "token": link.token, "url": f"/public/event/{link.token}"}), 201
 
-# ---------------------------------------------------------------------
-# STATUS OPEN/CLOSED
-# ---------------------------------------------------------------------
+# ---------- STATUS ----------
 @bp.patch("/events/<int:event_id>/status")
 @login_required
 def update_event_status(event_id: int):
@@ -194,7 +180,7 @@ def update_event_status(event_id: int):
         return jsonify({"ok": True, "status": "CLOSED"})
 
     if status_str == "OPEN":
-        if not current_user.is_authenticated or current_user.role != Role.ADMIN:
+        if current_user.role != Role.ADMIN:
             abort(403)
         ev.status = EventStatus.OPEN
         db.session.commit()
@@ -206,9 +192,7 @@ def update_event_status(event_id: int):
 
     abort(400, description="Statut invalide")
 
-# ---------------------------------------------------------------------
-# PARENT STATUS (chargé véhicule)
-# ---------------------------------------------------------------------
+# ---------- PARENT CHARGED ----------
 @bp.post("/events/<int:event_id>/parent-status")
 @login_required
 def update_parent_status(event_id: int):
@@ -218,7 +202,6 @@ def update_parent_status(event_id: int):
     data = _json_or_form()
     node_id = int(data.get("node_id") or 0)
     charged = bool(data.get("charged_vehicle"))
-
     if not node_id:
         abort(400, description="node_id manquant")
 
@@ -238,32 +221,23 @@ def update_parent_status(event_id: int):
         )
     except Exception:
         pass
-
     return jsonify({"ok": True, "node_id": node_id, "charged_vehicle": charged})
 
-# ---------------------------------------------------------------------
-# VERIFY ITEM
-# ---------------------------------------------------------------------
+# ---------- VERIFY ITEM ----------
 @bp.post("/events/<int:event_id>/verify")
 @login_required
 def verify_item(event_id: int):
     ev = db.session.get(Event, event_id) or abort(404)
-    _require_can_manage_event(ev)  # Chef/Admin
+    _require_can_manage_event(ev)
 
     data = _json_or_form()
     node_id = int(data.get("node_id") or 0)
-    status = (data.get("status") or "").upper()  # "OK" | "NOT_OK"
+    status = (data.get("status") or "").upper()   # "OK" | "NOT_OK"
     verifier_name = (data.get("verifier_name") or "").strip()
-
     if not node_id or status not in ("OK", "NOT_OK") or not verifier_name:
         abort(400, description="Paramètres invalides (node_id, status, verifier_name)")
 
-    rec = VerificationRecord(
-        event_id=event_id,
-        node_id=node_id,
-        status=status,
-        verifier_name=verifier_name,
-    )
+    rec = VerificationRecord(event_id=event_id, node_id=node_id, status=status, verifier_name=verifier_name)
     db.session.add(rec)
     db.session.commit()
 
@@ -275,18 +249,36 @@ def verify_item(event_id: int):
         )
     except Exception:
         pass
-
     return jsonify({"ok": True, "record_id": rec.id})
 
-# ---------------------------------------------------------------------
-# STATS
-# ---------------------------------------------------------------------
+# ---------- STATS ----------
 @bp.get("/events/<int:event_id>/stats")
 @login_required
 def event_stats(event_id: int):
     ev = db.session.get(Event, event_id) or abort(404)
     _require_can_view_event(ev)
-
     total_ok = db.session.query(VerificationRecord).filter_by(event_id=event_id, status="OK").count()
     total_all = db.session.query(VerificationRecord).filter_by(event_id=event_id).count()
     return jsonify({"ok": True, "verified_ok": total_ok, "verified_total": total_all})
+
+# ---------- DELETE (API DELETE + fallback POST pour formulaires) ----------
+@bp.delete("/events/<int:event_id>")
+@login_required
+def delete_event_api(event_id: int):
+    ev = db.session.get(Event, event_id) or abort(404)
+    _require_can_manage_event(ev)
+    _delete_event_rows(ev)
+    db.session.commit()
+    return jsonify({"ok": True})
+
+@bp.route("/events/<int:event_id>/delete", methods=["POST"])
+@login_required
+def delete_event_form(event_id: int):
+    ev = db.session.get(Event, event_id) or abort(404)
+    _require_can_manage_event(ev)
+    _delete_event_rows(ev)
+    db.session.commit()
+    if request.is_json:
+        return jsonify({"ok": True})
+    # Redirection pour les formulaires classiques
+    return redirect(url_for("pages.dashboard"))
