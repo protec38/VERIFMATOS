@@ -1,282 +1,142 @@
 {% extends "base.html" %}
 {% set title = "Vérification du matériel (secouristes)" %}
 {% block content %}
-  <div class="grid cols-2">
-    <div class="card">
-      <div class="row space-between">
-        <div>
-          <div class="title">{{ event.name }}</div>
-          <div class="subtitle">Date : {{ event.date or "—" }}</div>
-        </div>
-        <span class="badge">Statut :
-          {{ event.status if event.status is string else event.status.name }}
-        </span>
-      </div>
-      <div class="subtitle" style="margin-top:6px;">
-        Cette page est dédiée aux secouristes via le lien partagé.
-      </div>
+<div class="card">
+  <div class="row space-between wrap">
+    <div>
+      <div class="title">{{ event.name }}</div>
+      <div class="muted" style="margin-top:4px;">Date : {{ event.date or "—" }}</div>
     </div>
-
-    <div class="card">
-      <div class="title">Progression</div>
-      <div class="progress" style="margin-top:8px;"><div id="progress-bar" style="width:0%"></div></div>
-      <div class="subtitle" id="progress-text" style="margin-top:6px;">0 / 0 vérifiés</div>
-    </div>
+    <span class="badge" id="status-badge">Statut : {{ event.status }}</span>
   </div>
-
-  <div class="card" id="intro-card" style="margin-top:12px;">
-    <div class="title">Avant de commencer</div>
-    <div class="row wrap" style="gap:8px; margin-top:8px;">
-      <div class="subtitle">Merci de saisir votre nom & prénom :</div>
-      <input id="secu-name" placeholder="Nom & prénom" style="min-width:220px;">
-      <button class="btn primary" id="btn-start">Commencer la vérification</button>
-    </div>
-    <div class="subtitle" style="margin-top:6px;">
-      Votre nom sera enregistré à chaque validation d'item pour assurer la traçabilité.
-    </div>
+  <div class="row" style="margin-top:10px;">
+    <input id="who" placeholder="Votre nom & prénom" style="min-width:280px;">
+    <button class="btn" id="save-who">Enregistrer</button>
   </div>
+</div>
 
-  <div class="card" id="tree-card" style="margin-top:12px; display:none;">
-    <div class="row space-between">
-      <div class="title">Matériel à vérifier</div>
-      <div class="row" style="gap:8px;">
-        <div class="subtitle">Nom & prénom :</div>
-        <input id="name-inline" placeholder="Nom & prénom" style="min-width:220px;">
-        <button class="btn" id="btn-change-name">Mettre à jour</button>
-      </div>
-    </div>
-    <div id="tree" class="tree" style="margin-top:10px;"></div>
-  </div>
+<div class="card" style="margin-top:12px;">
+  <div class="title">Matériel à vérifier</div>
+  <div id="tree" class="tree" style="margin-top:10px;"></div>
+</div>
 
-  <style>
-    .ok-flag { font-weight:700; margin-left:6px; }
-    .ok-flag.good { color:#12b886; }
-    .chip { border-radius: 12px; padding: 2px 8px; font-size: 12px; }
-    .chip.ok { background:#e6fcf5; color:#0ca678; border:1px solid #96f2d7; }
-    .chip.ko { background:#fff5f5; color:#e03131; border:1px solid #ffc9c9; }
-    .who { font-size:12px; color:#6b7280; margin-top:4px; }
-    .node.item-ok > .header { border-left:4px solid #12b886; padding-left:8px; }
-  </style>
+<script>
+  const EVENT_ID = {{ event.id }};
+  const TOKEN = "{{ token }}";
+  let TREE = {{ (tree or [])|tojson }};
 
-  <script>
-    const TOKEN = "{{ token }}";
-    const EVENT_ID = {{ event.id }};
-    let TREE = {{ (tree or [])|tojson }};
-    let okCount = 0, totalItems = 0;
+  // Préremplir nom
+  const whoInput = document.getElementById("who");
+  whoInput.value = localStorage.getItem("pcprep_who") || "";
+  document.getElementById("save-who").addEventListener("click", ()=>{
+    localStorage.setItem("pcprep_who", whoInput.value.trim());
+    alert("Nom enregistré");
+  });
 
-    // Socket public (optionnel)
-    let socket = null;
-    try {
-      socket = io({transports:["websocket","polling"], timeout: 1500});
-      socket.emit("join_event", {event_id: EVENT_ID});
-      socket.on("event_update", (payload) => {
-        if(payload?.type === "item_verified"){
-          applyVerificationToUI(payload.node_id, payload.status, payload.by || payload.verifier_name || "");
-        }
-      });
-    } catch (e) { console.warn("Socket.IO indisponible:", e); }
+  // Socket.IO join room
+  const socket = io({ transports: ["websocket","polling"], timeout: 2000 });
+  socket.on("connect", ()=> socket.emit("join_event", {event_id: EVENT_ID}));
+  socket.on("event_update", (msg)=>{
+    if(!msg || msg.event_id !== EVENT_ID) return;
+    if(msg.type==="item_verified") applyItemVerification(msg.node_id, msg.status, msg.by);
+    else if (msg.type==="event_closed" || msg.type==="event_opened"){
+      document.getElementById("status-badge").textContent = "Statut : " + (msg.type==="event_closed"?"CLOSED":"OPEN");
+    }
+  });
 
-    function getStoredName(){ try{ return localStorage.getItem("pcprep_name") || ""; }catch(e){ return ""; } }
-    function setStoredName(v){ try{ localStorage.setItem("pcprep_name", v || ""); }catch(e){} }
+  const parentOf = new Map();
+  function el(tag, attrs={}, ...children){
+    const e = document.createElement(tag);
+    for(const [k,v] of Object.entries(attrs)){
+      if(k==="class") e.className = v;
+      else if(k==="html") e.innerHTML = v;
+      else if(k.startsWith("on") && typeof v==="function") e.addEventListener(k.slice(2), v);
+      else e.setAttribute(k, v);
+    }
+    for(const c of children){ e.append(c?.nodeType?c:document.createTextNode(c)); }
+    return e;
+  }
 
-    function el(tag, attrs={}, ...children){
-      const e = document.createElement(tag);
-      for(const [k,v] of Object.entries(attrs||{})){
-        if(k==="class") e.className = v;
-        else if(k==="html") e.innerHTML = v;
-        else if(k.startsWith("on") && typeof v==="function") e.addEventListener(k.slice(2), v);
-        else e.setAttribute(k, v);
-      }
-      for(const c of children){ e.append(c?.nodeType ? c : document.createTextNode(String(c))); }
-      return e;
+  function renderTreeNode(n){
+    const isGroup = n.type==="GROUP";
+    const node = el("div", {class:"node", id:"node-"+n.id, "data-type":n.type});
+    const header = el("div",{class:"header"});
+    const name = el("div",{class:"name"}, n.name);
+    if(isGroup){
+      const badge = el("span",{class:"badge", id:"badge-"+n.id}, n.complete ? "✓ Complet" : "À vérifier");
+      header.append(name, badge);
+    } else {
+      const qty = el("span",{class:"qty"}, "Qté: "+(n.quantity ?? "—"));
+      const state = el("span",{class:"badge", id:"state-"+n.id}, n.last_status==="OK" ? ("OK • "+(n.last_by||"")) : "—");
+      header.append(name, el("div",{class:"row"}, qty, state));
+    }
+    node.append(header);
+
+    const childrenWrap = el("div",{class:"childs"});
+    (n.children||[]).forEach(ch => {
+      parentOf.set(ch.id, n.id);
+      childrenWrap.append(renderTreeNode(ch));
+    });
+
+    if(!isGroup){
+      const actions = el("div",{class:"item", id:"item-actions-"+n.id});
+      const btnOk = el("button",{class:"btn", onclick: ()=>verifyPublic(n.id,"OK")}, "OK");
+      const btnKo = el("button",{class:"btn ghost", onclick: ()=>verifyPublic(n.id,"NOT_OK")}, "Non conforme");
+      actions.append(el("div",{class:"muted"},"Vérification"), el("div",{class:"row"}, btnOk, btnKo));
+      childrenWrap.append(actions);
+      if(n.last_status==="OK") actions.style.opacity = .6;
     }
 
-    function renderItemHeader(n){
-      const nameEl = el("div", {class:"name"}, n.name);
-      const chip = n.last_status
-        ? el("span", {class: "chip " + (n.last_status==="OK" ? "ok" : "ko")}, n.last_status==="OK" ? "OK" : "Non conforme")
-        : el("span", {class:"chip"}, "À vérifier");
-      return el("div", {class:"header"}, nameEl, el("span", {class:"qty"}, `Qté: ${n.quantity ?? "—"}`), chip);
-    }
-    function renderItem(n){
-      const header = renderItemHeader(n);
-      const who = el("div", {class:"who", id:`who-${n.id}`},
-        n.last_by ? `Validé par : ${n.last_by}` : ""
-      );
-      const actions = el("div", {class:"item"},
-        el("div", {class:"subtitle"}, "Vérification"),
-        el("div", {class:"row", style:"gap:6px;"},
-          el("button", {class:"btn", onclick: () => verifyItem(n.id, "OK")}, "OK"),
-          el("button", {class:"btn ghost", onclick: () => verifyItem(n.id, "NOT_OK")}, "Non conforme"),
-        )
-      );
-      const node = el("div", {class:"node", id:`node-${n.id}`}, header, el("div",{class:"childs"}, who, actions));
-      if(n.last_status === "OK"){ node.classList.add("item-ok"); }
-      return node;
-    }
+    node.append(childrenWrap);
+    return node;
+  }
 
-    function renderGroupHeader(n){
-      const nameEl = el("div", {class:"name"}, n.name);
-      const tick = el("span", {class:"ok-flag" + (n.complete ? " good" : ""), id:`tick-${n.id}`}, n.complete ? "✓" : "");
-      return el("div", {class:"header"}, nameEl, tick);
-    }
-    function renderGroup(n){
-      const header = renderGroupHeader(n);
-      const childrenWrap = el("div", {class:"childs"});
-      (n.children || []).forEach(ch => childrenWrap.appendChild(renderNode(ch)));
-      return el("div", {class:"node", id:`node-${n.id}`}, header, childrenWrap);
-    }
-    function renderNode(n){ return n.type==="GROUP" ? renderGroup(n) : renderItem(n); }
+  function renderTree(){
+    const treeEl = document.getElementById("tree");
+    treeEl.innerHTML = "";
+    parentOf.clear();
+    TREE.forEach(root => treeEl.append(renderTreeNode(root)));
+    recomputeAll();
+  }
 
-    function flattenItems(nodes){
-      const out = [];
-      (function rec(list){
-        list.forEach(n => { if(n.type==="ITEM") out.push(n); if(n.children?.length) rec(n.children); });
-      })(nodes);
-      return out;
-    }
-    function computeInitialProgress(){
-      const items = flattenItems(TREE);
-      totalItems = items.length;
-      okCount = items.filter(i => i.last_status === "OK").length;
-      updateProgress(okCount, totalItems);
-    }
-    function updateProgress(ok, total){
-      const pct = total ? Math.round((ok/total)*100) : 0;
-      document.getElementById("progress-bar").style.width = pct + "%";
-      document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
-    }
+  function allItemNodesIn(groupEl){ return groupEl.querySelectorAll('.node[data-type="ITEM"]'); }
+  function okItemsIn(groupEl){ return groupEl.querySelectorAll('.node[data-type="ITEM"] .badge[id^="state-"]:not(:empty)'); }
+  function markGroupBadge(groupId){
+    const groupEl = document.getElementById("node-"+groupId);
+    if(!groupEl) return;
+    const badge = document.getElementById("badge-"+groupId);
+    if(!badge) return;
+    const total = allItemNodesIn(groupEl).length;
+    const oks = okItemsIn(groupEl).length;
+    badge.textContent = (total>0 && oks===total) ? "✓ Complet" : `À vérifier (${oks}/${total})`;
+  }
+  function recomputeAll(){
+    TREE.forEach(function walk(n){
+      if(n.type==="GROUP") markGroupBadge(n.id);
+      (n.children||[]).forEach(walk);
+    });
+  }
 
-    function buildUI(){
-      const treeEl = document.getElementById("tree");
-      treeEl.innerHTML = "";
-      if(!Array.isArray(TREE) || TREE.length===0){
-        treeEl.append(el("div",{class:"item"}, el("div",{class:"subtitle"},"Aucun matériel à afficher.")));
-        updateProgress(0,0);
-        return;
-      }
-      TREE.forEach(root => treeEl.appendChild(renderNode(root)));
-      computeInitialProgress();
-    }
+  function applyItemVerification(nodeId, status, by){
+    const state = document.getElementById("state-"+nodeId);
+    const actions = document.getElementById("item-actions-"+nodeId);
+    if(state) state.textContent = status==="OK" ? `OK • ${by||""}` : `Non conforme • ${by||""}`;
+    if(actions && status==="OK") actions.style.opacity = .6;
+    let p = parentOf.get(nodeId);
+    while(p){ markGroupBadge(p); p = parentOf.get(p); }
+  }
 
-    function getCurrentName(){ return (document.getElementById("name-inline").value || "").trim(); }
+  function verifyPublic(nodeId, status){
+    const who = (whoInput.value||"").trim();
+    if(!who){ alert("Merci d’indiquer votre nom & prénom (en haut)"); whoInput.focus(); return; }
+    fetch(`/public/event/${TOKEN}/verify`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({node_id: nodeId, status, verifier_name: who})
+    }).then(r=>r.ok?r.json():r.json().then(e=>Promise.reject(e)))
+      .then(()=>{/* push temps réel par le serveur */})
+      .catch(e=>alert(e?.error||"Erreur"));
+  }
 
-    async function verifyItem(nodeId, status){
-      const name = getCurrentName();
-      if(!name){ alert("Merci d'indiquer votre nom & prénom."); return; }
-      const r = await fetch(`/public/event/${TOKEN}/verify`, {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({node_id: nodeId, status, verifier_name: name})
-      });
-      if(!r.ok){ alert(await r.text().catch(()=> "Erreur")); return; }
-      applyVerificationToUI(nodeId, status, name);
-    }
-
-    function findNodeInTree(id){
-      let found=null;
-      (function rec(list){
-        for(const n of list){
-          if(n.id===id){ found=n; return; }
-          if(n.children?.length){ rec(n.children); if(found) return; }
-        }
-      })(TREE);
-      return found;
-    }
-    function parentMap(){
-      const map = new Map();
-      (function rec(list, parent){
-        for(const n of list){
-          map.set(n.id, parent || null);
-          if(n.children?.length) rec(n.children, n);
-        }
-      })(TREE, null);
-      return map;
-    }
-    const PARENT_MAP = parentMap();
-
-    function aggregate(node){
-      let ok=0, total=0;
-      (function rec(n){
-        if(n.type==="ITEM"){ total++; if(n.last_status==="OK") ok++; }
-        (n.children||[]).forEach(rec);
-      })(node);
-      return {ok, total};
-    }
-
-    function updateParentTicksFrom(nodeId){
-      let curId = nodeId;
-      while(PARENT_MAP.has(curId)){
-        const parent = PARENT_MAP.get(curId);
-        if(!parent) break;
-        const agg = aggregate(parent);
-        parent.ok_count = agg.ok;
-        parent.total_items = agg.total;
-        parent.complete = (agg.total>0 && agg.ok===agg.total);
-        const tick = document.getElementById(`tick-${parent.id}`);
-        if(tick){ tick.textContent = parent.complete ? "✓" : ""; tick.classList.toggle("good", !!parent.complete); }
-        curId = parent.id;
-      }
-    }
-
-    function applyVerificationToUI(nodeId, status, by){
-      const item = findNodeInTree(nodeId);
-      if(!item) return;
-      const prevOK = item.last_status === "OK";
-      item.last_status = status;
-      item.last_by = by || item.last_by || "";
-      const node = document.getElementById(`node-${nodeId}`);
-      if(node){
-        const header = node.querySelector(".header");
-        let chip = header?.querySelector(".chip");
-        if(!chip){ chip = el("span",{class:"chip"},""); header.appendChild(chip); }
-        chip.className = "chip " + (status==="OK" ? "ok" : "ko");
-        chip.textContent = status==="OK" ? "OK" : "Non conforme";
-        const who = node.querySelector(`#who-${nodeId}`);
-        if(who){ who.textContent = by ? `Validé par : ${by}` : ""; }
-        if(status==="OK") node.classList.add("item-ok"); else node.classList.remove("item-ok");
-      }
-      if(status==="OK" && !prevOK){ okCount = Math.min(totalItems, okCount+1); }
-      if(status==="NOT_OK" && prevOK){ okCount = Math.max(0, okCount-1); }
-      updateProgress(okCount, totalItems);
-      updateParentTicksFrom(nodeId);
-    }
-
-    async function init(){
-      // gating nom
-      const intro = document.getElementById("intro-card");
-      const treeCard = document.getElementById("tree-card");
-      const inputStart = document.getElementById("secu-name");
-      const inputInline = document.getElementById("name-inline");
-      const stored = getStoredName();
-
-      if(stored){
-        inputInline.value = stored;
-        intro.style.display = "none";
-        treeCard.style.display = "";
-        buildUI();
-      } else {
-        intro.style.display = "";
-        treeCard.style.display = "none";
-      }
-
-      document.getElementById("btn-start").onclick = () => {
-        const v = (inputStart.value || "").trim();
-        if(!v){ alert("Merci d'indiquer votre nom & prénom."); return; }
-        setStoredName(v);
-        inputInline.value = v;
-        intro.style.display = "none";
-        treeCard.style.display = "";
-        buildUI();
-      };
-
-      document.getElementById("btn-change-name").onclick = () => {
-        const v = (inputInline.value || "").trim();
-        if(!v){ alert("Nom & prénom requis."); return; }
-        setStoredName(v);
-        alert("Nom mis à jour.");
-      };
-    }
-    init();
-  </script>
+  renderTree();
+</script>
 {% endblock %}
