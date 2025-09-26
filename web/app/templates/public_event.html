@@ -13,7 +13,7 @@
         </span>
       </div>
       <div class="subtitle" style="margin-top:6px;">
-        Cette page est dédiée aux secouristes via le lien partagé.
+        Page dédiée aux secouristes via le lien partagé.
       </div>
     </div>
 
@@ -29,7 +29,7 @@
     <div class="row wrap" style="gap:8px; margin-top:8px;">
       <div class="subtitle">Merci de saisir votre nom & prénom :</div>
       <input id="secu-name" placeholder="Nom & prénom" style="min-width:220px;">
-      <button class="btn primary" id="btn-start">Commencer la vérification</button>
+      <button class="btn primary" id="btn-start">Commencer</button>
     </div>
     <div class="subtitle" style="margin-top:6px;">
       Votre nom sera enregistré à chaque validation d'item pour assurer la traçabilité.
@@ -64,18 +64,45 @@
     let TREE = {{ (tree or [])|tojson }};
     let okCount = 0, totalItems = 0;
 
-    // Socket public (optionnel)
+    // Socket (polling d'abord, puis websocket) + fallback stats
     let socket = null;
+    let socketReady = false;
     try {
-      socket = io({transports:["websocket","polling"], timeout: 1500});
-      socket.emit("join_event", {event_id: EVENT_ID});
+      socket = io({
+        transports:["polling","websocket"],
+        reconnection:true,
+        reconnectionDelay:1000,
+        reconnectionDelayMax:5000,
+        timeout: 2000
+      });
+      socket.on("connect", () => {
+        socketReady = true;
+        socket.emit("join_event", {event_id: EVENT_ID});
+      });
+      socket.on("disconnect", () => { socketReady = false; });
       socket.on("event_update", (payload) => {
+        if(payload?.event_id !== EVENT_ID) return;
         if(payload?.type === "item_verified"){
           applyVerificationToUI(payload.node_id, payload.status, payload.by || payload.verifier_name || "");
         }
       });
     } catch (e) { console.warn("Socket.IO indisponible:", e); }
 
+    setInterval(async () => {
+      if (socketReady) return;
+      try{
+        const r = await fetch(`/events/${EVENT_ID}/stats`, {credentials:"include"});
+        if(!r.ok) return;
+        const js = await r.json();
+        if(js && typeof js.verified_ok==="number" && typeof js.verified_total==="number"){
+          okCount = js.verified_ok;
+          totalItems = js.verified_total;
+          updateProgress(okCount, totalItems);
+        }
+      }catch(_){}
+    }, 5000);
+
+    // ===== util =====
     function getStoredName(){ try{ return localStorage.getItem("pcprep_name") || ""; }catch(e){ return ""; } }
     function setStoredName(v){ try{ localStorage.setItem("pcprep_name", v || ""); }catch(e){} }
 
@@ -91,6 +118,7 @@
       return e;
     }
 
+    // ===== rendu =====
     function renderItemHeader(n){
       const nameEl = el("div", {class:"name"}, n.name);
       const chip = n.last_status
@@ -138,7 +166,7 @@
     function computeInitialProgress(){
       const items = flattenItems(TREE);
       totalItems = items.length;
-      okCount = items.filter(i => i.last_status === "OK").length;
+      okCount   = items.filter(i => i.last_status === "OK").length;
       updateProgress(okCount, totalItems);
     }
     function updateProgress(ok, total){
@@ -157,8 +185,20 @@
       }
       TREE.forEach(root => treeEl.appendChild(renderNode(root)));
       computeInitialProgress();
+      markAllParentTicks(TREE);
     }
 
+    function markAllParentTicks(nodes){
+      nodes.forEach(n => {
+        if(n.type==="GROUP"){
+          const tick = document.getElementById(`tick-${n.id}`);
+          if(tick){ tick.textContent = n.complete ? "✓" : ""; tick.classList.toggle("good", !!n.complete); }
+        }
+        if(n.children?.length) markAllParentTicks(n.children);
+      });
+    }
+
+    // ===== actions =====
     function getCurrentName(){ return (document.getElementById("name-inline").value || "").trim(); }
 
     async function verifyItem(nodeId, status){
@@ -242,8 +282,8 @@
       updateParentTicksFrom(nodeId);
     }
 
+    // ===== init / nom =====
     async function init(){
-      // gating nom
       const intro = document.getElementById("intro-card");
       const treeCard = document.getElementById("tree-card");
       const inputStart = document.getElementById("secu-name");
