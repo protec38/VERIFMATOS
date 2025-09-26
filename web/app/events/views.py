@@ -1,5 +1,6 @@
 # app/events/views.py — API JSON pour les événements (création, suppression, opérations)
 from __future__ import annotations
+
 import uuid
 from datetime import date
 from typing import Any, Dict, List
@@ -23,8 +24,10 @@ from ..tree_query import build_event_tree
 
 bp = Blueprint("events", __name__)
 
+
 # ---------- Helpers ----------
 def _json_or_form() -> Dict[str, Any]:
+    """Récupère la payload soit en JSON, soit en form-urlencoded (fallback)."""
     data = request.get_json(silent=True)
     if data is None:
         data = request.form.to_dict(flat=False) if request.form else {}
@@ -34,7 +37,9 @@ def _json_or_form() -> Dict[str, Any]:
         data = flat
     return data
 
+
 def _as_int_list(value: Any) -> List[int]:
+    """Transforme '1,2' / ['1','2'] / [1,2] en liste d'int."""
     if value is None:
         return []
     if isinstance(value, (list, tuple)):
@@ -48,7 +53,14 @@ def _as_int_list(value: Any) -> List[int]:
             out.append(int(s))
     return out
 
+
+def _require_admin() -> None:
+    if not current_user.is_authenticated or current_user.role != Role.ADMIN:
+        abort(403)
+
+
 def _require_can_manage_event(ev: Event | None = None) -> None:
+    """Autorise ADMIN & CHEF, et exige que l'événement soit OPEN quand un évènement est fourni."""
     if not current_user.is_authenticated:
         abort(401)
     if current_user.role not in (Role.ADMIN, Role.CHEF):
@@ -56,19 +68,22 @@ def _require_can_manage_event(ev: Event | None = None) -> None:
     if ev is not None and ev.status != EventStatus.OPEN:
         abort(403)
 
+
 def _require_can_view_event(ev: Event) -> None:
     if not current_user.is_authenticated:
         abort(401)
     if current_user.role not in (Role.ADMIN, Role.CHEF, Role.VIEWER):
         abort(403)
 
+
 def _delete_event_rows(ev: Event) -> None:
-    # nettoyage “soft” si les relations ne sont pas en cascade
+    """Nettoyage (si les relations ne sont pas en cascade côté modèle)."""
     db.session.query(VerificationRecord).filter_by(event_id=ev.id).delete(synchronize_session=False)
     db.session.query(EventNodeStatus).filter_by(event_id=ev.id).delete(synchronize_session=False)
     db.session.query(EventShareLink).filter_by(event_id=ev.id).delete(synchronize_session=False)
     db.session.execute(event_stock.delete().where(event_stock.c.event_id == ev.id))
     db.session.delete(ev)
+
 
 # ---------- CREATE ----------
 @bp.post("/events")
@@ -122,6 +137,7 @@ def create_event():
         return jsonify({"ok": True, "id": ev.id, "url": url_for("pages.event_page", event_id=ev.id)}), 201
     return redirect(url_for("pages.event_page", event_id=ev.id), code=303)
 
+
 # ---------- READ TREE (polling) ----------
 @bp.get("/events/<int:event_id>/tree")
 @login_required
@@ -130,6 +146,7 @@ def get_event_tree(event_id: int):
     _require_can_view_event(ev)
     tree = build_event_tree(event_id)
     return jsonify(tree)
+
 
 # ---------- STOCK ROOTS LIST ----------
 @bp.get("/events/<int:event_id>/stock-roots")
@@ -146,6 +163,7 @@ def get_event_stock_roots(event_id: int):
     roots = [{"id": n.id, "name": n.name} for n in q.all()]
     return jsonify(roots)
 
+
 # ---------- SHARE LINK ----------
 @bp.post("/events/<int:event_id>/share-link")
 @login_required
@@ -161,7 +179,8 @@ def create_share_link(event_id: int):
         db.session.commit()
     return jsonify({"ok": True, "token": link.token, "url": f"/public/event/{link.token}"}), 201
 
-# ---------- STATUS ----------
+
+# ---------- STATUS (CLOSE / RE-OPEN) ----------
 @bp.patch("/events/<int:event_id>/status")
 @login_required
 def update_event_status(event_id: int):
@@ -180,8 +199,7 @@ def update_event_status(event_id: int):
         return jsonify({"ok": True, "status": "CLOSED"})
 
     if status_str == "OPEN":
-        if current_user.role != Role.ADMIN:
-            abort(403)
+        _require_admin()  # réouverture réservée ADMIN
         ev.status = EventStatus.OPEN
         db.session.commit()
         try:
@@ -192,6 +210,7 @@ def update_event_status(event_id: int):
 
     abort(400, description="Statut invalide")
 
+
 # ---------- PARENT CHARGED ----------
 @bp.post("/events/<int:event_id>/parent-status")
 @login_required
@@ -201,7 +220,17 @@ def update_parent_status(event_id: int):
 
     data = _json_or_form()
     node_id = int(data.get("node_id") or 0)
-    charged = bool(data.get("charged_vehicle"))
+
+    # parse robuste du booléen
+    val = data.get("charged_vehicle")
+    charged = False
+    if isinstance(val, bool):
+        charged = val
+    elif isinstance(val, (int, float)):
+        charged = bool(val)
+    elif isinstance(val, str):
+        charged = val.strip().lower() in {"1", "true", "on", "yes"}
+
     if not node_id:
         abort(400, description="node_id manquant")
 
@@ -222,6 +251,7 @@ def update_parent_status(event_id: int):
     except Exception:
         pass
     return jsonify({"ok": True, "node_id": node_id, "charged_vehicle": charged})
+
 
 # ---------- VERIFY ITEM ----------
 @bp.post("/events/<int:event_id>/verify")
@@ -251,6 +281,7 @@ def verify_item(event_id: int):
         pass
     return jsonify({"ok": True, "record_id": rec.id})
 
+
 # ---------- STATS ----------
 @bp.get("/events/<int:event_id>/stats")
 @login_required
@@ -261,24 +292,27 @@ def event_stats(event_id: int):
     total_all = db.session.query(VerificationRecord).filter_by(event_id=event_id).count()
     return jsonify({"ok": True, "verified_ok": total_ok, "verified_total": total_all})
 
-# ---------- DELETE (API DELETE + fallback POST pour formulaires) ----------
+
+# ---------- DELETE (API DELETE + fallback POST) ----------
 @bp.delete("/events/<int:event_id>")
 @login_required
 def delete_event_api(event_id: int):
+    """Suppression autorisée même si CLOSED (ADMIN uniquement)."""
     ev = db.session.get(Event, event_id) or abort(404)
-    _require_can_manage_event(ev)
+    _require_admin()  # 👈 suppression toujours possible pour ADMIN
     _delete_event_rows(ev)
     db.session.commit()
     return jsonify({"ok": True})
 
+
 @bp.route("/events/<int:event_id>/delete", methods=["POST"])
 @login_required
 def delete_event_form(event_id: int):
+    """Fallback formulaire (POST)."""
     ev = db.session.get(Event, event_id) or abort(404)
-    _require_can_manage_event(ev)
+    _require_admin()  # 👈 suppression toujours possible pour ADMIN
     _delete_event_rows(ev)
     db.session.commit()
     if request.is_json:
         return jsonify({"ok": True})
-    # Redirection pour les formulaires classiques
     return redirect(url_for("pages.dashboard"))
