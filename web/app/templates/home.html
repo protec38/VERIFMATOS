@@ -40,7 +40,7 @@
           <th>Nom</th>
           <th>Statut</th>
           <th>Date</th>
-          <th style="width:220px">Actions</th>
+          <th style="width:270px">Actions</th>
         </tr>
       </thead>
       <tbody id="events-body">
@@ -53,6 +53,7 @@
           <td>{{ ev.date or "—" }}</td>
           <td class="row">
             <a class="btn" href="{{ url_for('pages.event_page', event_id=ev.id) }}">Ouvrir</a>
+            <a class="btn" target="_blank" href="/reports/event/{{ ev.id }}/pdf">Export PDF</a>
             <button class="btn danger btn-del" data-id="{{ ev.id }}">Supprimer</button>
           </td>
         </tr>
@@ -68,8 +69,10 @@
 (function(){
   const byId = (id)=>document.getElementById(id);
 
-  // Création
+  // -------- Création --------
+  let creating = false;
   byId('btn-create')?.addEventListener('click', async () => {
+    if (creating) return;
     const name = byId('ev-name').value.trim();
     const date = byId('ev-date').value || null;
     const rootIds = Array.from(document.querySelectorAll('.root-cb:checked')).map(cb => parseInt(cb.value,10));
@@ -77,6 +80,7 @@
     if(!name){ alert("Nom requis"); return; }
     if(rootIds.length === 0){ alert("Sélectionne au moins un parent"); return; }
 
+    creating = true;
     try {
       const res = await fetch('/events', {
         method: 'POST',
@@ -84,44 +88,152 @@
         body: JSON.stringify({ name, date, root_ids: rootIds })
       });
 
-      // Si backend renvoie HTML (erreur), on l’affiche tel quel
       const text = await res.text();
       if(!res.ok){
-        alert(text); return;
+        alert(text);
+        return;
       }
-      // Normalement JSON avec {url}
-      let data;
-      try { data = JSON.parse(text); } catch { data = {}; }
+      // Normalement JSON {url}
+      let data; try{ data = JSON.parse(text); }catch{ data = {}; }
       if(data.url){ location.href = data.url; }
       else { location.reload(); }
     } catch (e){
       alert("Erreur réseau: "+ e);
+    } finally {
+      creating = false;
     }
   });
 
-  // Suppression (POST fallback)
-  document.querySelectorAll('.btn-del').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const id = btn.getAttribute('data-id');
-      if(!confirm("Supprimer cet événement ?")) return;
-      try {
-        const res = await fetch(`/events/${id}/delete`, {
-          method: 'POST',
-          headers: {'Accept':'application/json'}
-        });
-        if(!res.ok){
-          const t = await res.text();
-          alert(t);
-          return;
+  // -------- Suppression (POST fallback) --------
+  function bindDeleteButtons(scope=document){
+    scope.querySelectorAll('.btn-del').forEach(btn => {
+      if (btn._bound) return; // évite double-binding
+      btn._bound = true;
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-id');
+        if(!confirm("Supprimer cet événement ?")) return;
+        try {
+          const res = await fetch(`/events/${id}/delete`, {
+            method: 'POST',
+            headers: {'Accept':'application/json'}
+          });
+          if(!res.ok){
+            const t = await res.text();
+            alert(t);
+            return;
+          }
+          // Retire la ligne sans recharger
+          const tr = document.querySelector(`tr[data-id="${id}"]`);
+          tr?.parentNode?.removeChild(tr);
+        } catch(e){
+          alert("Erreur réseau: "+e);
         }
-        // Retire la ligne sans recharger
-        const tr = document.querySelector(`tr[data-id="${id}"]`);
-        tr?.parentNode?.removeChild(tr);
-      } catch(e){
-        alert("Erreur réseau: "+e);
+      });
+    });
+  }
+  bindDeleteButtons();
+
+  // -------- Actualisation douce de la liste (si endpoint JSON dispo) --------
+  // On tente /events/list puis /api/events (gracieux si absent).
+  const bodyEl = byId('events-body');
+
+  function badgeHTML(status){
+    return `<span class="badge">${status}</span>`;
+  }
+
+  function rowHTML(ev){
+    const date = ev.date || "—";
+    return `
+      <tr data-id="${ev.id}">
+        <td><a href="/events/${ev.id}">${ev.name}</a></td>
+        <td>${badgeHTML(ev.status)}</td>
+        <td>${date}</td>
+        <td class="row">
+          <a class="btn" href="/events/${ev.id}">Ouvrir</a>
+          <a class="btn" target="_blank" href="/reports/event/${ev.id}/pdf">Export PDF</a>
+          <button class="btn danger btn-del" data-id="${ev.id}">Supprimer</button>
+        </td>
+      </tr>`;
+  }
+
+  function diffApply(list){
+    // index existants
+    const existing = new Map();
+    bodyEl.querySelectorAll('tr[data-id]').forEach(tr=>{
+      existing.set(parseInt(tr.getAttribute('data-id'),10), tr);
+    });
+
+    // ajoute/maj
+    const frag = document.createDocumentFragment();
+    const order = [];
+    list.forEach(ev=>{
+      order.push(ev.id);
+      const tr = existing.get(ev.id);
+      if(!tr){
+        const tmp = document.createElement('tbody');
+        tmp.innerHTML = rowHTML(ev);
+        const newTr = tmp.firstElementChild;
+        frag.appendChild(newTr);
+        bindDeleteButtons(newTr);
+      }else{
+        // mise à jour légère des champs (sans remplacer l’élément pour éviter flicker)
+        const tds = tr.querySelectorAll('td');
+        // nom (td0)
+        const a = tds[0].querySelector('a');
+        if (a && (a.textContent !== ev.name || a.getAttribute('href') !== `/events/${ev.id}`)) {
+          a.textContent = ev.name;
+          a.setAttribute('href', `/events/${ev.id}`);
+        }
+        // statut (td1)
+        const statusCell = tds[1];
+        if (statusCell && statusCell.innerHTML.trim() !== badgeHTML(ev.status)) {
+          statusCell.innerHTML = badgeHTML(ev.status);
+        }
+        // date (td2)
+        const date = ev.date || "—";
+        if (tds[2] && tds[2].textContent.trim() !== date) {
+          tds[2].textContent = date;
+        }
+        // actions (td3) — liens inchangés sauf PDF
+        const pdf = tr.querySelector(`a[href="/reports/event/${ev.id}/pdf"]`);
+        if (!pdf) {
+          const actions = tds[3];
+          const btnPDF = document.createElement('a');
+          btnPDF.className = 'btn';
+          btnPDF.target = '_blank';
+          btnPDF.href = `/reports/event/${ev.id}/pdf`;
+          btnPDF.textContent = 'Export PDF';
+          actions.insertBefore(btnPDF, actions.querySelector('.btn-del'));
+        }
       }
     });
-  });
+
+    // insère les nouveaux à la fin
+    if (frag.childNodes.length) bodyEl.appendChild(frag);
+
+    // supprime les lignes qui n’existent plus
+    existing.forEach((tr, id)=>{
+      if(!list.find(e=>e.id===id)){
+        tr.parentNode.removeChild(tr);
+      }
+    });
+  }
+
+  async function fetchEventsOnce(){
+    try{
+      let res = await fetch('/events/list', {headers:{'Accept':'application/json'}});
+      if(!res.ok){
+        // tentative alternative
+        res = await fetch('/api/events', {headers:{'Accept':'application/json'}});
+      }
+      if(!res.ok) return; // silencieux si pas d’endpoint
+      const data = await res.json(); // attendu: [{id,name,status,date}, ...]
+      if(Array.isArray(data)) diffApply(data);
+    }catch(_){}
+  }
+
+  // polling doux toutes les 5s (si endpoint présent)
+  setInterval(fetchEventsOnce, 5000);
 })();
 </script>
 
