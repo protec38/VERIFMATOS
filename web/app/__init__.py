@@ -13,12 +13,30 @@ from .config import get_config
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
-# On instancie SocketIO au module (sera bindé à l'app ensuite)
+login_manager.login_view = "pages.login"
+# Protection de session optionnelle
+login_manager.session_protection = "strong"
+
+# Socket.IO (par défaut sans Redis, un seul worker/process)
 socketio = SocketIO(
-    async_mode="eventlet",              # eventlet (gunicorn worker eventlet)
-    cors_allowed_origins="*",           # frontal/reverse proxy OK
-    message_queue=None                  # pas de Redis => single-process uniquement
+    async_mode="eventlet",
+    cors_allowed_origins="*",
+    message_queue=None,
 )
+
+# --------- USER LOADER (OBLIGATOIRE) ----------
+# Flask-Login a besoin de savoir recharger un user depuis l'id stocké en session.
+@login_manager.user_loader
+def load_user(user_id: str):
+    try:
+        from .models import User  # import local pour éviter les imports circulaires
+        if not user_id:
+            return None
+        return db.session.get(User, int(user_id))
+    except Exception:
+        return None
+# ----------------------------------------------
+
 
 def create_app() -> Flask:
     app = Flask(__name__, instance_relative_config=False)
@@ -30,26 +48,24 @@ def create_app() -> Flask:
     db.init_app(app)
     migrate.init_app(app, db)
     login_manager.init_app(app)
-    login_manager.login_view = "pages.login"
 
     # Import models pour migrations
     from . import models  # noqa: F401
 
-    # Socket.IO
-    # Si un REDIS_URL existe, on l’utilise, sinon on reste en in-process
+    # Socket.IO : si REDIS_URL présent, on l’active, sinon on reste en in-process
     redis_url = app.config.get("REDIS_URL") or ""
     if redis_url:
         try:
-            # Recrée l'instance avec backend Redis si dispo
             global socketio
             socketio = SocketIO(
                 async_mode="eventlet",
                 cors_allowed_origins="*",
-                message_queue=redis_url
+                message_queue=redis_url,
             )
         except Exception as e:
-            logging.warning("SocketIO: Redis MQ désactivé (préflight KO: %s). Démarrage sans MQ.", e)
-    # Dans tous les cas, on bind SocketIO à l'app
+            logging.warning(
+                "SocketIO: Redis MQ désactivé (préflight KO: %s). Démarrage sans MQ.", e
+            )
     socketio.init_app(app)
 
     # Jinja globals (ex: footer année courante)
