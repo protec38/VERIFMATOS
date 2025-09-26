@@ -1,21 +1,15 @@
 # app/events/views.py
 from __future__ import annotations
 import uuid
-from typing import Any, Dict, List
+from typing import Any, Dict
 from flask import Blueprint, jsonify, request, abort
 from flask_login import login_required, current_user
 
 from .. import db
 from ..models import (
-    Event,
-    EventStatus,
-    Role,
-    StockNode,
-    NodeType,
-    event_stock,
-    EventShareLink,
-    EventNodeStatus,
-    VerificationRecord,
+    Event, EventStatus, Role,
+    StockNode, NodeType, event_stock,
+    EventShareLink, EventNodeStatus, VerificationRecord,
 )
 from ..tree_query import build_event_tree
 
@@ -34,7 +28,6 @@ def _json() -> Dict[str, Any]:
         data = request.form.to_dict() if request.form else {}
     return data
 
-# --- sanitation util: convert Enums -> str for JSON ---
 def _enum_to_str(v):
     try:
         return v.name
@@ -53,15 +46,12 @@ def _sanitize_tree(node: Dict[str, Any]) -> Dict[str, Any]:
         "charged_vehicle": node.get("charged_vehicle"),
         "children": [],
     }
-    # champs de statut si présents
     ls = node.get("last_status")
     if ls is not None:
         out["last_status"] = _enum_to_str(ls) if not isinstance(ls, str) else ls
     lb = node.get("last_by")
     if lb:
         out["last_by"] = lb
-
-    # enfants
     for ch in (node.get("children") or []):
         out["children"].append(_sanitize_tree(ch))
     return out
@@ -73,12 +63,10 @@ def _sanitize_tree(node: Dict[str, Any]) -> Dict[str, Any]:
 @bp.get("/events/<int:event_id>/tree")
 @login_required
 def get_event_tree(event_id: int):
-    """Renvoie l'arbre (parents/child/items) associé à l'événement, avec derniers statuts, prêt pour le front (AJAX polling)."""
     ev = db.session.get(Event, event_id) or abort(404)
     if not _can_view(ev):
         abort(403)
     raw = build_event_tree(event_id) or []
-    # build_event_tree peut retourner des Enums -> on nettoie.
     tree = [_sanitize_tree(n) for n in raw]
     return jsonify(tree)
 
@@ -103,7 +91,6 @@ def create_share_link(event_id: int):
     ev = db.session.get(Event, event_id) or abort(404)
     if not _can_manage(ev):
         abort(403)
-
     link = EventShareLink.query.filter_by(event_id=event_id, active=True).first()
     if not link:
         token = uuid.uuid4().hex
@@ -143,7 +130,6 @@ def update_parent_status(event_id: int):
     charged = bool(data.get("charged_vehicle"))
     if not node_id:
         abort(400, description="node_id manquant")
-
     ens = (
         EventNodeStatus.query.filter_by(event_id=event_id, node_id=node_id).first()
         or EventNodeStatus(event_id=event_id, node_id=node_id)
@@ -159,16 +145,17 @@ def verify_item(event_id: int):
     ev = db.session.get(Event, event_id) or abort(404)
     if not _can_manage(ev):
         abort(403)
-
     data = _json()
     node_id = int(data.get("node_id") or 0)
     status = (data.get("status") or "").upper()
+    # Fallback automatique pour chef/admin : on prend le nom du compte s'il manque
     verifier_name = (data.get("verifier_name") or "").strip()
+    if not verifier_name and current_user.is_authenticated:
+        verifier_name = getattr(current_user, "username", "") or "Chef de poste"
 
     if not node_id or status not in ("OK", "NOT_OK") or not verifier_name:
         abort(400, description="Paramètres invalides (node_id, status, verifier_name)")
 
-    # (sécurité) vérifier que le node est sous un parent associé à l'événement ?
     rec = VerificationRecord(
         event_id=event_id,
         node_id=node_id,
