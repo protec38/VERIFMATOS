@@ -1,32 +1,49 @@
-# app/sockets.py — Handlers Socket.IO (temps réel)
-from flask_socketio import join_room, leave_room
+# app/sockets.py
+from __future__ import annotations
 from flask import request
-from .models import EventShareLink
-
-def room_for_event(event_id: int) -> str:
-    return f"event-{event_id}"
+from flask_socketio import join_room, leave_room, emit
 
 def register_socketio_handlers(socketio):
+    @socketio.on("connect")
+    def on_connect():
+        try:
+            emit("connected", {"sid": request.sid})
+        except Exception:
+            pass
+
     @socketio.on("join_event")
-    def join(data):
-        # data can provide event_id or token
-        event_id = data.get("event_id")
-        token = data.get("token")
-        if not event_id and token:
-            link = EventShareLink.query.filter_by(token=token, active=True).first()
-            if link and link.event_id:
-                event_id = link.event_id
+    def on_join_event(data):
+        try:
+            event_id = int((data or {}).get("event_id") or 0)
+        except Exception:
+            event_id = 0
         if not event_id:
             return
-        join_room(room_for_event(int(event_id)))
+        room = f"event_{event_id}"
+        join_room(room)
+        # notifie les autres (optionnel)
+        try:
+            emit("event_update",
+                 {"type": "presence", "event_id": event_id, "sid": request.sid},
+                 room=room, include_self=False)
+        except Exception:
+            pass
 
     @socketio.on("leave_event")
-    def leave(data):
-        event_id = data.get("event_id")
+    def on_leave_event(data):
+        try:
+            event_id = int((data or {}).get("event_id") or 0)
+        except Exception:
+            event_id = 0
         if not event_id:
             return
-        leave_room(room_for_event(int(event_id)))
+        room = f"event_{event_id}"
+        try:
+            leave_room(room)
+        except Exception:
+            pass
 
-    @socketio.on("ping")
-    def ping(data):
-        socketio.emit("pong", {"echo": data})
+    @socketio.on("disconnect")
+    def on_disconnect():
+        # rien de spécial
+        pass
