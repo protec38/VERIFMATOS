@@ -1,121 +1,128 @@
 {% extends "base.html" %}
 {% set title = "Tableau de bord" %}
 {% block content %}
-  <div class="grid cols-2">
-    <div class="card">
-      <div class="title">Créer un événement</div>
-      <div class="row wrap" style="margin-top:8px;">
-        <input id="ev-name" placeholder="Nom de l'événement" style="flex:1; min-width:240px;">
-        <input id="ev-date" type="date" style="max-width: 220px;">
-      </div>
-      <div class="subtitle">Sélectionne les parents (stocks racine) à vérifier pour cet événement :</div>
-      <div id="parents" class="row wrap" style="gap:10px; margin-top:6px;"></div>
-      <div class="row" style="margin-top:10px;">
-        <a class="btn primary" id="btn-create">Créer l'événement</a>
-      </div>
-    </div>
 
-    <div class="card">
-      <div class="title">Informations</div>
-      <div class="subtitle">Après création, ouvre l’événement pour générer le lien secouristes et suivre la progression.</div>
-    </div>
-  </div>
+<div class="grid cols-2">
+  <div class="card">
+    <div class="title">Créer un événement</div>
+    <div class="subtitle">Sélectionne les stocks « parents » à vérifier (au moins un)</div>
 
-  <div class="card" style="margin-top:14px;">
-    <div class="row space-between">
-      <div class="title">Événements récents</div>
-      <div class="subtitle">Ouvre un événement pour voir le matériel et partager le lien.</div>
-    </div>
-    {% if events %}
-      <table class="table">
-        <thead>
-          <tr>
-            <th>#</th><th>Nom</th><th>Date</th><th>Statut</th><th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for e in events %}
-          <tr>
-            <td>{{ e.id }}</td>
-            <td>{{ e.name }}</td>
-            <td>{{ e.date or "—" }}</td>
-            <td>{{ e.status if e.status is string else e.status.name }}</td>
-            <td class="row wrap" style="gap:6px;">
-              <a class="btn" href="{{ url_for('pages.event_page', event_id=e.id) }}">Ouvrir</a>
-              <a class="btn" href="/reports/event/{{ e.id }}/pdf" target="_blank">Export PDF</a>
-              {% if current_user.role.name == 'ADMIN' %}
-                <a class="btn danger" href="#" data-event-id="{{ e.id }}" onclick="return deleteEvent(this);">Supprimer</a>
-              {% endif %}
-            </td>
-          </tr>
+    <form id="event-form" class="row wrap" style="margin-top:8px" onsubmit="return false;">
+      <input type="text" name="name" id="ev-name" placeholder="Nom de l'événement" required>
+      <input type="date" name="date" id="ev-date" placeholder="Date (optionnel)">
+    </form>
+
+    <div class="alert" style="margin-top:10px">
+      <div class="row wrap">
+        {% if roots and roots|length %}
+          {% for r in roots %}
+            <label class="btn ghost" style="cursor:pointer;">
+              <input type="checkbox" class="root-cb" value="{{ r.id }}" style="margin-right:6px">
+              {{ r.name }}
+            </label>
           {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <div class="muted" style="margin-top:6px;">Aucun événement.</div>
-    {% endif %}
+        {% else %}
+          <span class="muted">Aucun parent racine disponible. Crée d’abord un stock parent dans 🧰 Stock.</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <button id="btn-create" class="btn primary">Créer l'événement</button>
+    </div>
   </div>
 
-  <script>
-    async function api(url, opts={}){
-      const r = await fetch(url, {credentials:'include', ...opts});
-      if(!r.ok){ let t=''; try{t=await r.text();}catch{}; throw new Error(t||('HTTP '+r.status)); }
-      const ct = r.headers.get('Content-Type') || '';
-      if(ct.includes('application/json')) return r.json();
-      return r.text();
-    }
+  <div class="card">
+    <div class="title">Derniers événements</div>
+    <table class="table" style="margin-top:8px">
+      <thead>
+        <tr>
+          <th>Nom</th>
+          <th>Statut</th>
+          <th>Date</th>
+          <th style="width:220px">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="events-body">
+        {% for ev in events %}
+        <tr data-id="{{ ev.id }}">
+          <td><a href="{{ url_for('pages.event_page', event_id=ev.id) }}">{{ ev.name }}</a></td>
+          <td>
+            <span class="badge">{{ ev.status }}</span>
+          </td>
+          <td>{{ ev.date or "—" }}</td>
+          <td class="row">
+            <a class="btn" href="{{ url_for('pages.event_page', event_id=ev.id) }}">Ouvrir</a>
+            <button class="btn danger btn-del" data-id="{{ ev.id }}">Supprimer</button>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="muted">Aucun événement pour le moment.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 
-    async function loadParents(){
-      try{
-        const roots = await api('/stock/roots');
-        const host = document.getElementById('parents');
-        host.innerHTML = '';
-        roots.forEach(r => {
-          const label = document.createElement('label'); label.className='badge';
-          label.style.display='inline-flex'; label.style.alignItems='center'; label.style.gap='6px';
-          const inp = document.createElement('input'); inp.type='checkbox'; inp.value=String(r.id);
-          inp.style.width='18px'; inp.style.height='18px';
-          const span = document.createElement('span'); span.textContent = r.name;
-          label.append(inp, span);
-          host.append(label);
-        });
-        if(!roots.length){
-          host.innerHTML = '<div class="muted">Aucune racine. Va dans “Stock”.</div>';
-        }
-      }catch(e){
-        document.getElementById('parents').innerHTML =
-          '<div class="alert">Impossible de charger les racines (droits insuffisants ?)</div>';
-      }
-    }
+<script>
+(function(){
+  const byId = (id)=>document.getElementById(id);
 
-    async function createEvent(){
-      const name = (document.getElementById('ev-name').value || '').trim();
-      const date = document.getElementById('ev-date').value || '';
-      if(!name){ alert("Nom requis"); return; }
-      const parent_ids = Array.from(
-        document.querySelectorAll('#parents input[type=checkbox]:checked')
-      ).map(i=>parseInt(i.value,10));
-      if(parent_ids.length===0){ alert("Sélectionne au moins un stock parent."); return; }
-      const res = await api('/events', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({name, date, parent_ids})
+  // Création
+  byId('btn-create')?.addEventListener('click', async () => {
+    const name = byId('ev-name').value.trim();
+    const date = byId('ev-date').value || null;
+    const rootIds = Array.from(document.querySelectorAll('.root-cb:checked')).map(cb => parseInt(cb.value,10));
+
+    if(!name){ alert("Nom requis"); return; }
+    if(rootIds.length === 0){ alert("Sélectionne au moins un parent"); return; }
+
+    try {
+      const res = await fetch('/events', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json', 'Accept':'application/json'},
+        body: JSON.stringify({ name, date, root_ids: rootIds })
       });
-      if(res?.id){ location.href = '/events/' + res.id; }
-    }
 
-    document.getElementById('btn-create').onclick = ()=>createEvent().catch(e=>alert(e.message||e));
-    loadParents();
-
-    {% if current_user.role.name == 'ADMIN' %}
-    async function deleteEvent(a){
-      const id = a.getAttribute('data-event-id');
-      if(!confirm("Supprimer l'événement #"+id+" ?")) return false;
-      const r = await fetch('/events/'+id, {method:'DELETE', credentials:'include'});
-      if(!r.ok){ alert(await r.text()); return false; }
-      location.reload();
-      return false;
+      // Si backend renvoie HTML (erreur), on l’affiche tel quel
+      const text = await res.text();
+      if(!res.ok){
+        alert(text); return;
+      }
+      // Normalement JSON avec {url}
+      let data;
+      try { data = JSON.parse(text); } catch { data = {}; }
+      if(data.url){ location.href = data.url; }
+      else { location.reload(); }
+    } catch (e){
+      alert("Erreur réseau: "+ e);
     }
-    {% endif %}
-  </script>
+  });
+
+  // Suppression (POST fallback)
+  document.querySelectorAll('.btn-del').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-id');
+      if(!confirm("Supprimer cet événement ?")) return;
+      try {
+        const res = await fetch(`/events/${id}/delete`, {
+          method: 'POST',
+          headers: {'Accept':'application/json'}
+        });
+        if(!res.ok){
+          const t = await res.text();
+          alert(t);
+          return;
+        }
+        // Retire la ligne sans recharger
+        const tr = document.querySelector(`tr[data-id="${id}"]`);
+        tr?.parentNode?.removeChild(tr);
+      } catch(e){
+        alert("Erreur réseau: "+e);
+      }
+    });
+  });
+})();
+</script>
+
 {% endblock %}
