@@ -35,6 +35,7 @@ const EVENT_ID = {{ event.id }};
 let TREE = {{ (tree or [])|tojson }};
 const CURRENT_USER = "{{ (current_user.username if current_user is defined and current_user.is_authenticated else '')|e }}";
 
+// Helpers DOM
 function el(tag, attrs={}, ...children){
   const e = document.createElement(tag);
   for(const [k,v] of Object.entries(attrs||{})){
@@ -49,13 +50,20 @@ function el(tag, attrs={}, ...children){
 function isItem(n){ return (n.type||"").toUpperCase()==="ITEM"; }
 function isGroup(n){ return (n.type||"").toUpperCase()==="GROUP"; }
 
+// Tous les items descendants sont OK ?
 function groupAllOk(n){
   let ok = true, hasItem=false;
-  (function rec(x){ if(isItem(x)){hasItem=true; ok = ok && (x.last_status==="OK");} (x.children||[]).forEach(rec); })(n);
+  (function rec(x){
+    if(isItem(x)){ hasItem = true; ok = ok && (x.last_status==="OK"); }
+    (x.children||[]).forEach(rec);
+  })(n);
   return hasItem && ok;
 }
 function flattenItems(nodes){
-  const out=[]; (nodes||[]).forEach(function rec(n){ if(isItem(n)) out.push(n); (n.children||[]).forEach(rec); });
+  const out=[]; (nodes||[]).forEach(function rec(n){
+    if(isItem(n)) out.push(n);
+    (n.children||[]).forEach(rec);
+  });
   return out;
 }
 function recomputeProgress(){
@@ -67,14 +75,18 @@ function recomputeProgress(){
   document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
 }
 
+// Rendu avec contour vert si OK
 function renderItem(n){
-  const status = n.last_status ? (n.last_status==="OK" ? "✅ OK" : "⚠️ Non conforme") : "—";
+  const isOk = n.last_status === "OK";
+  const border = isOk ? "1px solid var(--success)" : "1px solid var(--border)";
+  const status = n.last_status ? (isOk ? "✅ OK" : "⚠️ Non conforme") : "—";
   const by = n.last_by ? ` (${n.last_by})` : "";
+
   const right = el("div", {class:"row"},
     el("button", {class:"btn success", onclick:()=>verify(n.id,"OK")}, "OK"),
     el("button", {class:"btn ghost", onclick:()=>verify(n.id,"NOT_OK")}, "Non conforme"),
   );
-  return el("div", {class:"item"},
+  return el("div", {class:"item", style:`border:${border}`},
     el("div", null,
       el("div", {class:"name"}, `${n.name} `, el("span", {class:"qty"}, `Qté: ${n.quantity ?? 1}`)),
       el("div", {class:"muted"}, `Dernier statut: ${status}${by}`)
@@ -83,16 +95,18 @@ function renderItem(n){
   );
 }
 function renderGroup(n){
-  const okIcon = groupAllOk(n) ? "✅" : "";
+  const okAll = groupAllOk(n);
+  const border = okAll ? "1px dashed var(--success)" : "1px dashed #22314a";
+  const okIcon = okAll ? "✅ " : "";
   const header = el("div", {class:"header"},
-    el("div", {class:"name"}, `${okIcon} ${n.name}`),
+    el("div", {class:"name"}, `${okIcon}${n.name}`),
     el("label", {class:"check"},
       el("input", {type:"checkbox", id:`charged-${n.id}`, onchange:(e)=>setCharged(n.id, e.target.checked), ...(n.charged_vehicle?{checked:true}:{})}),
       el("span", null, "Chargé dans le véhicule")
     )
   );
   const children = el("div", {class:"childs"}, ...(n.children||[]).map(renderNode));
-  return el("div", {class:"node", id:`node-${n.id}`}, header, children);
+  return el("div", {class:"node", id:`node-${n.id}`, style:`border:${border}`}, header, children);
 }
 function renderNode(n){ return isGroup(n) ? renderGroup(n) : renderItem(n); }
 
@@ -142,7 +156,7 @@ document.getElementById("btn-close").addEventListener("click", ()=>{
   }).then(()=>{ document.getElementById("status-badge").textContent = "Statut : CLOSED"; });
 });
 
-// Premier rendu serveur puis polling
+// Premier rendu puis polling
 buildUI();
 setInterval(fetchTree, 2000);
 </script>
