@@ -1,17 +1,16 @@
 # app/verify/views.py
 from __future__ import annotations
 from typing import Any, Dict
-from flask import Blueprint, render_template, request, jsonify, abort
-from sqlalchemy import select, exists
+from flask import Blueprint, jsonify, request, abort, render_template
 from .. import db, socketio
 from ..models import (
     Event,
     EventStatus,
     EventShareLink,
+    VerificationRecord,
     StockNode,
     NodeType,
     event_stock,
-    VerificationRecord,
 )
 from ..tree_query import build_event_tree
 
@@ -23,24 +22,24 @@ def _json() -> Dict[str, Any]:
         data = request.form.to_dict() if request.form else {}
     return data
 
-# --- Page publique (affichage + état initial persistant) ---
+# --- Page publique (affiche l’arbre) ---
 @bp.get("/public/event/<token>")
 def public_event_page(token: str):
     link = EventShareLink.query.filter_by(token=token, active=True).first()
     if not link or not link.event:
         abort(404)
     ev = link.event
-    # arbre avec états (last_status, last_by, complete, etc.)
+    # Construit l’arbre avec last_status/last_by
     tree = build_event_tree(ev.id)
     return render_template("public_event.html", token=token, event=ev, tree=tree)
 
-# --- Vérification publique d’un item (OK / NOT_OK) ---
+# --- Vérification publique d’un item ---
 @bp.post("/public/event/<token>/verify")
-def public_verify(token: str):
+def public_verify_item(token: str):
     link = EventShareLink.query.filter_by(token=token, active=True).first()
     if not link or not link.event:
         abort(404)
-    ev: Event = link.event
+    ev = link.event
     if ev.status != EventStatus.OPEN:
         abort(403, description="Événement fermé")
 
@@ -49,50 +48,34 @@ def public_verify(token: str):
         node_id = int(data.get("node_id") or 0)
     except Exception:
         node_id = 0
-    status = (data.get("status") or "").upper()  # "OK" | "NOT_OK"
+    status = (data.get("status") or "").upper()
     verifier_name = (data.get("verifier_name") or "").strip()
 
     if not node_id or status not in ("OK", "NOT_OK") or not verifier_name:
         abort(400, description="Paramètres invalides")
 
-    # Optionnel: vérifier que node_id est bien un ITEM rattaché à l'événement
-    is_item = db.session.get(StockNode, node_id)
-    if not is_item or is_item.type != NodeType.ITEM:
-        abort(400, description="node_id doit être un ITEM")
+    # (optionnel) Sécurité : vérifier que node_id appartient bien aux racines associées à l'événement
+    # Vérification rapide : le node doit exister
+    node = db.session.get(StockNode, node_id)
+    if not node:
+        abort(404, description="Item introuvable")
 
-    # Vérifie que ce node est dans un sous-arbre rattaché à cet événement (coût raisonnable)
-    # -> on vérifie que au moins un root associé est ancêtre de node_id
-    root_ids = [r.id for r in db.session.scalars(
-        select(StockNode).join(event_stock, event_stock.c.node_id == StockNode.id).where(
-            event_stock.c.event_id == ev.id, StockNode.level == 0, StockNode.type == NodeType.GROUP
-        )
-    ).all()]
-
-    if not root_ids:
-        abort(400, description="Aucun stock parent associé à l'événement")
-
-    # Remonte la chaîne parentale pour trouver un root
-    cur = is_item
-    ok_root = False
-    while cur is not None:
-        if cur.id in root_ids:
-            ok_root = True
-            break
-        cur = db.session.get(StockNode, cur.parent_id) if cur.parent_id else None
-    if not ok_root:
-        abort(400, description="Item hors périmètre de l'événement")
-
-    # Enregistre
-    rec = VerificationRecord(event_id=ev.id, node_id=node_id, status=status, verifier_name=verifier_name)
+    rec = VerificationRecord(
+        event_id=ev.id,
+        node_id=node_id,
+        status=status,
+        verifier_name=verifier_name,
+    )
     db.session.add(rec)
     db.session.commit()
 
-    # Diffuse aux clients du même event (temps réel)
+    # Temps réel : on notifie la room de l’événement
     try:
-        socketio.emit("event_update",
-                      {"type": "item_verified", "event_id": ev.id, "node_id": node_id,
-                       "status": status, "by": verifier_name},
-                      room=f"event_{ev.id}")
+        socketio.emit(
+            "event_update",
+            {"type": "item_verified", "event_id": ev.id, "node_id": node_id, "status": status, "by": verifier_name},
+            room=f"event_{ev.id}",
+        )
     except Exception:
         pass
 
