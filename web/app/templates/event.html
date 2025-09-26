@@ -28,8 +28,9 @@
   .chip.ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
   .chip.bad{background:#2a0e14;color:#ffd5dc;border-color:#75212f}
   .chip.wait{background:#101c2e;color:#b7c7dc;border-color:#24344f}
-  .blink{animation: blink .5s ease 1}
-  @keyframes blink{0%{filter:brightness(1.1)}50%{filter:brightness(1.35)}100%{filter:brightness(1)}}
+  /* on SUPPRIME tout clignotement */
+  /* .blink{animation: blink .5s ease 1} */
+  /* @keyframes blink{0%{filter:brightness(1.1)}50%{filter:brightness(1.35)}100%{filter:brightness(1)}} */
   .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
   .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
 </style>
@@ -44,6 +45,7 @@
       <span class="badge" id="status-badge">Statut : {{ event.status }}</span>
     </div>
     <div class="row wrap" style="margin-top:10px;">
+      <a class="btn" target="_blank" href="/reports/event/{{ event.id }}/pdf">Exporter PDF</a>
       <button class="btn primary" id="btn-share">Générer un lien pour les secouristes</button>
       <button class="btn" id="btn-close">Clôturer l'événement</button>
     </div>
@@ -75,7 +77,22 @@ let TREE = {{ (tree or [])|tojson }};
 const CURRENT_USER = "{{ (current_user.username if current_user is defined and current_user.is_authenticated else '')|e }}";
 let IS_OPEN = ("{{ event.status }}".toUpperCase() === "OPEN");
 
-// -------------------- Helpers DOM
+/* ========= State & index DOM (pour MAJ incrémentales sans re-render) ========= */
+const NODE_MAP = new Map();     // id -> node (dans notre TREE local)
+const GROUP_EL = new Map();     // id -> box DOM du groupe
+const ITEM_EL  = new Map();     // id -> box DOM de l'item
+const ITEM_STATUS_TXT = new Map(); // id -> <div> statut + by
+const ITEM_QTY_TXT = new Map();    // id -> <span> Qté
+const CHARGED_CB = new Map();      // id -> checkbox "chargé"
+
+function indexTree(nodes){
+  (nodes||[]).forEach(function rec(n){
+    NODE_MAP.set(n.id, n);
+    (n.children||[]).forEach(rec);
+  });
+}
+
+/* -------------------- Helpers DOM -------------------- */
 function el(tag, attrs={}, ...children){
   const e = document.createElement(tag);
   for(const [k,v] of Object.entries(attrs||{})){
@@ -90,7 +107,7 @@ function el(tag, attrs={}, ...children){
 const isItem = n => (n.type||"").toUpperCase()==="ITEM";
 const isGroup = n => (n.type||"").toUpperCase()==="GROUP";
 
-// -------------------- Statuts descendants
+/* -------------------- Statuts descendants -------------------- */
 function groupAllOk(n){
   let ok = true, hasItem=false;
   (function rec(x){
@@ -115,7 +132,7 @@ function flattenItems(nodes){
   return out;
 }
 
-// -------------------- Comptage + progression
+/* -------------------- Comptage + progression -------------------- */
 function recomputeStats(){
   const items = flattenItems(TREE);
   const total = items.length;
@@ -131,7 +148,7 @@ function recomputeStats(){
   document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
 }
 
-// -------------------- Rendu nœuds
+/* -------------------- Rendu nœuds (1 fois) -------------------- */
 function itemStateClass(n){
   if(n.last_status==="OK") return "state-ok";
   if(n.last_status==="NOT_OK") return "state-bad";
@@ -159,51 +176,113 @@ function renderItem(n){
   const by = n.last_by ? ` (${n.last_by})` : "";
   const actionsEnabled = IS_OPEN;
 
+  const qtySpan = el("span", {class:"qty", id:`qty-${n.id}`}, `Qté: ${n.quantity ?? 1}`);
+  ITEM_QTY_TXT.set(n.id, qtySpan);
+
+  const statusDiv = el("div", {class:"muted", id:`status-${n.id}`}, `Dernier statut: ${statusLbl}${by}`);
+  ITEM_STATUS_TXT.set(n.id, statusDiv);
+
   const right = el("div", {class:"row"},
     el("button", {class:"btn success", disabled:!actionsEnabled, onclick:()=>verify(n.id,"OK")}, "OK"),
     el("button", {class:"btn ghost", disabled:!actionsEnabled, onclick:()=>verify(n.id,"NOT_OK")}, "Non conforme"),
   );
 
-  const wrap = el("div", {class:"item "+itemStateClass(n)},
+  const wrap = el("div", {class:"item "+itemStateClass(n), id:`item-${n.id}`},
     el("div", null,
-      el("div", {class:"name"}, stateDot(n,false), n.name, " ", el("span", {class:"qty"}, `Qté: ${n.quantity ?? 1}`)),
-      el("div", {class:"muted"}, `Dernier statut: ${statusLbl}${by}`)
+      el("div", {class:"name"}, stateDot(n,false), n.name, " ", qtySpan),
+      statusDiv
     ),
     right
   );
-  wrap.classList.add("blink");
+  ITEM_EL.set(n.id, wrap);
   return wrap;
 }
 
 function renderGroup(n){
+  const cb = el("input", {
+    type:"checkbox", id:`charged-${n.id}`, disabled:!IS_OPEN,
+    onchange:(e)=>setCharged(n.id, e.target.checked)
+  });
+  if(n.charged_vehicle) cb.checked = true;
+  CHARGED_CB.set(n.id, cb);
+
   const header = el("div", {class:"header"},
     el("div", {class:"name"}, stateDot(n,true), n.name),
-    el("label", {class:"check"},
-      el("input", {type:"checkbox", id:`charged-${n.id}`, disabled:!IS_OPEN,
-            onchange:(e)=>setCharged(n.id, e.target.checked), ...(n.charged_vehicle?{checked:true}:{})}),
-      el("span", null, "Chargé dans le véhicule")
-    )
+    el("label", {class:"check"}, cb, el("span", null, "Chargé dans le véhicule"))
   );
   const children = el("div", {class:"childs"}, ...(n.children||[]).map(renderNode));
   const box = el("div", {class:`node ${groupStateClass(n)}`, id:`node-${n.id}`}, header, children);
-  box.classList.add("blink");
+  GROUP_EL.set(n.id, box);
   return box;
 }
 function renderNode(n){ return isGroup(n) ? renderGroup(n) : renderItem(n); }
 
-function buildUI(){
+function buildUIOnce(){
   const root = document.getElementById("tree");
   root.innerHTML = "";
+  indexTree(TREE);
   (TREE||[]).forEach(n => root.appendChild(renderNode(n)));
   recomputeStats();
 }
 
-// -------------------- API calls
-function fetchTree(){
-  fetch(`/events/${EVENT_ID}/tree`, {credentials:"include"})
-    .then(r=>r.json())
-    .then(json => { TREE = json; buildUI(); })
-    .catch(()=>{});
+/* -------------------- MAJ incrémentales (sans re-render) -------------------- */
+function applyItemDelta(local, incoming){
+  // mettre à jour le modèle local
+  local.last_status = (incoming.last_status || "PENDING").toUpperCase();
+  local.last_by = incoming.last_by || "";
+  if(incoming.quantity != null) local.quantity = incoming.quantity;
+
+  // et le DOM relié
+  const box = ITEM_EL.get(local.id);
+  const statusDiv = ITEM_STATUS_TXT.get(local.id);
+  const qtySpan = ITEM_QTY_TXT.get(local.id);
+  if(!box) return;
+
+  box.classList.remove("state-ok","state-bad","state-wait");
+  box.classList.add(itemStateClass(local));
+
+  const label = local.last_status==="OK" ? "✅ OK" : (local.last_status==="NOT_OK" ? "❌ Non conforme" : "⏳ En attente");
+  if(statusDiv) statusDiv.textContent = `Dernier statut: ${label}${local.last_by ? " ("+local.last_by+")" : ""}`;
+  if(qtySpan) qtySpan.textContent = `Qté: ${local.quantity ?? 1}`;
+}
+
+function applyGroupDelta(local){
+  const box = GROUP_EL.get(local.id);
+  if(!box) return;
+  box.classList.remove("state-ok","state-bad","state-wait");
+  box.classList.add(groupStateClass(local));
+}
+
+function syncTreeIncoming(incomingNodes){
+  // on ne touche pas à la structure, on ne fait que MAJ les valeurs et classes
+  (incomingNodes||[]).forEach(function recInc(nInc){
+    const nLoc = NODE_MAP.get(nInc.id);
+    if(!nLoc) return;
+    if(isItem(nLoc)){
+      applyItemDelta(nLoc, nInc);
+    } else {
+      // MAJ champs utiles (ex: charged_vehicle), puis descend
+      if(typeof nInc.charged_vehicle !== "undefined"){
+        nLoc.charged_vehicle = !!nInc.charged_vehicle;
+        const cb = CHARGED_CB.get(nLoc.id);
+        if(cb) cb.checked = nLoc.charged_vehicle;
+      }
+      (nInc.children||[]).forEach(recInc);
+      // une fois les enfants mis à jour, recalcul de l'état groupe
+      applyGroupDelta(nLoc);
+    }
+  });
+  recomputeStats();
+}
+
+/* -------------------- API calls -------------------- */
+async function refreshTree(){
+  try{
+    const r = await fetch(`/events/${EVENT_ID}/tree`, {credentials:"include"});
+    if(!r.ok) return;
+    const latest = await r.json();
+    syncTreeIncoming(latest);
+  }catch(_){}
 }
 function verify(nodeId, status){
   const payload = { node_id: nodeId, status, verifier_name: CURRENT_USER || undefined };
@@ -211,17 +290,19 @@ function verify(nodeId, status){
     method:"POST", credentials:"include",
     headers:{"Content-Type":"application/json"},
     body: JSON.stringify(payload)
-  }).then(()=> fetchTree());
+  })
+  .then(res=>res.ok?refreshTree():null)
+  .catch(()=>{});
 }
 function setCharged(nodeId, checked){
   fetch(`/events/${EVENT_ID}/parent-status`, {
     method:"POST", credentials:"include",
     headers:{"Content-Type":"application/json"},
     body: JSON.stringify({node_id: nodeId, charged_vehicle: checked})
-  }).then(()=> fetchTree());
+  }).then(()=> refreshTree());
 }
 
-// -------------------- Actions haut de page
+/* -------------------- Actions haut de page -------------------- */
 document.getElementById("btn-share").addEventListener("click", ()=>{
   fetch(`/events/${EVENT_ID}/share-link`, {method:"POST", credentials:"include"})
     .then(r=>r.json()).then(res=>{
@@ -240,12 +321,15 @@ document.getElementById("btn-close").addEventListener("click", ()=>{
   }).then(()=>{
     IS_OPEN = false;
     document.getElementById("status-badge").textContent = "Statut : CLOSED";
-    fetchTree();
+    // désactive les boutons sans re-render
+    ITEM_EL.forEach(box=>{
+      box.querySelectorAll("button").forEach(b=> b.disabled = true);
+    });
   });
 });
 
-// -------------------- Premier rendu + polling
-buildUI();
-setInterval(fetchTree, 2000);
+/* -------------------- Premier rendu + polling doux -------------------- */
+buildUIOnce();                     // construit 1 seule fois
+setInterval(refreshTree, 2000);    // met à jour uniquement les éléments modifiés (zéro clignotement)
 </script>
 {% endblock %}
