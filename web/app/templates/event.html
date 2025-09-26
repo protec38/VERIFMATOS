@@ -1,6 +1,39 @@
 {% extends "base.html" %}
 {% set title = "Événement" %}
 {% block content %}
+
+<!-- Styles spécifiques à cette page (états visuels) -->
+<style>
+  .state-ok{
+    border-color: var(--success) !important;
+    background:
+      radial-gradient(600px 200px at top left, rgba(18,184,134,.15), transparent),
+      #0f1e2f;
+    box-shadow: 0 0 0 1px rgba(18,184,134,.35) inset, 0 0 18px rgba(18,184,134,.15);
+  }
+  .state-bad{
+    border-color: var(--danger) !important;
+    background:
+      radial-gradient(600px 200px at top left, rgba(255,107,107,.12), transparent),
+      #0f1a27;
+    box-shadow: 0 0 0 1px rgba(255,107,107,.30) inset, 0 0 18px rgba(255,107,107,.12);
+  }
+  .state-wait{
+    border-color: var(--border) !important;
+    background:
+      radial-gradient(600px 200px at top left, rgba(45,123,191,.08), transparent),
+      var(--bg-2);
+  }
+  .chip{padding:4px 8px;border-radius:999px;font-weight:800;font-size:12px;border:1px solid var(--border);}
+  .chip.ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
+  .chip.bad{background:#2a0e14;color:#ffd5dc;border-color:#75212f}
+  .chip.wait{background:#101c2e;color:#b7c7dc;border-color:#24344f}
+  .blink{animation: blink .5s ease 1}
+  @keyframes blink{0%{filter:brightness(1.1)}50%{filter:brightness(1.35)}100%{filter:brightness(1)}}
+  .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
+  .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
+</style>
+
 <div class="grid cols-2">
   <div class="card">
     <div class="row space-between">
@@ -10,7 +43,7 @@
       </div>
       <span class="badge" id="status-badge">Statut : {{ event.status }}</span>
     </div>
-    <div class="row" style="margin-top:10px;">
+    <div class="row wrap" style="margin-top:10px;">
       <button class="btn primary" id="btn-share">Générer un lien pour les secouristes</button>
       <button class="btn" id="btn-close">Clôturer l'événement</button>
     </div>
@@ -18,7 +51,12 @@
 
   <div class="card">
     <div class="title">Progression</div>
-    <div class="progress" style="margin-top:8px;"><div id="progress-bar" style="width:0%"></div></div>
+    <div class="row wrap" style="margin-top:8px;gap:10px;">
+      <span class="chip ok" id="stat-ok">OK : 0</span>
+      <span class="chip bad" id="stat-bad">Non conformes : 0</span>
+      <span class="chip wait" id="stat-wait">En attente : 0</span>
+    </div>
+    <div class="progress" style="margin-top:10px;"><div id="progress-bar" style="width:0%"></div></div>
     <div class="muted" id="progress-text" style="margin-top:6px;">0 / 0 vérifiés</div>
   </div>
 </div>
@@ -26,6 +64,7 @@
 <div class="card" style="margin-top:12px;">
   <div class="row space-between">
     <div class="title">Matériel à vérifier</div>
+    <div class="muted">Vert = tout OK • Rouge = au moins un non conforme • Bleu = en attente</div>
   </div>
   <div id="tree" class="tree" style="margin-top:10px;"></div>
 </div>
@@ -34,8 +73,9 @@
 const EVENT_ID = {{ event.id }};
 let TREE = {{ (tree or [])|tojson }};
 const CURRENT_USER = "{{ (current_user.username if current_user is defined and current_user.is_authenticated else '')|e }}";
+let IS_OPEN = ("{{ event.status }}".toUpperCase() === "OPEN");
 
-// Helpers DOM
+// -------------------- Helpers DOM
 function el(tag, attrs={}, ...children){
   const e = document.createElement(tag);
   for(const [k,v] of Object.entries(attrs||{})){
@@ -47,17 +87,25 @@ function el(tag, attrs={}, ...children){
   for(const c of children){ if(c!=null) e.append(c.nodeType?c:document.createTextNode(c)); }
   return e;
 }
-function isItem(n){ return (n.type||"").toUpperCase()==="ITEM"; }
-function isGroup(n){ return (n.type||"").toUpperCase()==="GROUP"; }
+const isItem = n => (n.type||"").toUpperCase()==="ITEM";
+const isGroup = n => (n.type||"").toUpperCase()==="GROUP";
 
-// Tous les items descendants sont OK ?
+// -------------------- Statuts descendants
 function groupAllOk(n){
   let ok = true, hasItem=false;
   (function rec(x){
-    if(isItem(x)){ hasItem = true; ok = ok && (x.last_status==="OK"); }
+    if(isItem(x)){ hasItem=true; ok = ok && (x.last_status==="OK"); }
     (x.children||[]).forEach(rec);
   })(n);
   return hasItem && ok;
+}
+function groupHasBad(n){
+  let bad = false;
+  (function rec(x){
+    if(isItem(x) && x.last_status==="NOT_OK") bad = true;
+    (x.children||[]).forEach(rec);
+  })(n);
+  return bad;
 }
 function flattenItems(nodes){
   const out=[]; (nodes||[]).forEach(function rec(n){
@@ -66,47 +114,80 @@ function flattenItems(nodes){
   });
   return out;
 }
-function recomputeProgress(){
+
+// -------------------- Comptage + progression
+function recomputeStats(){
   const items = flattenItems(TREE);
   const total = items.length;
   const ok = items.filter(i=>i.last_status==="OK").length;
+  const bad = items.filter(i=>i.last_status==="NOT_OK").length;
+  const wait = total - ok - bad;
+
+  document.getElementById("stat-ok").textContent = `OK : ${ok}`;
+  document.getElementById("stat-bad").textContent = `Non conformes : ${bad}`;
+  document.getElementById("stat-wait").textContent = `En attente : ${wait}`;
   const pct = total? Math.round(ok/total*100) : 0;
   document.getElementById("progress-bar").style.width = pct+"%";
   document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
 }
 
-// Rendu avec contour vert si OK
+// -------------------- Rendu nœuds
+function itemStateClass(n){
+  if(n.last_status==="OK") return "state-ok";
+  if(n.last_status==="NOT_OK") return "state-bad";
+  return "state-wait";
+}
+function groupStateClass(n){
+  if(groupAllOk(n)) return "state-ok";
+  if(groupHasBad(n)) return "state-bad";
+  return "state-wait";
+}
+function stateDot(n, isGroupNode){
+  let cls="dot-wait", label="En attente";
+  if(isGroupNode){
+    if(groupAllOk(n)) { cls="dot-ok"; label="Tout OK"; }
+    else if(groupHasBad(n)) { cls="dot-bad"; label="Non conformes présents"; }
+  } else {
+    if(n.last_status==="OK"){ cls="dot-ok"; label="OK"; }
+    else if(n.last_status==="NOT_OK"){ cls="dot-bad"; label="Non conforme"; }
+  }
+  return el("span", {class:"status-dot "+cls, title:label});
+}
+
 function renderItem(n){
-  const isOk = n.last_status === "OK";
-  const border = isOk ? "1px solid var(--success)" : "1px solid var(--border)";
-  const status = n.last_status ? (isOk ? "✅ OK" : "⚠️ Non conforme") : "—";
+  const statusLbl = n.last_status ? (n.last_status==="OK" ? "✅ OK" : "❌ Non conforme") : "⏳ En attente";
   const by = n.last_by ? ` (${n.last_by})` : "";
+  const actionsEnabled = IS_OPEN;
 
   const right = el("div", {class:"row"},
-    el("button", {class:"btn success", onclick:()=>verify(n.id,"OK")}, "OK"),
-    el("button", {class:"btn ghost", onclick:()=>verify(n.id,"NOT_OK")}, "Non conforme"),
+    el("button", {class:"btn success", disabled:!actionsEnabled, onclick:()=>verify(n.id,"OK")}, "OK"),
+    el("button", {class:"btn ghost", disabled:!actionsEnabled, onclick:()=>verify(n.id,"NOT_OK")}, "Non conforme"),
   );
-  return el("div", {class:"item", style:`border:${border}`},
+
+  const wrap = el("div", {class:"item "+itemStateClass(n)},
     el("div", null,
-      el("div", {class:"name"}, `${n.name} `, el("span", {class:"qty"}, `Qté: ${n.quantity ?? 1}`)),
-      el("div", {class:"muted"}, `Dernier statut: ${status}${by}`)
+      el("div", {class:"name"}, stateDot(n,false), n.name, " ", el("span", {class:"qty"}, `Qté: ${n.quantity ?? 1}`)),
+      el("div", {class:"muted"}, `Dernier statut: ${statusLbl}${by}`)
     ),
     right
   );
+  wrap.classList.add("blink");
+  return wrap;
 }
+
 function renderGroup(n){
-  const okAll = groupAllOk(n);
-  const border = okAll ? "1px dashed var(--success)" : "1px dashed #22314a";
-  const okIcon = okAll ? "✅ " : "";
   const header = el("div", {class:"header"},
-    el("div", {class:"name"}, `${okIcon}${n.name}`),
+    el("div", {class:"name"}, stateDot(n,true), n.name),
     el("label", {class:"check"},
-      el("input", {type:"checkbox", id:`charged-${n.id}`, onchange:(e)=>setCharged(n.id, e.target.checked), ...(n.charged_vehicle?{checked:true}:{})}),
+      el("input", {type:"checkbox", id:`charged-${n.id}`, disabled:!IS_OPEN,
+            onchange:(e)=>setCharged(n.id, e.target.checked), ...(n.charged_vehicle?{checked:true}:{})}),
       el("span", null, "Chargé dans le véhicule")
     )
   );
   const children = el("div", {class:"childs"}, ...(n.children||[]).map(renderNode));
-  return el("div", {class:"node", id:`node-${n.id}`, style:`border:${border}`}, header, children);
+  const box = el("div", {class:`node ${groupStateClass(n)}`, id:`node-${n.id}`}, header, children);
+  box.classList.add("blink");
+  return box;
 }
 function renderNode(n){ return isGroup(n) ? renderGroup(n) : renderItem(n); }
 
@@ -114,8 +195,10 @@ function buildUI(){
   const root = document.getElementById("tree");
   root.innerHTML = "";
   (TREE||[]).forEach(n => root.appendChild(renderNode(n)));
-  recomputeProgress();
+  recomputeStats();
 }
+
+// -------------------- API calls
 function fetchTree(){
   fetch(`/events/${EVENT_ID}/tree`, {credentials:"include"})
     .then(r=>r.json())
@@ -138,6 +221,7 @@ function setCharged(nodeId, checked){
   }).then(()=> fetchTree());
 }
 
+// -------------------- Actions haut de page
 document.getElementById("btn-share").addEventListener("click", ()=>{
   fetch(`/events/${EVENT_ID}/share-link`, {method:"POST", credentials:"include"})
     .then(r=>r.json()).then(res=>{
@@ -153,10 +237,14 @@ document.getElementById("btn-close").addEventListener("click", ()=>{
     method:"PATCH", credentials:"include",
     headers:{"Content-Type":"application/json"},
     body: JSON.stringify({status:"CLOSED"})
-  }).then(()=>{ document.getElementById("status-badge").textContent = "Statut : CLOSED"; });
+  }).then(()=>{
+    IS_OPEN = false;
+    document.getElementById("status-badge").textContent = "Statut : CLOSED";
+    fetchTree();
+  });
 });
 
-// Premier rendu puis polling
+// -------------------- Premier rendu + polling
 buildUI();
 setInterval(fetchTree, 2000);
 </script>
