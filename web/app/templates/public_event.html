@@ -28,11 +28,28 @@
   .chip.bad{background:#2a0e14;color:#ffd5dc;border-color:#75212f}
   .chip.wait{background:#101c2e;color:#b7c7dc;border-color:#24344f}
 
-  /* >>> plus de clignotement */
+  /* >>> pas de clignotement */
   .blink{animation:none}
 
   .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
   .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
+
+  /* Barre parents */
+  .parents-card .title{display:flex;align-items:center;gap:10px}
+  .parents-bar{display:flex;gap:8px;overflow:auto;padding:8px 2px}
+  .parent-pill{
+    display:inline-flex;align-items:center;gap:8px;
+    padding:8px 12px;border-radius:999px;border:1px solid var(--border);cursor:pointer;
+    user-select:none;white-space:nowrap;transition:transform .08s ease, box-shadow .08s ease, border-color .08s ease;
+    background:#0f1a2a;color:var(--text)
+  }
+  .parent-pill:hover{transform:translateY(-1px)}
+  .pill-ok{border-color:#1d6e5d;background:#0e2a24;color:#bff3e7}
+  .pill-bad{border-color:#75212f;background:#2a0e14;color:#ffd5dc}
+  .pill-wait{border-color:#24344f;background:#101c2e;color:#b7c7dc}
+
+  /* highlight doux à l'arrivée du scroll */
+  .focus-ring{outline:2px solid var(--pc-orange); outline-offset:2px; transition:outline-color .6s ease}
 </style>
 
 <div class="card">
@@ -50,6 +67,12 @@
   </div>
   <div class="progress" style="margin-top:10px;"><div id="progress-bar" style="width:0%"></div></div>
   <div class="muted" id="progress-text" style="margin-top:6px;">0 / 0 vérifiés</div>
+</div>
+
+<!-- NOUVELLE CARTE : barre des parents -->
+<div class="card parents-card" style="margin-top:12px;">
+  <div class="title">Parents à vérifier</div>
+  <div id="parents-bar" class="parents-bar"></div>
 </div>
 
 <!-- Porte d'entrée pour le nom & prénom -->
@@ -97,6 +120,7 @@ function el(tag, attrs={}, ...children){
 const isItem = n => (n.type||"").toUpperCase()==="ITEM";
 const isGroup = n => (n.type||"").toUpperCase()==="GROUP";
 
+/* statut d'un groupe */
 function groupAllOk(n){
   let ok = true, hasItem=false;
   (function rec(x){
@@ -113,6 +137,13 @@ function groupHasBad(n){
   })(n);
   return bad;
 }
+function groupStatus(n){
+  if(groupAllOk(n)) return "OK";
+  if(groupHasBad(n)) return "BAD";
+  return "WAIT";
+}
+
+/* utils items + stats */
 function flattenItems(nodes){
   const out=[]; (nodes||[]).forEach(function rec(n){
     if(isItem(n)) out.push(n);
@@ -135,21 +166,24 @@ function recomputeStats(){
   document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
 }
 
+/* classes d'état */
 function itemStateClass(n){
   if(n.last_status==="OK") return "state-ok";
   if(n.last_status==="NOT_OK") return "state-bad";
   return "state-wait";
 }
 function groupStateClass(n){
-  if(groupAllOk(n)) return "state-ok";
-  if(groupHasBad(n)) return "state-bad";
+  const s = groupStatus(n);
+  if(s==="OK") return "state-ok";
+  if(s==="BAD") return "state-bad";
   return "state-wait";
 }
 function stateDot(n, isGroupNode){
   let cls="dot-wait", label="En attente";
   if(isGroupNode){
-    if(groupAllOk(n)) { cls="dot-ok"; label="Tout OK"; }
-    else if(groupHasBad(n)) { cls="dot-bad"; label="Non conformes présents"; }
+    const s = groupStatus(n);
+    if(s==="OK") { cls="dot-ok"; label="Tout OK"; }
+    else if(s==="BAD") { cls="dot-bad"; label="Non conformes présents"; }
   } else {
     if(n.last_status==="OK"){ cls="dot-ok"; label="OK"; }
     else if(n.last_status==="NOT_OK"){ cls="dot-bad"; label="Non conforme"; }
@@ -157,6 +191,7 @@ function stateDot(n, isGroupNode){
   return el("span", {class:"status-dot "+cls, title:label});
 }
 
+/* rendu arbre */
 function renderItem(n){
   const statusLbl = n.last_status ? (n.last_status==="OK" ? "✅ OK" : "❌ Non conforme") : "⏳ En attente";
   const by = n.last_by ? ` (${n.last_by})` : "";
@@ -171,7 +206,7 @@ function renderItem(n){
     ),
     right
   );
-  return wrap; // plus de .blink
+  return wrap;
 }
 function renderGroup(n){
   const header = el("div", {class:"header"},
@@ -179,35 +214,69 @@ function renderGroup(n){
   );
   const children = el("div", {class:"childs"}, ...(n.children||[]).map(renderNode));
   const box = el("div", {class:`node ${groupStateClass(n)}`, id:`node-${n.id}`}, header, children);
-  return box; // plus de .blink
+  return box;
 }
 function renderNode(n){ return isGroup(n) ? renderGroup(n) : renderItem(n); }
 
+/* ----- BARRE PARENTS ----- */
+function buildParentsBar(){
+  const holder = document.getElementById("parents-bar");
+  if(!holder) return;
+  holder.innerHTML = "";
+
+  // parents = racines du TREE
+  const parents = Array.isArray(TREE) ? TREE.filter(n => isGroup(n)) : [];
+  parents.forEach(p => {
+    const s = groupStatus(p);
+    const pillClass = s==="OK" ? "pill-ok" : (s==="BAD" ? "pill-bad" : "pill-wait");
+    const pill = el("div", {class:"parent-pill "+pillClass, onclick:()=>scrollToParent(p.id)},
+      stateDot(p,true),
+      el("span", {class:"strong"}, p.name)
+    );
+    holder.appendChild(pill);
+  });
+}
+function scrollToParent(id){
+  const target = document.getElementById("node-"+id);
+  if(!target) return;
+  target.scrollIntoView({behavior:"smooth", block:"start"});
+  // compenser l'appbar sticky (~60px)
+  setTimeout(()=>{ window.scrollBy({top:-70, left:0, behavior:"instant"}); }, 300);
+  // halo doux
+  target.classList.add("focus-ring");
+  setTimeout(()=> target.classList.remove("focus-ring"), 1200);
+}
+
+/* build complet UI */
 function buildUI(){
   document.getElementById("who-display").textContent = VERIFIER_NAME ? `Vérificateur : ${VERIFIER_NAME}` : "";
   const root = document.getElementById("tree");
   root.innerHTML = "";
   (TREE||[]).forEach(n => root.appendChild(renderNode(n)));
+  buildParentsBar();
   recomputeStats();
 }
 
+/* polling arbre */
 function fetchTree(){
   fetch(`/public/event/${TOKEN}/tree`, {headers:{'Accept':'application/json'}})
     .then(r=>r.json())
     .then(json => {
       const h = hash(json);
-      if (h !== _lastHash) { // ne rerend que si ça a changé
+      if (h !== _lastHash) {
         TREE = json;
         _lastHash = h;
         buildUI();
       } else {
-        // stats seulement (au cas où les compteurs évoluent selon logique future)
+        // au cas où : refresh statuts pastilles sans rerendre l’arbre
+        buildParentsBar();
         recomputeStats();
       }
     })
     .catch(()=>{});
 }
 
+/* API verify */
 function verify(nodeId, status){
   if(!VERIFIER_NAME){ showGate(); return; }
   fetch(`/public/event/${TOKEN}/verify`, {
@@ -217,7 +286,7 @@ function verify(nodeId, status){
   }).then(()=> fetchTree());
 }
 
-// Gate (nom & prénom)
+/* Gate (nom & prénom) */
 function showGate(){ const gate = document.getElementById("gate"); gate.style.display = "flex"; document.getElementById("who").focus(); }
 function hideGate(){ document.getElementById("gate").style.display = "none"; }
 
@@ -231,7 +300,7 @@ document.getElementById("start").addEventListener("click", ()=>{
   setInterval(fetchTree, 2000);
 });
 
-// Démarrage
+/* Démarrage */
 if(VERIFIER_NAME){
   hideGate();
   buildUI();
