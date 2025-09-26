@@ -27,8 +27,10 @@
   .chip.ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
   .chip.bad{background:#2a0e14;color:#ffd5dc;border-color:#75212f}
   .chip.wait{background:#101c2e;color:#b7c7dc;border-color:#24344f}
-  .blink{animation: blink .5s ease 1}
-  @keyframes blink{0%{filter:brightness(1.1)}50%{filter:brightness(1.35)}100%{filter:brightness(1)}}
+
+  /* >>> plus de clignotement */
+  .blink{animation:none}
+
   .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
   .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
 </style>
@@ -75,6 +77,10 @@ const TOKEN = "{{ token }}";
 let TREE = {{ (tree or [])|tojson }};
 const LS_KEY = "verifier_name_" + TOKEN;
 let VERIFIER_NAME = localStorage.getItem(LS_KEY) || "";
+
+/* hash simple pour éviter de rerendre si rien n’a changé */
+let _lastHash = "";
+function hash(obj){ try { return JSON.stringify(obj); } catch { return ""; } }
 
 // Helpers DOM
 function el(tag, attrs={}, ...children){
@@ -165,8 +171,7 @@ function renderItem(n){
     ),
     right
   );
-  wrap.classList.add("blink");
-  return wrap;
+  return wrap; // plus de .blink
 }
 function renderGroup(n){
   const header = el("div", {class:"header"},
@@ -174,8 +179,7 @@ function renderGroup(n){
   );
   const children = el("div", {class:"childs"}, ...(n.children||[]).map(renderNode));
   const box = el("div", {class:`node ${groupStateClass(n)}`, id:`node-${n.id}`}, header, children);
-  box.classList.add("blink");
-  return box;
+  return box; // plus de .blink
 }
 function renderNode(n){ return isGroup(n) ? renderGroup(n) : renderItem(n); }
 
@@ -188,9 +192,19 @@ function buildUI(){
 }
 
 function fetchTree(){
-  fetch(`/public/event/${TOKEN}/tree`)
+  fetch(`/public/event/${TOKEN}/tree`, {headers:{'Accept':'application/json'}})
     .then(r=>r.json())
-    .then(json => { TREE = json; buildUI(); })
+    .then(json => {
+      const h = hash(json);
+      if (h !== _lastHash) { // ne rerend que si ça a changé
+        TREE = json;
+        _lastHash = h;
+        buildUI();
+      } else {
+        // stats seulement (au cas où les compteurs évoluent selon logique future)
+        recomputeStats();
+      }
+    })
     .catch(()=>{});
 }
 
@@ -198,7 +212,7 @@ function verify(nodeId, status){
   if(!VERIFIER_NAME){ showGate(); return; }
   fetch(`/public/event/${TOKEN}/verify`, {
     method:"POST",
-    headers:{"Content-Type":"application/json"},
+    headers:{"Content-Type":"application/json", "Accept":"application/json"},
     body: JSON.stringify({node_id: nodeId, status, verifier_name: VERIFIER_NAME})
   }).then(()=> fetchTree());
 }
