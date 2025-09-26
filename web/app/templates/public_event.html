@@ -10,18 +10,35 @@
     <span class="badge">Accès secouristes</span>
   </div>
   <div class="alert" style="margin-top:10px;">
-    Merci d’indiquer votre <b>Nom & prénom</b> pour chaque vérification effectuée.
+    Merci d’indiquer votre <b>Nom & prénom</b> avant de commencer. Il sera utilisé pour signer vos vérifications.
+  </div>
+</div>
+
+<!-- Gate (nom & prénom) -->
+<div id="gate" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.65);z-index:1000;">
+  <div class="card" style="width:min(560px,92vw);">
+    <div class="title">Avant de commencer</div>
+    <div class="subtitle">Renseignez votre identité pour tracer les vérifications.</div>
+    <div class="row" style="margin-top:10px;">
+      <input id="who" placeholder="Nom & prénom" style="flex:1" autocomplete="name">
+      <button class="btn primary" id="start">Commencer</button>
+    </div>
   </div>
 </div>
 
 <div class="card" style="margin-top:12px;">
-  <div class="title">À vérifier</div>
+  <div class="row space-between">
+    <div class="title">À vérifier</div>
+    <div class="muted" id="who-display"></div>
+  </div>
   <div id="tree" class="tree" style="margin-top:10px;"></div>
 </div>
 
 <script>
 const TOKEN = "{{ token }}";
 let TREE = {{ (tree or [])|tojson }};
+const LS_KEY = "verifier_name_" + TOKEN;
+let VERIFIER_NAME = localStorage.getItem(LS_KEY) || "";
 
 function el(tag, attrs={}, ...children){
   const e = document.createElement(tag);
@@ -46,7 +63,6 @@ function renderItem(n){
   const status = n.last_status ? (n.last_status==="OK" ? "✅ OK" : "⚠️ Non conforme") : "—";
   const by = n.last_by ? ` (${n.last_by})` : "";
   const right = el("div", {class:"row"},
-    el("input", {type:"text", placeholder:"Nom & prénom", id:`name-${n.id}`}),
     el("button", {class:"btn success", onclick:()=>verify(n.id,"OK")}, "OK"),
     el("button", {class:"btn ghost", onclick:()=>verify(n.id,"NOT_OK")}, "Non conforme"),
   );
@@ -69,30 +85,53 @@ function renderGroup(n){
 function renderNode(n){ return isGroup(n) ? renderGroup(n) : renderItem(n); }
 
 function buildUI(){
+  document.getElementById("who-display").textContent = VERIFIER_NAME ? `Vérificateur : ${VERIFIER_NAME}` : "";
   const root = document.getElementById("tree");
   root.innerHTML = "";
   (TREE||[]).forEach(n => root.appendChild(renderNode(n)));
 }
-
 function fetchTree(){
   fetch(`/public/event/${TOKEN}/tree`)
     .then(r=>r.json())
     .then(json => { TREE = json; buildUI(); })
     .catch(()=>{});
 }
-
 function verify(nodeId, status){
-  const name = (document.getElementById(`name-${nodeId}`)?.value||"").trim();
-  if(!name){ alert("Merci de renseigner votre nom et prénom"); return; }
+  if(!VERIFIER_NAME){ showGate(); return; }
   fetch(`/public/event/${TOKEN}/verify`, {
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({node_id: nodeId, status, verifier_name: name})
+    body: JSON.stringify({node_id: nodeId, status, verifier_name: VERIFIER_NAME})
   }).then(()=> fetchTree());
 }
 
-// Premier rendu, puis polling toutes les 2 secondes
-buildUI();
-setInterval(fetchTree, 2000);
+function showGate(){
+  const gate = document.getElementById("gate");
+  gate.style.display = "flex";
+  document.getElementById("who").focus();
+}
+function hideGate(){
+  document.getElementById("gate").style.display = "none";
+}
+
+document.getElementById("start").addEventListener("click", ()=>{
+  const name = (document.getElementById("who").value||"").trim();
+  if(!name){ alert("Merci d’indiquer Nom & prénom"); return; }
+  VERIFIER_NAME = name;
+  localStorage.setItem(LS_KEY, VERIFIER_NAME);
+  hideGate();
+  buildUI();
+  setInterval(fetchTree, 2000);
+});
+
+// Démarrage : si on a déjà un nom => on affiche direct le contenu + polling,
+// sinon on affiche la passerelle pour le saisir.
+if(VERIFIER_NAME){
+  hideGate();
+  buildUI();
+  setInterval(fetchTree, 2000);
+}else{
+  showGate();
+}
 </script>
 {% endblock %}
