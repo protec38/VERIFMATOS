@@ -14,7 +14,7 @@
       </div>
 
       <div class="row wrap" style="margin-top:10px; gap:8px;">
-        <a class="btn" href="{{ url_for('pages.dashboard') }}">← Menu principal</a>
+        <a class="btn" href="{{ url_for('pages.dashboard') }}">← Menu</a>
         <a class="btn ghost" href="{{ url_for('pages.logout') }}">Déconnexion</a>
         <button class="btn primary" id="btn-share">Générer un lien secouristes</button>
         <button class="btn" id="btn-close">Clôturer l'événement</button>
@@ -32,7 +32,7 @@
     <div class="row space-between">
       <div class="title">Matériel à vérifier</div>
       <div class="row" style="gap:8px;">
-        <div class="subtitle">Nom & prénom (pour enregistrer) :</div>
+        <div class="subtitle">Nom & prénom :</div>
         <input id="global-name" placeholder="Nom & prénom" style="min-width:220px;">
       </div>
     </div>
@@ -41,7 +41,7 @@
 
   <style>
     .ok-flag { font-weight:700; margin-left:6px; }
-    .ok-flag.good { color:#12b886; }   /* vert */
+    .ok-flag.good { color:#12b886; }
     .chip { border-radius: 12px; padding: 2px 8px; font-size: 12px; }
     .chip.ok { background:#e6fcf5; color:#0ca678; border:1px solid #96f2d7; }
     .chip.ko { background:#fff5f5; color:#e03131; border:1px solid #ffc9c9; }
@@ -54,20 +54,53 @@
     let TREE = {{ (tree or [])|tojson }};
     let okCount = 0, totalItems = 0;
 
-    // ===== Socket (optionnel, ne bloque jamais) =====
+    // ===== Socket (transports: polling d'abord pour proxy, puis websocket) =====
     let socket = null;
+    let socketReady = false;
     try {
-      socket = io({transports:["websocket","polling"], timeout: 1500});
-      socket.emit("join_event", {event_id: EVENT_ID});
+      socket = io({
+        transports:["polling","websocket"],
+        reconnection:true,
+        reconnectionDelay:1000,
+        reconnectionDelayMax:5000,
+        timeout: 2000
+      });
+      socket.on("connect", () => {
+        socketReady = true;
+        socket.emit("join_event", {event_id: EVENT_ID});
+      });
+      socket.on("disconnect", () => { socketReady = false; });
       socket.on("event_update", (payload) => {
+        if(payload?.event_id !== EVENT_ID) return;
         if(payload?.type === "item_verified"){
-          // Met à jour l'UI du node
           applyVerificationToUI(payload.node_id, payload.status, payload.by || payload.verifier_name || "");
+        }
+        if(payload?.type === "parent_charged"){
+          const cb = document.getElementById(`charged-${payload.node_id}`);
+          if(cb) cb.checked = !!payload.charged;
+        }
+        if(payload?.type === "event_closed"){
+          document.getElementById("status-badge").textContent = "Statut : CLOSED";
         }
       });
     } catch (e) { console.warn("Socket.IO indisponible:", e); }
 
-    // ===== DOM util =====
+    // ===== Fallback léger: rafraîchit juste la progression si pas de socket =====
+    setInterval(async () => {
+      if (socketReady) return;
+      try{
+        const r = await fetch(`/events/${EVENT_ID}/stats`, {credentials:"include"});
+        if(!r.ok) return;
+        const js = await r.json();
+        if(js && typeof js.verified_ok==="number" && typeof js.verified_total==="number"){
+          okCount = js.verified_ok;
+          totalItems = js.verified_total;
+          updateProgress(okCount, totalItems);
+        }
+      }catch(_){}
+    }, 5000);
+
+    // ===== DOM utils =====
     function el(tag, attrs={}, ...children){
       const e = document.createElement(tag);
       for(const [k,v] of Object.entries(attrs||{})){
@@ -123,13 +156,10 @@
       const header = renderGroupHeader(n);
       const childrenWrap = el("div", {class:"childs"});
       (n.children || []).forEach(ch => childrenWrap.appendChild(renderNode(ch)));
-      const node = el("div", {class:"node", id:`node-${n.id}`}, header, childrenWrap);
-      return node;
+      return el("div", {class:"node", id:`node-${n.id}`}, header, childrenWrap);
     }
 
-    function renderNode(n){
-      return n.type === "GROUP" ? renderGroup(n) : renderItem(n);
-    }
+    function renderNode(n){ return n.type === "GROUP" ? renderGroup(n) : renderItem(n); }
 
     function flattenItems(nodes){
       const out = [];
@@ -142,7 +172,7 @@
     function computeInitialProgress(){
       const items = flattenItems(TREE);
       totalItems = items.length;
-      okCount = items.filter(i => i.last_status === "OK").length;
+      okCount   = items.filter(i => i.last_status === "OK").length;
       updateProgress(okCount, totalItems);
     }
 
@@ -162,6 +192,18 @@
       }
       TREE.forEach(root => treeEl.appendChild(renderNode(root)));
       computeInitialProgress();
+      // Fixe les ✓ initialement
+      markAllParentTicks(TREE);
+    }
+
+    function markAllParentTicks(nodes){
+      nodes.forEach(n => {
+        if(n.type==="GROUP"){
+          const tick = document.getElementById(`tick-${n.id}`);
+          if(tick){ tick.textContent = n.complete ? "✓" : ""; tick.classList.toggle("good", !!n.complete); }
+        }
+        if(n.children?.length) markAllParentTicks(n.children);
+      });
     }
 
     // ===== Actions =====
@@ -176,7 +218,7 @@
         body: JSON.stringify({node_id: nodeId, status, verifier_name: name})
       });
       if(!r.ok){ alert(await r.text().catch(()=> "Erreur")); return; }
-      // met à jour localement; le socket mettra à jour chez les autres
+      // Mise à jour locale immédiate
       applyVerificationToUI(nodeId, status, name);
     }
 
@@ -188,37 +230,7 @@
       });
     }
 
-    // ===== Update UI helpers =====
-    function applyVerificationToUI(nodeId, status, by){
-      // 1) met à jour l'objet dans TREE
-      const item = findNodeInTree(nodeId);
-      if(!item) return;
-      const prevOK = item.last_status === "OK";
-      item.last_status = status;
-      item.last_by = by || item.last_by || "";
-
-      // 2) met à jour DOM de l'item
-      const node = document.getElementById(`node-${nodeId}`);
-      if(node){
-        const header = node.querySelector(".header");
-        let chip = header?.querySelector(".chip");
-        if(!chip){ chip = el("span",{class:"chip"},""); header.appendChild(chip); }
-        chip.className = "chip " + (status==="OK" ? "ok" : "ko");
-        chip.textContent = (status==="OK" ? "OK" : "Non conforme");
-        const who = node.querySelector(`#who-${nodeId}`);
-        if(who){ who.textContent = by ? `Validé par : ${by}` : ""; }
-        if(status==="OK") node.classList.add("item-ok"); else node.classList.remove("item-ok");
-      }
-
-      // 3) progression
-      if(status==="OK" && !prevOK){ okCount = Math.min(totalItems, okCount+1); }
-      if(status==="NOT_OK" && prevOK){ okCount = Math.max(0, okCount-1); }
-      updateProgress(okCount, totalItems);
-
-      // 4) recalcul des ticks sur tous les parents du chemin
-      updateParentTicksFrom(nodeId);
-    }
-
+    // ===== Helpers de mise à jour =====
     function findNodeInTree(id){
       let found=null;
       (function rec(list){
@@ -240,24 +252,7 @@
       })(TREE, null);
       return map;
     }
-
     const PARENT_MAP = parentMap();
-
-    function updateParentTicksFrom(nodeId){
-      let curId = nodeId;
-      while(PARENT_MAP.has(curId)){
-        const parent = PARENT_MAP.get(curId);
-        if(!parent) break;
-        // recompute complete = tous les items descendants OK
-        const agg = aggregate(parent);
-        parent.ok_count = agg.ok;
-        parent.total_items = agg.total;
-        parent.complete = (agg.total>0 && agg.ok===agg.total);
-        const tick = document.getElementById(`tick-${parent.id}`);
-        if(tick){ tick.textContent = parent.complete ? "✓" : ""; tick.classList.toggle("good", !!parent.complete); }
-        curId = parent.id;
-      }
-    }
 
     function aggregate(node){
       let ok=0, total=0;
@@ -268,7 +263,47 @@
       return {ok, total};
     }
 
-    // ===== Top buttons =====
+    function updateParentTicksFrom(nodeId){
+      let curId = nodeId;
+      while(PARENT_MAP.has(curId)){
+        const parent = PARENT_MAP.get(curId);
+        if(!parent) break;
+        const agg = aggregate(parent);
+        parent.ok_count = agg.ok;
+        parent.total_items = agg.total;
+        parent.complete = (agg.total>0 && agg.ok===agg.total);
+        const tick = document.getElementById(`tick-${parent.id}`);
+        if(tick){ tick.textContent = parent.complete ? "✓" : ""; tick.classList.toggle("good", !!parent.complete); }
+        curId = parent.id;
+      }
+    }
+
+    function applyVerificationToUI(nodeId, status, by){
+      const item = findNodeInTree(nodeId);
+      if(!item) return;
+      const prevOK = item.last_status === "OK";
+      item.last_status = status;
+      item.last_by = by || item.last_by || "";
+
+      const node = document.getElementById(`node-${nodeId}`);
+      if(node){
+        const header = node.querySelector(".header");
+        let chip = header?.querySelector(".chip");
+        if(!chip){ chip = el("span",{class:"chip"},""); header.appendChild(chip); }
+        chip.className = "chip " + (status==="OK" ? "ok" : "ko");
+        chip.textContent = status==="OK" ? "OK" : "Non conforme";
+        const who = node.querySelector(`#who-${nodeId}`);
+        if(who){ who.textContent = by ? `Validé par : ${by}` : ""; }
+        if(status==="OK") node.classList.add("item-ok"); else node.classList.remove("item-ok");
+      }
+
+      if(status==="OK" && !prevOK){ okCount = Math.min(totalItems, okCount+1); }
+      if(status==="NOT_OK" && prevOK){ okCount = Math.max(0, okCount-1); }
+      updateProgress(okCount, totalItems);
+      updateParentTicksFrom(nodeId);
+    }
+
+    // ===== Boutons haut =====
     document.getElementById("btn-share").addEventListener("click", async () => {
       const r = await fetch(`/events/${EVENT_ID}/share-link`, {method:"POST", credentials:"include"});
       const res = await r.json().catch(()=> ({}));
@@ -291,20 +326,8 @@
     });
 
     // ===== Init =====
-    function init(){
+    (function init(){
       buildUI();
-      // Les parents sont déjà marqués par le backend via "complete"
-      // On fixe les ticks initiaux (au cas où)
-      (function markAllParents(list){
-        list.forEach(n => {
-          if(n.type==="GROUP"){
-            const tick = document.getElementById(`tick-${n.id}`);
-            if(tick){ tick.textContent = n.complete ? "✓" : ""; tick.classList.toggle("good", !!n.complete); }
-          }
-          if(n.children?.length) markAllParents(n.children);
-        });
-      })(TREE);
-    }
-    init();
+    })();
   </script>
 {% endblock %}
