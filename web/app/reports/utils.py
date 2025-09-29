@@ -1,116 +1,92 @@
-# app/reports/utils.py
+# app/reports/utils.py — utilitaires pour exporter les données d'un événement
 from __future__ import annotations
-from typing import Any, Dict, List, Tuple
-
+from typing import List, Dict, Any, Tuple
+from datetime import datetime
 from .. import db
-from ..models import VerificationRecord, StockNode
-from ..tree_query import build_event_tree as _build_event_tree
+from ..models import (
+    Event, EventStatus, VerificationRecord, ItemStatus,
+    EventNodeStatus, StockNode, NodeType, event_stock
+)
 
-
-# Expose la fonction pour compatibilité avec les imports existants
-def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
-    return _build_event_tree(event_id)
-
-
-def compute_summary(roots: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    Résumé global + par parent racine.
-    Compatible avec l’existant, pas d’ItemStatus.
-    """
-    summary: Dict[str, Any] = {
-        "total_items": 0,
-        "ok": 0,
-        "not_ok": 0,
-        "pending": 0,
-        "parents": [],  # [{name, total, ok, not_ok, pending, charged_vehicle, vehicle_name}]
+def _collect_tree(root: StockNode) -> Dict[str, Any]:
+    return {
+        "id": root.id,
+        "name": root.name,
+        "type": root.type.name,
+        "level": root.level,
+        "quantity": root.quantity,
+        "children": [_collect_tree(c) for c in sorted(root.children, key=lambda x: (x.level, x.id))]
     }
 
-    def stats_for_group(g: Dict[str, Any]) -> Tuple[int, int, int, int]:
-        total = ok = not_ok = pending = 0
+def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
+    rows = db.session.execute(event_stock.select().where(event_stock.c.event_id == event_id)).fetchall()
+    root_ids = [r.node_id for r in rows]
+    if not root_ids:
+        return []
+    roots = StockNode.query.filter(StockNode.id.in_(root_ids)).order_by(StockNode.id).all()
+    return [_collect_tree(r) for r in roots]
 
-        def rec(n: Dict[str, Any]):
-            nonlocal total, ok, not_ok, pending
-            if n.get("type") == "ITEM":
-                total += 1
-                st = (n.get("last_status") or "PENDING").upper()
-                if st == "OK":
-                    ok += 1
-                elif st == "NOT_OK":
-                    not_ok += 1
-                else:
-                    pending += 1
-            for c in n.get("children", []) or []:
-                rec(c)
+def flatten_items(tree: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    items = []
+    def rec(n):
+        if n["type"] == "ITEM":
+            items.append(n)
+        for c in n.get("children", []):
+            rec(c)
+    for r in tree:
+        rec(r)
+    return items
 
-        rec(g)
-        return total, ok, not_ok, pending
+def latest_verifications(event_id: int) -> Dict[int, Dict[str, Any]]:
+    """Retourne la dernière vérification par item (node_id) pour l'événement."""
+    rows = (VerificationRecord.query
+            .filter_by(event_id=event_id)
+            .order_by(VerificationRecord.node_id, VerificationRecord.created_at.desc())
+           ).all()
+    latest = {}
+    for r in rows:
+        if r.node_id not in latest:
+            latest[r.node_id] = {
+                "status": r.status.name,
+                "verifier_name": r.verifier_name,
+                "comment": r.comment,
+                "created_at": r.created_at
+            }
+    return latest
 
-    for r in roots:
-        t, o, b, p = stats_for_group(r)
-        summary["total_items"] += t
-        summary["ok"] += o
-        summary["not_ok"] += b
-        summary["pending"] += p
-        summary["parents"].append({
-            "name": r.get("name", ""),
-            "charged_vehicle": bool(r.get("charged_vehicle")),
-            "vehicle_name": r.get("vehicle_name") or "",
-            "total": t,
-            "ok": o,
-            "not_ok": b,
-            "pending": p,
-        })
+def parent_statuses(event_id: int) -> Dict[int, Dict[str, Any]]:
+    rows = EventNodeStatus.query.filter_by(event_id=event_id).all()
+    return {r.node_id: {"charged_vehicle": r.charged_vehicle, "comment": r.comment, "updated_at": r.updated_at} for r in rows}
 
-    return summary
+def compute_summary(event_id: int) -> Dict[str, Any]:
+    tree = build_event_tree(event_id)
+    items = flatten_items(tree)
+    latest = latest_verifications(event_id)
+    total = len(items)
+    ok = sum(1 for it in items if latest.get(it["id"], {}).get("status") == "OK")
+    not_ok = sum(1 for it in items if latest.get(it["id"], {}).get("status") == "NOT_OK")
+    todo = total - ok - not_ok
+    return {"total": total, "ok": ok, "not_ok": not_ok, "todo": todo}
 
-
-def latest_verifications(event_id: int, limit: int = 20) -> List[Dict[str, Any]]:
-    """
-    Renvoie les dernières vérifications pour un évènement, avec le nom de l’item.
-    Utilisé par certains tableaux de bord / stats.
-    """
-    q = (
-        db.session.query(VerificationRecord, StockNode.name)
-        .join(StockNode, StockNode.id == VerificationRecord.node_id)
-        .filter(VerificationRecord.event_id == event_id)
-        .order_by(VerificationRecord.created_at.desc())
-        .limit(limit)
-    )
-    out: List[Dict[str, Any]] = []
-    for rec, node_name in q.all():
-        out.append({
-            "id": rec.id,
-            "node_id": rec.node_id,
-            "node_name": node_name,
-            "status": rec.status,                 # "OK" | "NOT_OK"
-            "verifier_name": rec.verifier_name or "",
-            "created_at": rec.created_at.isoformat() if rec.created_at else None,
-        })
-    return out
-
-
-# Optionnel : utilitaire parfois importé ailleurs
-def rows_for_csv(roots: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Aplatis les items d’un arbre en lignes prêtes pour CSV.
-    """
-    rows: List[Dict[str, Any]] = []
-
-    def rec(n: Dict[str, Any], path: List[str]):
-        cur_path = path + [n["name"]]
-        if n.get("type") == "ITEM":
-            rows.append({
-                "parent_name": cur_path[-2] if len(cur_path) >= 2 else "",
-                "path": " / ".join(cur_path[:-1]),
-                "name": n["name"],
-                "quantity": n.get("quantity", 1),
-                "status": n.get("last_status", "PENDING"),
-                "by": n.get("last_by", ""),
-            })
-        else:
-            for c in n.get("children", []) or []:
-                rec(c, cur_path)
-
-    for r in roots:
+def rows_for_csv(event_id: int) -> List[List[str]]:
+    tree = build_event_tree(event_id)
+    latest = latest_verifications(event_id)
+    rows = [["Parent", "Sous-parent", "Nom de l'item", "Qté", "Statut", "Vérifié par", "Commentaire", "Date vérif."]]
+    def rec(n, parents):
+        new_parents = parents + [n["name"]] if n["type"] == "GROUP" else parents
+        if n["type"] == "ITEM":
+            info = latest.get(n["id"], {})
+            status = info.get("status", "TODO")
+            who = info.get("verifier_name", "")
+            com = info.get("comment", "")
+            when = info.get("created_at").isoformat() if info.get("created_at") else ""
+            row = [parents[0] if len(parents)>0 else "",
+                   parents[1] if len(parents)>1 else "",
+                   n["name"], str(n.get("quantity") or 0),
+                   status, who, com, when]
+            rows.append(row)
+        for c in n.get("children", []):
+            rec(c, new_parents)
+    for r in tree:
         rec(r, [])
     return rows
