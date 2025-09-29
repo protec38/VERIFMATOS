@@ -29,17 +29,13 @@ def _get_event_or_404(event_id: int) -> Event:
 
 # ---------------- Tree helpers ----------------
 def _flatten_tree(roots: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Aplati l’arbre en une liste de lignes (items uniquement),
-    avec chemin et infos statut / quantité.
-    """
     rows: List[Dict[str, Any]] = []
 
     def rec(n: Dict[str, Any], path: List[str]):
         cur_path = path + [n["name"]]
         if n.get("type") == "ITEM":
             rows.append({
-                "path": " / ".join(cur_path[:-1]),  # sans le nom d'item
+                "path": " / ".join(cur_path[:-1]),
                 "parent_name": cur_path[-2] if len(cur_path) >= 2 else "",
                 "name": n["name"],
                 "quantity": n.get("quantity", 1),
@@ -56,19 +52,15 @@ def _flatten_tree(roots: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def _summarize_tree(roots: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    Donne un résumé global + par parent racine.
-    """
     summary: Dict[str, Any] = {
         "total_items": 0,
         "ok": 0,
         "not_ok": 0,
         "pending": 0,
-        "parents": [],  # [{name, ok, not_ok, pending, charged_vehicle, vehicle_name}]
+        "parents": [],
     }
 
     def stats_for_group(g: Dict[str, Any]) -> Tuple[int, int, int, int]:
-        """retourne (total, ok, not_ok, pending) pour un groupe donné (récursif)."""
         total = ok = not_ok = pending = 0
 
         def rec(n: Dict[str, Any]):
@@ -88,7 +80,6 @@ def _summarize_tree(roots: List[Dict[str, Any]]) -> Dict[str, Any]:
         rec(g)
         return total, ok, not_ok, pending
 
-    # global
     for r in roots:
         t, o, b, p = stats_for_group(r)
         summary["total_items"] += t
@@ -149,10 +140,6 @@ def report_event_csv(event_id: int):
 @bp.get("/event/<int:event_id>/pdf")
 @login_required
 def report_event_pdf(event_id: int):
-    """
-    Rendu HTML imprimable (Ctrl/Cmd+P → Enregistrer en PDF).
-    On évite toute dépendance à wkhtmltopdf/WeasyPrint.
-    """
     ev = _get_event_or_404(event_id)
     tree = build_event_tree(ev.id)
     summary = _summarize_tree(tree)
@@ -266,7 +253,6 @@ def report_event_pdf(event_id: int):
         summary=summary,
         flat=flat,
     )
-    # HTML imprimable (pas de dépendance externe)
     resp = make_response(html)
     resp.headers["Content-Type"] = "text/html; charset=utf-8"
     return resp
