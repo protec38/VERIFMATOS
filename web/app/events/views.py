@@ -1,9 +1,8 @@
 # app/events/views.py — API JSON pour les événements (création, suppression, opérations)
 from __future__ import annotations
-
 import uuid
 from datetime import date
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, jsonify, request, abort, redirect, url_for
 from flask_login import login_required, current_user
@@ -24,10 +23,8 @@ from ..tree_query import build_event_tree
 
 bp = Blueprint("events", __name__)
 
-
 # ---------- Helpers ----------
 def _json_or_form() -> Dict[str, Any]:
-    """Récupère la payload soit en JSON, soit en form-urlencoded (fallback)."""
     data = request.get_json(silent=True)
     if data is None:
         data = request.form.to_dict(flat=False) if request.form else {}
@@ -37,9 +34,7 @@ def _json_or_form() -> Dict[str, Any]:
         data = flat
     return data
 
-
 def _as_int_list(value: Any) -> List[int]:
-    """Transforme '1,2' / ['1','2'] / [1,2] en liste d'int."""
     if value is None:
         return []
     if isinstance(value, (list, tuple)):
@@ -53,14 +48,7 @@ def _as_int_list(value: Any) -> List[int]:
             out.append(int(s))
     return out
 
-
-def _require_admin() -> None:
-    if not current_user.is_authenticated or current_user.role != Role.ADMIN:
-        abort(403)
-
-
 def _require_can_manage_event(ev: Event | None = None) -> None:
-    """Autorise ADMIN & CHEF, et exige que l'événement soit OPEN quand un évènement est fourni."""
     if not current_user.is_authenticated:
         abort(401)
     if current_user.role not in (Role.ADMIN, Role.CHEF):
@@ -68,40 +56,57 @@ def _require_can_manage_event(ev: Event | None = None) -> None:
     if ev is not None and ev.status != EventStatus.OPEN:
         abort(403)
 
-
 def _require_can_view_event(ev: Event) -> None:
     if not current_user.is_authenticated:
         abort(401)
     if current_user.role not in (Role.ADMIN, Role.CHEF, Role.VIEWER):
         abort(403)
 
-
 def _delete_event_rows(ev: Event) -> None:
-    """Nettoyage (si les relations ne sont pas en cascade côté modèle)."""
     db.session.query(VerificationRecord).filter_by(event_id=ev.id).delete(synchronize_session=False)
     db.session.query(EventNodeStatus).filter_by(event_id=ev.id).delete(synchronize_session=False)
     db.session.query(EventShareLink).filter_by(event_id=ev.id).delete(synchronize_session=False)
     db.session.execute(event_stock.delete().where(event_stock.c.event_id == ev.id))
     db.session.delete(ev)
 
+def _all_items_ok_under(event_id: int, root_id: int) -> bool:
+    """Vérifie via l’arbre que tous les items sous root_id sont OK."""
+    tree = build_event_tree(event_id)
+    target: Optional[Dict[str, Any]] = None
+
+    def find(nodes):
+        nonlocal target
+        for n in nodes or []:
+            if n.get("id") == root_id:
+                target = n
+                return True
+            if find(n.get("children") or []):
+                return True
+        return False
+
+    find(tree)
+    if not target:
+        return False
+
+    ok = True
+    def walk(n):
+        nonlocal ok
+        if n.get("type") == "ITEM":
+            ok = ok and (n.get("last_status") == "OK")
+        for c in n.get("children") or []:
+            walk(c)
+    walk(target)
+    return ok
 
 # ---------- CREATE ----------
 @bp.post("/events")
 @login_required
 def create_event():
-    """
-    Crée un évènement.
-    Attend:
-      - name: str
-      - date: "YYYY-MM-DD" (optionnel)
-      - root_ids: liste d'ids (checkbox) -> [1,2] ou "1,2" ou champs répétés.
-    """
     _require_can_manage_event()
 
     payload = _json_or_form()
     name = (payload.get("name") or "").strip()
     date_str = (payload.get("date") or "").strip()
-    # accepte 'root_ids' ou 'root_ids[]'
     root_ids = _as_int_list(payload.get("root_ids") or payload.get("root_ids[]"))
 
     if not name:
@@ -118,7 +123,7 @@ def create_event():
 
     ev = Event(name=name, date=ev_date, status=EventStatus.OPEN, created_by_id=current_user.id)
     db.session.add(ev)
-    db.session.flush()  # pour ev.id
+    db.session.flush()
 
     added = 0
     for rid in sorted(set(root_ids)):
@@ -137,8 +142,7 @@ def create_event():
         return jsonify({"ok": True, "id": ev.id, "url": url_for("pages.event_page", event_id=ev.id)}), 201
     return redirect(url_for("pages.event_page", event_id=ev.id), code=303)
 
-
-# ---------- READ TREE (polling) ----------
+# ---------- READ TREE ----------
 @bp.get("/events/<int:event_id>/tree")
 @login_required
 def get_event_tree(event_id: int):
@@ -146,7 +150,6 @@ def get_event_tree(event_id: int):
     _require_can_view_event(ev)
     tree = build_event_tree(event_id)
     return jsonify(tree)
-
 
 # ---------- STOCK ROOTS LIST ----------
 @bp.get("/events/<int:event_id>/stock-roots")
@@ -163,14 +166,12 @@ def get_event_stock_roots(event_id: int):
     roots = [{"id": n.id, "name": n.name} for n in q.all()]
     return jsonify(roots)
 
-
 # ---------- SHARE LINK ----------
 @bp.post("/events/<int:event_id>/share-link")
 @login_required
 def create_share_link(event_id: int):
     ev = db.session.get(Event, event_id) or abort(404)
     _require_can_manage_event(ev)
-
     link = EventShareLink.query.filter_by(event_id=event_id, active=True).first()
     if not link:
         token = uuid.uuid4().hex
@@ -179,8 +180,7 @@ def create_share_link(event_id: int):
         db.session.commit()
     return jsonify({"ok": True, "token": link.token, "url": f"/public/event/{link.token}"}), 201
 
-
-# ---------- STATUS (CLOSE / RE-OPEN) ----------
+# ---------- STATUS (OPEN/CLOSED) ----------
 @bp.patch("/events/<int:event_id>/status")
 @login_required
 def update_event_status(event_id: int):
@@ -199,7 +199,9 @@ def update_event_status(event_id: int):
         return jsonify({"ok": True, "status": "CLOSED"})
 
     if status_str == "OPEN":
-        _require_admin()  # réouverture réservée ADMIN
+        # réouverture réservée à l'ADMIN
+        if current_user.role != Role.ADMIN:
+            abort(403)
         ev.status = EventStatus.OPEN
         db.session.commit()
         try:
@@ -210,8 +212,7 @@ def update_event_status(event_id: int):
 
     abort(400, description="Statut invalide")
 
-
-# ---------- PARENT CHARGED ----------
+# ---------- PARENT CHARGED (avec véhicule) ----------
 @bp.post("/events/<int:event_id>/parent-status")
 @login_required
 def update_parent_status(event_id: int):
@@ -220,38 +221,36 @@ def update_parent_status(event_id: int):
 
     data = _json_or_form()
     node_id = int(data.get("node_id") or 0)
-
-    # parse robuste du booléen
-    val = data.get("charged_vehicle")
-    charged = False
-    if isinstance(val, bool):
-        charged = val
-    elif isinstance(val, (int, float)):
-        charged = bool(val)
-    elif isinstance(val, str):
-        charged = val.strip().lower() in {"1", "true", "on", "yes"}
-
+    charged = bool(data.get("charged_vehicle"))
+    vehicle_name = (data.get("vehicle_name") or "").strip() or None
     if not node_id:
         abort(400, description="node_id manquant")
+
+    # Si on veut marquer "chargé", on impose que tout soit OK, et que le nom de véhicule soit fourni
+    if charged:
+        if not vehicle_name:
+            abort(400, description="vehicle_name requis lorsque charged_vehicle=true")
+        if not _all_items_ok_under(event_id, node_id):
+            abort(400, description="Tous les items doivent être OK avant de charger le parent.")
 
     ens = (
         EventNodeStatus.query.filter_by(event_id=event_id, node_id=node_id).first()
         or EventNodeStatus(event_id=event_id, node_id=node_id)
     )
     ens.charged_vehicle = charged
+    ens.vehicle_name = vehicle_name if charged else None
     db.session.add(ens)
     db.session.commit()
 
     try:
         socketio.emit(
             "event_update",
-            {"type": "parent_charged", "event_id": ev.id, "node_id": node_id, "charged": charged},
+            {"type": "parent_charged", "event_id": ev.id, "node_id": node_id, "charged": charged, "vehicle_name": ens.vehicle_name},
             room=f"event_{ev.id}",
         )
     except Exception:
         pass
-    return jsonify({"ok": True, "node_id": node_id, "charged_vehicle": charged})
-
+    return jsonify({"ok": True, "node_id": node_id, "charged_vehicle": charged, "vehicle_name": ens.vehicle_name})
 
 # ---------- VERIFY ITEM ----------
 @bp.post("/events/<int:event_id>/verify")
@@ -281,7 +280,6 @@ def verify_item(event_id: int):
         pass
     return jsonify({"ok": True, "record_id": rec.id})
 
-
 # ---------- STATS ----------
 @bp.get("/events/<int:event_id>/stats")
 @login_required
@@ -292,25 +290,21 @@ def event_stats(event_id: int):
     total_all = db.session.query(VerificationRecord).filter_by(event_id=event_id).count()
     return jsonify({"ok": True, "verified_ok": total_ok, "verified_total": total_all})
 
-
-# ---------- DELETE (API DELETE + fallback POST) ----------
+# ---------- DELETE ----------
 @bp.delete("/events/<int:event_id>")
 @login_required
 def delete_event_api(event_id: int):
-    """Suppression autorisée même si CLOSED (ADMIN uniquement)."""
     ev = db.session.get(Event, event_id) or abort(404)
-    _require_admin()  # 👈 suppression toujours possible pour ADMIN
+    _require_can_manage_event(ev)
     _delete_event_rows(ev)
     db.session.commit()
     return jsonify({"ok": True})
 
-
 @bp.route("/events/<int:event_id>/delete", methods=["POST"])
 @login_required
 def delete_event_form(event_id: int):
-    """Fallback formulaire (POST)."""
     ev = db.session.get(Event, event_id) or abort(404)
-    _require_admin()  # 👈 suppression toujours possible pour ADMIN
+    _require_can_manage_event(ev)
     _delete_event_rows(ev)
     db.session.commit()
     if request.is_json:
