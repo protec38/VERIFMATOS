@@ -1,147 +1,125 @@
+# app/__init__.py
 from __future__ import annotations
-
-import os
-from datetime import timedelta, datetime, timezone
-
-from flask import Flask
+from datetime import datetime
+import logging
+from flask import Flask, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate
 from flask_login import LoginManager
 from flask_socketio import SocketIO
-from sqlalchemy import text
+from .config import get_config
 
-# Instances globales (importées ailleurs via: from . import db, login_manager, socketio)
+# Extensions
 db = SQLAlchemy()
+migrate = Migrate()
 login_manager = LoginManager()
-socketio = SocketIO(async_mode="eventlet", cors_allowed_origins="*")  # sans Redis
+login_manager.login_view = "pages.login"
+# Protection de session optionnelle
+login_manager.session_protection = "strong"
 
+# Socket.IO (par défaut sans Redis, un seul worker/process)
+socketio = SocketIO(
+    async_mode="eventlet",
+    cors_allowed_origins="*",
+    message_queue=None,
+)
 
-def _ensure_users_schema() -> None:
-    """
-    Auto-réparation idempotente de la table users pour éviter les erreurs
-    de NOT NULL sur created_at et garantir les defaults.
-    """
+# --------- USER LOADER (OBLIGATOIRE) ----------
+# Flask-Login a besoin de savoir recharger un user depuis l'id stocké en session.
+@login_manager.user_loader
+def load_user(user_id: str):
     try:
-        # Ajouter les colonnes si absentes
-        db.session.execute(text(
-            "ALTER TABLE IF EXISTS users "
-            "ADD COLUMN IF NOT EXISTS active BOOLEAN"
-        ))
-        db.session.execute(text(
-            "ALTER TABLE IF EXISTS users "
-            "ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ"
-        ))
-
-        # Définir / forcer les DEFAULT
-        db.session.execute(text(
-            "ALTER TABLE IF EXISTS users "
-            "ALTER COLUMN active SET DEFAULT TRUE"
-        ))
-        db.session.execute(text(
-            "ALTER TABLE IF EXISTS users "
-            "ALTER COLUMN created_at SET DEFAULT NOW()"
-        ))
-
-        # Renseigner les valeurs NULL existantes
-        db.session.execute(text(
-            "UPDATE users SET active = TRUE WHERE active IS NULL"
-        ))
-        db.session.execute(text(
-            "UPDATE users SET created_at = NOW() WHERE created_at IS NULL"
-        ))
-
-        # Reposer NOT NULL proprement
-        db.session.execute(text(
-            "ALTER TABLE IF EXISTS users "
-            "ALTER COLUMN active SET NOT NULL"
-        ))
-        db.session.execute(text(
-            "ALTER TABLE IF EXISTS users "
-            "ALTER COLUMN created_at SET NOT NULL"
-        ))
-
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-        # on ne bloque pas le boot si la réparation échoue ; les logs Docker montreront l'erreur
-
-
-# -----------------------------------------------------------------------------
-# Factory
-# -----------------------------------------------------------------------------
-def create_app() -> Flask:
-    app = Flask(__name__)
-
-    # ----------------- Config -----------------
-    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me")
-    app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
-        "DATABASE_URL",
-        "postgresql+psycopg2://pcprep:pcprep@db:5432/pcprep",
-    )
-    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    app.config["REMEMBER_COOKIE_DURATION"] = timedelta(days=14)
-
-    # ----------------- Init libs -----------------
-    db.init_app(app)
-    login_manager.init_app(app)
-    socketio.init_app(app)
-
-    # ----------------- User loader (Flask-Login) -----------------
-    from .models import User  # import local pour éviter cycles
-
-    @login_manager.user_loader
-    def load_user(user_id: str):
+        from .models import User  # import local pour éviter les imports circulaires
         if not user_id:
             return None
         return db.session.get(User, int(user_id))
-
-    login_manager.login_view = "pages.login"
-
-    # ----------------- Auto-réparation schéma users -----------------
-    with app.app_context():
-        _ensure_users_schema()
-
-    # ----------------- Blueprints -----------------
-    from .stock.views import bp as stock_api_bp
-    from .events.views import bp as events_api_bp
-    from .verify.views import bp as verify_api_bp
-    from .views_html import bp as pages_bp
-
-    # Optionnels si présents
-    try:
-        from .reports.views import bp as reports_api_bp
-        app.register_blueprint(reports_api_bp)
     except Exception:
-        pass
-    try:
-        from .stats.views import bp as stats_api_bp
-        app.register_blueprint(stats_api_bp)
-    except Exception:
-        pass
+        return None
+# ----------------------------------------------
 
-    app.register_blueprint(stock_api_bp)   # routes /stock...
-    app.register_blueprint(events_api_bp)  # routes /events...
-    app.register_blueprint(verify_api_bp)  # routes /public/event...
-    app.register_blueprint(pages_bp)       # pages HTML (/dashboard, /admin, ...)
 
-    # ----------------- Seeding admin (idempotent) -----------------
-    with app.app_context():
+def create_app() -> Flask:
+    app = Flask(__name__, instance_relative_config=False)
+
+    # Config
+    app.config.from_object(get_config())
+
+    # Init extensions
+    db.init_app(app)
+    migrate.init_app(app, db)
+    login_manager.init_app(app)
+
+    # Import models pour migrations
+    from . import models  # noqa: F401
+
+    # Socket.IO : si REDIS_URL présent, on l’active, sinon on reste en in-process
+    redis_url = app.config.get("REDIS_URL") or ""
+    if redis_url:
         try:
-            from .models import Role
-
-            admin = User.query.filter_by(username="admin").first()
-            if not admin:
-                admin = User(username="admin", role=Role.ADMIN)
-                admin.set_password("admin")
-                # évite de dépendre du DEFAULT si le SGBD est tatillon
-                admin.created_at = datetime.now(timezone.utc)
-                admin.is_active = True
-                db.session.add(admin)
-                db.session.commit()
-                print("Admin created: admin/admin")
-            else:
-                print("Admin already exists: admin")
+            global socketio
+            socketio = SocketIO(
+                async_mode="eventlet",
+                cors_allowed_origins="*",
+                message_queue=redis_url,
+            )
         except Exception as e:
-            db.session.rollback()
-            print("Seeding admin failed:", e)
+            logging.warning(
+                "SocketIO: Redis MQ désactivé (préflight KO: %s). Démarrage sans MQ.", e
+            )
+    socketio.init_app(app)
+
+    # Jinja globals (ex: footer année courante)
+    @app.context_processor
+    def inject_now():
+        return {"now": datetime.utcnow}
+
+    # Blueprints API
+    from .auth.views import bp as auth_api_bp
+    app.register_blueprint(auth_api_bp)
+
+    from .admin.views import bp as admin_api_bp
+    app.register_blueprint(admin_api_bp)
+
+    from .events.views import bp as events_api_bp
+    app.register_blueprint(events_api_bp)
+
+    from .stock.views import bp as stock_api_bp
+    app.register_blueprint(stock_api_bp)
+
+    from .verify.views import bp as verify_api_bp
+    app.register_blueprint(verify_api_bp)
+
+    from .reports.views import bp as reports_api_bp
+    app.register_blueprint(reports_api_bp)
+
+    from .stats.views import bp as stats_api_bp
+    app.register_blueprint(stats_api_bp)
+
+    from .pwa.views import bp as pwa_bp
+    app.register_blueprint(pwa_bp)
+
+    # Pages (HTML)
+    from .views_html import bp as pages_bp
+    app.register_blueprint(pages_bp)
+
+    # Health / root
+    @app.get("/")
+    def index():
+        return redirect(url_for("pages.dashboard"))
+
+    @app.get("/health")
+    def health():
+        return {"status": "healthy"}
+
+    # Socket handlers (join_event, etc.)
+    from .sockets import register_socketio_handlers
+    register_socketio_handlers(socketio)
+
+    # CLI (seed templates) — optionnel
+    try:
+        from .seeds_templates import register_cli as register_seed_cli
+        register_seed_cli(app)
+    except Exception:
+        pass
 
     return app
