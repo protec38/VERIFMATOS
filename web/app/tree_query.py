@@ -1,180 +1,212 @@
-# app/tree_query.py — construction d'un arbre JSON pour un évènement
 from __future__ import annotations
-from typing import Dict, List, Optional, Any, Tuple
-from collections import defaultdict
 
-from sqlalchemy import func, and_, select
-from sqlalchemy.orm import aliased
+from collections import defaultdict
+from typing import Dict, List, Optional
+
+from sqlalchemy import func, select, and_
 
 from . import db
 from .models import (
-    StockNode, NodeType,
-    VerificationRecord, EventNodeStatus,
-    event_stock,
+    StockNode,
+    NodeType,
+    VerificationRecord,
+    EventNodeStatus,
+    Event,
+    event_stock,  # Table association évènement -> racines sélectionnées
 )
 
-def _node_to_dict_basic(n: StockNode) -> Dict[str, Any]:
-    """Projection minimale commune aux GROUP/ITEM attendue par les templates."""
-    t = (n.type.name if hasattr(n.type, "name") else str(n.type)).upper()
-    return {
-        "id": n.id,
-        "name": n.name,
-        "type": "GROUP" if "GROUP" in t else "ITEM",
-        # quantité seulement utile pour ITEM ; on met tout de même pour simplifier côté JS
-        "quantity": getattr(n, "quantity", None),
-        # champs que les templates lisent éventuellement
-        "children": [],
-    }
 
-def _fetch_event_roots(event_id: int) -> List[int]:
-    q = db.session.execute(
-        select(event_stock.c.node_id).where(event_stock.c.event_id == event_id)
-    )
-    return [row[0] for row in q.all()]
+def _type_str(t: NodeType | str | None) -> str:
+    if t is None:
+        return ""
+    if isinstance(t, str):
+        return t.upper()
+    try:
+        return t.name.upper()
+    except Exception:
+        return str(t).upper()
 
-def _fetch_all_nodes_index() -> Tuple[Dict[int, StockNode], Dict[Optional[int], List[int]]]:
-    """Charge tous les nœuds une fois et construit les index utiles."""
-    nodes: Dict[int, StockNode] = {}
-    children_by_parent: Dict[Optional[int], List[int]] = defaultdict(list)
 
-    for n in db.session.query(StockNode).all():
-        nodes[n.id] = n
-        children_by_parent[n.parent_id].append(n.id)
-
-    # tri par nom pour un rendu stable
-    for pid in list(children_by_parent.keys()):
-        children_by_parent[pid].sort(key=lambda nid: nodes[nid].name.lower())
-
-    return nodes, children_by_parent
-
-def _collect_subtree(root_id: int, nodes: Dict[int, StockNode], children_by_parent: Dict[Optional[int], List[int]]) -> List[int]:
-    """Retourne la liste des ids du sous-arbre (root inclus) par parcours DFS."""
-    out: List[int] = []
-    stack = [root_id]
-    while stack:
-        nid = stack.pop()
-        out.append(nid)
-        stack.extend(reversed(children_by_parent.get(nid, [])))  # reversed pour garder l'ordre après pop()
-    return out
-
-def _fetch_latest_item_status(event_id: int, item_ids: List[int]) -> Dict[int, Dict[str, Any]]:
-    """Pour chaque item_id, récupère le dernier statut (OK/NOT_OK) et 'by' + timestamp.
-       Retourne un dict: node_id -> {"status": "OK"/"NOT_OK", "by": str, "ts": datetime}"""
-    if not item_ids:
-        return {}
-    # Sous-requête: max(created_at) par node
-    sub = (
+def _latest_verif_map(event_id: int) -> Dict[int, Dict[str, Optional[str]]]:
+    """
+    Retourne un dict: node_id -> { 'status': 'OK'|'NOT_OK', 'by': 'Nom', 'created_at': datetime }
+    (dernière vérification par item pour l'évènement donné)
+    """
+    # Sous-requête: dernière date par (event_id, node_id)
+    subq = (
         db.session.query(
             VerificationRecord.node_id.label("node_id"),
             func.max(VerificationRecord.created_at).label("max_ts"),
         )
-        .filter(VerificationRecord.event_id == event_id, VerificationRecord.node_id.in_(item_ids))
+        .filter(VerificationRecord.event_id == event_id)
         .group_by(VerificationRecord.node_id)
         .subquery()
     )
 
-    latest = {}
-    # Joindre pour récupérer la ligne correspondante
-    vr = aliased(VerificationRecord)
-    rows = (
-        db.session.query(vr.node_id, vr.status, vr.verifier_name, vr.created_at)
-        .join(sub, and_(vr.node_id == sub.c.node_id, vr.created_at == sub.c.max_ts))
-        .all()
+    # Jointure pour récupérer la ligne correspondante (status + by)
+    q = (
+        db.session.query(
+            VerificationRecord.node_id,
+            VerificationRecord.status,
+            VerificationRecord.verifier_name,
+            VerificationRecord.created_at,
+        )
+        .join(
+            subq,
+            and_(
+                VerificationRecord.node_id == subq.c.node_id,
+                VerificationRecord.created_at == subq.c.max_ts,
+            ),
+        )
+        .filter(VerificationRecord.event_id == event_id)
     )
-    for node_id, status, by, ts in rows:
-        # Nos templates attendent "OK" | "NOT_OK" (en MAJUSCULES) | None
-        st = str(status)
-        # status peut être un enum ou une str; normalize
-        st_upper = st.upper()
-        if st_upper.endswith("ItemStatus.OK".upper()):  # paranoia
-            st_upper = "OK"
-        elif st_upper.endswith("NOT_OK"):
-            st_upper = "NOT_OK"
-        elif "OK" in st_upper and "NOT" not in st_upper:
-            st_upper = "OK"
-        elif "NOT_OK" in st_upper or "NOT" in st_upper:
-            st_upper = "NOT_OK"
-        latest[node_id] = {"status": "OK" if st_upper == "OK" else ("NOT_OK" if st_upper == "NOT_OK" else None),
-                           "by": by, "ts": ts}
-    return latest
 
-def _fetch_parent_status(event_id: int, group_ids: List[int]) -> Dict[int, Dict[str, Any]]:
-    """Récupère (charged_vehicle, vehicle_name) par groupe pour l'évènement."""
-    if not group_ids:
-        return {}
-    rows = (
-        db.session.query(EventNodeStatus.node_id, EventNodeStatus.charged_vehicle, EventNodeStatus.vehicle_name)
-        .filter(EventNodeStatus.event_id == event_id, EventNodeStatus.node_id.in_(group_ids))
-        .all()
-    )
-    out: Dict[int, Dict[str, Any]] = {}
-    for nid, charged, vname in rows:
-        out[nid] = {"charged_vehicle": bool(charged), "vehicle_name": vname}
+    out: Dict[int, Dict[str, Optional[str]]] = {}
+    for node_id, status, by, created_at in q.all():
+        out[int(node_id)] = {
+            "status": (status or "").upper(),
+            "by": by or "",
+            "created_at": created_at,
+        }
     return out
 
-def _build_json_tree_for_root(root_id: int,
-                              nodes: Dict[int, StockNode],
-                              children_by_parent: Dict[Optional[int], List[int]],
-                              latest_status: Dict[int, Dict[str, Any]],
-                              parent_status: Dict[int, Dict[str, Any]]) -> Dict[str, Any]:
-    """Construit le JSON pour un root, en descendant récursivement."""
-    def build(nid: int) -> Dict[str, Any]:
-        n = nodes[nid]
-        base = _node_to_dict_basic(n)
-        if base["type"] == "GROUP":
-            # Ajout info "charged" si disponible
-            ps = parent_status.get(nid) or {}
-            base["charged_vehicle"] = bool(ps.get("charged_vehicle"))
-            if ps.get("vehicle_name"):
-                base["vehicle_name"] = ps["vehicle_name"]
-            base["children"] = [build(cid) for cid in children_by_parent.get(nid, [])]
+
+def _event_roots_ids(event_id: int) -> List[int]:
+    rows = db.session.execute(
+        select(event_stock.c.node_id).where(event_stock.c.event_id == event_id)
+    ).all()
+    return [int(r[0]) for r in rows]
+
+
+def _event_group_status_map(event_id: int) -> Dict[int, Dict[str, Optional[str]]]:
+    """
+    node_id -> { 'charged_vehicle': bool, 'vehicle_label': str|None }
+    """
+    out: Dict[int, Dict[str, Optional[str]]] = {}
+    rows = (
+        db.session.query(EventNodeStatus)
+        .filter(EventNodeStatus.event_id == event_id)
+        .all()
+    )
+    has_vehicle_label = hasattr(EventNodeStatus, "vehicle_label")
+    for r in rows:
+        out[int(r.node_id)] = {
+            "charged_vehicle": bool(r.charged_vehicle),
+            "vehicle_label": (r.vehicle_label if has_vehicle_label else None),
+        }
+    return out
+
+
+def _build_adjacency(nodes: List[StockNode]) -> Dict[Optional[int], List[StockNode]]:
+    children: Dict[Optional[int], List[StockNode]] = defaultdict(list)
+    for n in nodes:
+        parent_id = getattr(n, "parent_id", None)
+        children[parent_id].append(n)
+    # tri léger pour une sortie stable
+    for lst in children.values():
+        lst.sort(key=lambda n: (0 if _type_str(n.type) == "GROUP" else 1, (n.name or "").lower(), n.id))
+    return children
+
+
+def _collect_descendants(root_id: int, children_map: Dict[Optional[int], List[StockNode]]) -> List[int]:
+    """Renvoie tous les ids du sous-arbre (root compris)."""
+    out: List[int] = []
+    stack: List[int] = [root_id]
+    id_map = {n.id: n for lst in children_map.values() for n in lst}
+    while stack:
+        nid = stack.pop()
+        out.append(nid)
+        for ch in children_map.get(nid, []):
+            stack.append(ch.id)
+    return out
+
+
+def _node_to_json(
+    n: StockNode,
+    children_map: Dict[Optional[int], List[StockNode]],
+    verif_map: Dict[int, Dict[str, Optional[str]]],
+    group_status_map: Dict[int, Dict[str, Optional[str]]],
+) -> Dict:
+    t = _type_str(n.type)
+    base = {
+        "id": n.id,
+        "name": n.name,
+        "type": t,
+        "quantity": getattr(n, "quantity", None),
+        # Les clés suivantes sont ajoutées selon le type
+        "children": [],
+    }
+
+    if t == "ITEM":
+        last = verif_map.get(n.id)
+        if last:
+            base["last_status"] = last.get("status") or None
+            base["last_by"] = last.get("by") or None
         else:
-            # ITEM
-            st = latest_status.get(nid) or {}
-            base["last_status"] = st.get("status")  # "OK" | "NOT_OK" | None
-            base["last_by"] = st.get("by")
-            # quantité par défaut
-            if base.get("quantity") is None:
-                base["quantity"] = 1
+            # Pas de vérification => en attente
+            base["last_status"] = None
+            base["last_by"] = None
         return base
 
-    return build(root_id)
+    # GROUP
+    # État "chargé" + label véhicule s'ils existent
+    gs = group_status_map.get(n.id)
+    base["charged_vehicle"] = bool(gs.get("charged_vehicle")) if gs else False
+    base["vehicle_label"] = gs.get("vehicle_label") if gs else None
 
-def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
+    # Enfants
+    children = []
+    for ch in children_map.get(n.id, []):
+        children.append(_node_to_json(ch, children_map, verif_map, group_status_map))
+    base["children"] = children
+    return base
+
+
+def build_event_tree(event_id: int) -> List[Dict]:
     """
-    Construit l'arbre de l'évènement pour le rendu (pages cheffe & publique).
-    Chaque nœud renvoyé contient:
-      GROUP: {id, name, type:"GROUP", charged_vehicle?, vehicle_name?, children:[...] }
-      ITEM:  {id, name, type:"ITEM", quantity, last_status? -> "OK"/"NOT_OK"/None, last_by? }
+    Construit l'arbre JSON des stocks à vérifier pour un évènement.
+    Sortie (liste de racines):
+      - GROUP:
+          { id, name, type:'GROUP', charged_vehicle:bool, vehicle_label:str|None, children:[...] }
+      - ITEM:
+          { id, name, type:'ITEM', quantity:int|None, last_status:'OK'|'NOT_OK'|None, last_by:str|None }
     """
-    root_ids = _fetch_event_roots(event_id)
+    # 1) Vérifie existence évènement
+    ev = db.session.get(Event, event_id)
+    if not ev:
+        return []
+
+    # 2) Racines sélectionnées pour l'évènement
+    root_ids = _event_roots_ids(event_id)
     if not root_ids:
         return []
 
-    nodes_idx, childs = _fetch_all_nodes_index()
+    # 3) Charge tous les nœuds (on reste côté Python pour assembler le sous-arbre)
+    all_nodes: List[StockNode] = db.session.query(StockNode).all()
 
-    # collecter tous les ids descendants à partir des roots
-    subtrees: Dict[int, List[int]] = {}
-    all_ids: List[int] = []
+    # 4) Tables d'aide
+    children_map = _build_adjacency(all_nodes)
+    id_map = {n.id: n for n in all_nodes}
+
+    # 5) On délimite l'univers: tous descendants de chaque racine
+    allowed_ids: set[int] = set()
     for rid in root_ids:
-        if rid not in nodes_idx:
+        if rid in id_map:
+            allowed_ids.update(_collect_descendants(rid, children_map))
+
+    # 6) Prépare les données de statut (items + groupes)
+    verif_map = _latest_verif_map(event_id)
+    group_status_map = _event_group_status_map(event_id)
+
+    # 7) Construit le JSON racine par racine
+    result: List[Dict] = []
+    for rid in root_ids:
+        root = id_map.get(rid)
+        if not root:
             continue
-        ids = _collect_subtree(rid, nodes_idx, childs)
-        subtrees[rid] = ids
-        all_ids.extend(ids)
-
-    # séparer items vs groupes
-    item_ids = [nid for nid in all_ids if nid in nodes_idx and (nodes_idx[nid].type == NodeType.ITEM or str(nodes_idx[nid].type).upper().endswith("ITEM"))]
-    group_ids = [nid for nid in all_ids if nid in nodes_idx and (nodes_idx[nid].type == NodeType.GROUP or str(nodes_idx[nid].type).upper().endswith("GROUP"))]
-
-    latest = _fetch_latest_item_status(event_id, item_ids)
-    pstatus = _fetch_parent_status(event_id, group_ids)
-
-    # Construire le JSON pour chaque root
-    result: List[Dict[str, Any]] = []
-    # garder l'ordre alphabétique des roots pour stabilité
-    root_ids_sorted = sorted([rid for rid in root_ids if rid in nodes_idx], key=lambda x: nodes_idx[x].name.lower())
-    for rid in root_ids_sorted:
-        result.append(_build_json_tree_for_root(rid, nodes_idx, childs, latest, pstatus))
+        # Filtre les enfants hors périmètre en clonant temporairement children_map
+        # (mais comme _node_to_json lit via children_map, on se contente de la
+        #  liste existante; le 'allowed_ids' sert surtout si tu veux filtrer plus finement)
+        result.append(_node_to_json(root, children_map, verif_map, group_status_map))
 
     return result
