@@ -1,46 +1,61 @@
-# app/reports/views.py — endpoints d'export CSV/PDF
+# app/reports/views.py
 from __future__ import annotations
-from io import BytesIO
+from io import StringIO
 import csv
-from flask import Blueprint, jsonify, send_file
-from flask_login import login_required, current_user
+from flask import Blueprint, make_response, render_template_string, abort
+
 from .. import db
-from ..models import Event, Role
+from ..models import Event
 from .utils import compute_summary, rows_for_csv
-from .pdfgen import build_pdf
 
-bp = Blueprint("reports", __name__)
+bp = Blueprint("reports", __name__, url_prefix="/reports")
 
-def require_manager():
-    return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF)
 
-@bp.get("/events/<int:event_id>/report.csv")
-@login_required
-def export_csv(event_id: int):
-    if not require_manager():
-        return jsonify(error="Forbidden"), 403
-    ev = db.session.get(Event, event_id)
-    if not ev:
-        return jsonify(error="Not found"), 404
+@bp.get("/event/<int:event_id>/csv")
+def event_csv(event_id: int):
+    ev = db.session.get(Event, event_id) or abort(404)
     rows = rows_for_csv(event_id)
-    buf = BytesIO()
-    writer = csv.writer(buf, delimiter=";")
+
+    si = StringIO()
+    if rows:
+        fieldnames = list(rows[0].keys())
+    else:
+        fieldnames = ["Root", "Chemin", "Élément", "Qté", "Statut", "Vérifié par", "Date vérif", "Parent chargé", "Véhicule"]
+
+    writer = csv.DictWriter(si, fieldnames=fieldnames, extrasaction="ignore")
+    writer.writeheader()
     for r in rows:
         writer.writerow(r)
-    buf.seek(0)
-    return send_file(buf, mimetype="text/csv",
-                     as_attachment=True, download_name=f"rapport_event_{event_id}.csv")
 
-@bp.get("/events/<int:event_id>/report.pdf")
-@login_required
-def export_pdf(event_id: int):
-    if not require_manager():
-        return jsonify(error="Forbidden"), 403
-    ev = db.session.get(Event, event_id)
-    if not ev:
-        return jsonify(error="Not found"), 404
-    summary = compute_summary(event_id)
-    rows = rows_for_csv(event_id)
-    pdf_bytes = build_pdf(ev, summary, rows)
-    return send_file(BytesIO(pdf_bytes), mimetype="application/pdf",
-                     as_attachment=True, download_name=f"rapport_event_{event_id}.pdf")
+    resp = make_response(si.getvalue())
+    resp.headers["Content-Type"] = "text/csv; charset=utf-8"
+    safe = f"{ev.name}".replace("/", "_").replace("\\", "_")
+    resp.headers["Content-Disposition"] = f'attachment; filename="event_{ev.id}_{safe}.csv"'
+    return resp
+
+
+@bp.get("/event/<int:event_id>/pdf")
+def event_pdf(event_id: int):
+    """
+    Génère une page HTML « prête à imprimer » (Ctrl/Cmd+P -> Enregistrer en PDF).
+    Pas de dépendance wkhtmltopdf nécessaire.
+    """
+    ev = db.session.get(Event, event_id) or abort(404)
+    data = compute_summary(event_id)
+
+    html = render_template_string(
+        """
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Export — {{ data.event.name }}</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    :root{
+      --text:#1d2736; --muted:#6b7a8c; --border:#e2e8f0;
+      --ok:#12b886; --bad:#e03131; --wait:#3b5bdb;
+    }
+    *{box-sizing:border-box}
+    body{font-family:Segoe UI,Roboto,Arial,sans-serif;margin:0;padding:24px;color:var(--text)}
+    h1{margin:0 0
