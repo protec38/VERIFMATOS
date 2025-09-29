@@ -124,7 +124,9 @@ class EventNodeStatus(db.Model):
     event_id = db.Column(db.Integer, db.ForeignKey("events.id"), nullable=False, index=True)
     node_id = db.Column(db.Integer, db.ForeignKey("stock_nodes.id"), nullable=False, index=True)  # GROUP uniquement
     charged_vehicle = db.Column(db.Boolean, default=False, nullable=False)
+    vehicle_name = db.Column(db.String(120))  # <<< NOUVEAU
     comment = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     __table_args__ = (
@@ -144,3 +146,6 @@ class AuditLog(db.Model):
     meta = db.Column(JSONB, nullable=True)
 
     user = db.relationship("User")
+
+
+
