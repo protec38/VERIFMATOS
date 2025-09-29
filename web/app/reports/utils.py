@@ -1,92 +1,225 @@
-# app/reports/utils.py — utilitaires pour exporter les données d'un événement
+# app/reports/utils.py
 from __future__ import annotations
-from typing import List, Dict, Any, Tuple
+from typing import Dict, List, Any, Tuple, Iterable
 from datetime import datetime
+
 from .. import db
 from ..models import (
-    Event, EventStatus, VerificationRecord, ItemStatus,
-    EventNodeStatus, StockNode, NodeType, event_stock
+    Event,
+    EventStatus,
+    StockNode,
+    VerificationRecord,
+    EventNodeStatus,
+    event_stock,
 )
+from ..tree_query import build_event_tree
 
-def _collect_tree(root: StockNode) -> Dict[str, Any]:
-    return {
-        "id": root.id,
-        "name": root.name,
-        "type": root.type.name,
-        "level": root.level,
-        "quantity": root.quantity,
-        "children": [_collect_tree(c) for c in sorted(root.children, key=lambda x: (x.level, x.id))]
-    }
 
-def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
-    rows = db.session.execute(event_stock.select().where(event_stock.c.event_id == event_id)).fetchall()
-    root_ids = [r.node_id for r in rows]
-    if not root_ids:
-        return []
-    roots = StockNode.query.filter(StockNode.id.in_(root_ids)).order_by(StockNode.id).all()
-    return [_collect_tree(r) for r in roots]
+def _flatten_tree_with_path(tree: List[Dict[str, Any]]) -> Iterable[Dict[str, Any]]:
+    """
+    Aplati l'arbre en énumérant chaque nœud avec son 'path' (liste de noms des groupes)
+    jusqu'à lui.
+    """
+    def rec(node: Dict[str, Any], path: List[str]):
+        current_path = path + [node["name"]]
+        yield {
+            **node,
+            "_path": path[:]  # chemin SANS le nom du nœud
+        }
+        for c in node.get("children", []) or []:
+            yield from rec(c, current_path if node["type"] == "GROUP" else path)
+    for root in tree or []:
+        yield from rec(root, [])
 
-def flatten_items(tree: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    items = []
-    def rec(n):
-        if n["type"] == "ITEM":
-            items.append(n)
-        for c in n.get("children", []):
-            rec(c)
-    for r in tree:
-        rec(r)
-    return items
 
-def latest_verifications(event_id: int) -> Dict[int, Dict[str, Any]]:
-    """Retourne la dernière vérification par item (node_id) pour l'événement."""
-    rows = (VerificationRecord.query
-            .filter_by(event_id=event_id)
-            .order_by(VerificationRecord.node_id, VerificationRecord.created_at.desc())
-           ).all()
-    latest = {}
-    for r in rows:
-        if r.node_id not in latest:
-            latest[r.node_id] = {
-                "status": r.status.name,
-                "verifier_name": r.verifier_name,
-                "comment": r.comment,
-                "created_at": r.created_at
-            }
-    return latest
+def _latest_verifications_map(event_id: int, item_ids: List[int]) -> Dict[int, Tuple[str, str, datetime]]:
+    """
+    Pour une liste d'items (ids), renvoie un dict:
+      node_id -> (status, verifier_name, created_at)
+    Ne renvoie qu'UN seul enregistrement (le plus récent) par item.
+    """
+    if not item_ids:
+        return {}
+    q = (
+        db.session.query(VerificationRecord)
+        .filter(
+            VerificationRecord.event_id == event_id,
+            VerificationRecord.node_id.in_(item_ids),
+        )
+        .order_by(VerificationRecord.node_id.asc(), VerificationRecord.created_at.desc())
+    )
+    out: Dict[int, Tuple[str, str, datetime]] = {}
+    for rec in q:
+        if rec.node_id not in out:
+            out[rec.node_id] = (rec.status or "PENDING", rec.verifier_name or "", rec.created_at)
+    return out
 
-def parent_statuses(event_id: int) -> Dict[int, Dict[str, Any]]:
-    rows = EventNodeStatus.query.filter_by(event_id=event_id).all()
-    return {r.node_id: {"charged_vehicle": r.charged_vehicle, "comment": r.comment, "updated_at": r.updated_at} for r in rows}
+
+def _parent_status_map(event_id: int, node_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+    """
+    Renvoie pour des GROUP: charged_vehicle + vehicle_name
+    """
+    if not node_ids:
+        return {}
+    q = (
+        db.session.query(EventNodeStatus)
+        .filter(EventNodeStatus.event_id == event_id, EventNodeStatus.node_id.in_(node_ids))
+    )
+    out: Dict[int, Dict[str, Any]] = {}
+    for ens in q:
+        out[ens.node_id] = {
+            "charged_vehicle": bool(ens.charged_vehicle),
+            "vehicle_name": ens.vehicle_name or "",
+        }
+    return out
+
 
 def compute_summary(event_id: int) -> Dict[str, Any]:
-    tree = build_event_tree(event_id)
-    items = flatten_items(tree)
-    latest = latest_verifications(event_id)
-    total = len(items)
-    ok = sum(1 for it in items if latest.get(it["id"], {}).get("status") == "OK")
-    not_ok = sum(1 for it in items if latest.get(it["id"], {}).get("status") == "NOT_OK")
-    todo = total - ok - not_ok
-    return {"total": total, "ok": ok, "not_ok": not_ok, "todo": todo}
+    """
+    Donne un résumé exploitable pour PDF / Dashboard:
+      {
+        "event": {...},
+        "totals": {"items":N,"ok":A,"not_ok":B,"pending":C},
+        "roots": [
+          {"id":..,"name":..,"charged_vehicle":bool,"vehicle_name":"", "items":n,"ok":a,"not_ok":b,"pending":c}
+        ]
+      }
+    """
+    ev: Event | None = db.session.get(Event, event_id)
+    if not ev:
+        return {}
 
-def rows_for_csv(event_id: int) -> List[List[str]]:
     tree = build_event_tree(event_id)
-    latest = latest_verifications(event_id)
-    rows = [["Parent", "Sous-parent", "Nom de l'item", "Qté", "Statut", "Vérifié par", "Commentaire", "Date vérif."]]
-    def rec(n, parents):
-        new_parents = parents + [n["name"]] if n["type"] == "GROUP" else parents
-        if n["type"] == "ITEM":
-            info = latest.get(n["id"], {})
-            status = info.get("status", "TODO")
-            who = info.get("verifier_name", "")
-            com = info.get("comment", "")
-            when = info.get("created_at").isoformat() if info.get("created_at") else ""
-            row = [parents[0] if len(parents)>0 else "",
-                   parents[1] if len(parents)>1 else "",
-                   n["name"], str(n.get("quantity") or 0),
-                   status, who, com, when]
-            rows.append(row)
-        for c in n.get("children", []):
-            rec(c, new_parents)
-    for r in tree:
-        rec(r, [])
+
+    # Totaux globaux
+    total_items = ok = bad = 0
+
+    # Totaux par root
+    roots_summary: List[Dict[str, Any]] = []
+    for root in tree:
+        r_items = r_ok = r_bad = 0
+
+        def rec(n: Dict[str, Any]):
+            nonlocal total_items, ok, bad, r_items, r_ok, r_bad
+            if n["type"] == "ITEM":
+                r_items += 1
+                total_items += 1
+                st = (n.get("last_status") or "PENDING").upper()
+                if st == "OK":
+                    r_ok += 1
+                    ok += 1
+                elif st == "NOT_OK":
+                    r_bad += 1
+                    bad += 1
+            for c in n.get("children") or []:
+                rec(c)
+
+        rec(root)
+        roots_summary.append({
+            "id": root["id"],
+            "name": root["name"],
+            "charged_vehicle": bool(root.get("charged_vehicle")),
+            "vehicle_name": root.get("vehicle_name") or "",
+            "items": r_items,
+            "ok": r_ok,
+            "not_ok": r_bad,
+            "pending": max(r_items - r_ok - r_bad, 0),
+        })
+
+    pending = max(total_items - ok - bad, 0)
+
+    return {
+        "event": {
+            "id": ev.id,
+            "name": ev.name,
+            "date": ev.date.isoformat() if ev.date else None,
+            "status": ev.status.value if hasattr(ev.status, "value") else str(ev.status),
+            "created_at": ev.created_at.isoformat() if ev.created_at else None,
+        },
+        "totals": {
+            "items": total_items,
+            "ok": ok,
+            "not_ok": bad,
+            "pending": pending,
+        },
+        "roots": roots_summary,
+        "tree": tree,  # utile si on veut l’inclure dans le PDF
+    }
+
+
+def rows_for_csv(event_id: int) -> List[Dict[str, Any]]:
+    """
+    Table à plat prête pour export CSV.
+    Colonnes: Root, Chemin, Élément, Qté, Statut, Vérifié par, Date vérif, Parent chargé, Véhicule
+    """
+    ev: Event | None = db.session.get(Event, event_id)
+    if not ev:
+        return []
+
+    tree = build_event_tree(event_id)
+
+    # Récupérer tous les ids d'items et les ids des roots (pour statut véhicule)
+    item_ids: List[int] = []
+    root_ids: List[int] = []
+    for root in tree:
+        root_ids.append(root["id"])
+        def rec(n: Dict[str, Any]):
+            if n["type"] == "ITEM":
+                item_ids.append(n["id"])
+            for c in n.get("children") or []:
+                rec(c)
+        rec(root)
+
+    latest_map = _latest_verifications_map(event_id, item_ids)
+    parent_map = _parent_status_map(event_id, root_ids)
+
+    rows: List[Dict[str, Any]] = []
+    for node in _flatten_tree_with_path(tree):
+        if node["type"] != "ITEM":
+            continue
+
+        # root name = premier élément du chemin complet (si dispo)
+        root_name = ""
+        if node["_path"]:
+            root_name = node["_path"][0]
+
+        status = (node.get("last_status") or "PENDING").upper()
+        by = node.get("last_by") or ""
+        verified_at = ""
+        if node["id"] in latest_map:
+            _, _, ts = latest_map[node["id"]]
+            verified_at = ts.isoformat()
+
+        # statut véhicule pris sur la racine
+        parent_info = parent_map.get(node["_path_id"] if "_path_id" in node else None, {})  # precaution
+        # mieux: chercher la racine correspondante dans tree
+        # (on peut faire simple: rebalayer pour la racine active)
+        charged = ""
+        vehicle = ""
+        # on déduit depuis le tree: remonter jusqu'à la racine
+        charged = ""
+        vehicle = ""
+        # Le plus simple: re-parcourir pour trouver la racine du path
+        # mais comme _path n'a pas les ids, on va plutôt récupérer via tree:
+        # on crée un dict id->(charged,vehicle) depuis tree:
+        # (optimisé plus haut; ici, fallback si non trouvé dans parent_map)
+        # Au final, on essaye depuis le champ du root courant:
+        for root in tree:
+            if root["name"] == root_name:
+                charged = "oui" if root.get("charged_vehicle") else "non"
+                vehicle = root.get("vehicle_name") or ""
+                break
+
+        rows.append({
+            "Root": root_name,
+            "Chemin": " / ".join(node["_path"] + [node["name"]]),
+            "Élément": node["name"],
+            "Qté": node.get("quantity") or 1,
+            "Statut": "OK" if status == "OK" else ("Non conforme" if status == "NOT_OK" else "En attente"),
+            "Vérifié par": by,
+            "Date vérif": verified_at,
+            "Parent chargé": charged,
+            "Véhicule": vehicle,
+        })
+
     return rows
