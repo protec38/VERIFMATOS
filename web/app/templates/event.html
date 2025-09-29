@@ -28,28 +28,11 @@
   .chip.ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
   .chip.bad{background:#2a0e14;color:#ffd5dc;border-color:#75212f}
   .chip.wait{background:#101c2e;color:#b7c7dc;border-color:#24344f}
-
   /* pas de clignotement */
-  /* .blink{animation: blink .5s ease 1} */
-  /* @keyframes blink{0%{filter:brightness(1.1)}50%{filter:brightness(1.35)}100%{filter:brightness(1)}} */
-
   .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
   .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
 
-  /* ----- Barre parents (nouveau) ----- */
-  .parents-card .title{display:flex;align-items:center;gap:10px}
-  .parents-bar{display:flex;gap:8px;overflow:auto;padding:8px 2px}
-  .parent-pill{
-    display:inline-flex;align-items:center;gap:8px;
-    padding:8px 12px;border-radius:999px;border:1px solid var(--border);cursor:pointer;
-    user-select:none;white-space:nowrap;transition:transform .08s ease, box-shadow .08s ease, border-color .08s ease;
-    background:#0f1a2a;color:var(--text)
-  }
-  .parent-pill:hover{transform:translateY(-1px)}
-  .pill-ok{border-color:#1d6e5d;background:#0e2a24;color:#bff3e7}
-  .pill-bad{border-color:#75212f;background:#2a0e14;color:#ffd5dc}
-  .pill-wait{border-color:#24344f;background:#101c2e;color:#b7c7dc}
-  .focus-ring{outline:2px solid var(--pc-orange); outline-offset:2px; transition:outline-color .6s ease}
+  .vehicle-tag{margin-left:8px}
 </style>
 
 <div class="grid cols-2">
@@ -65,6 +48,7 @@
       <a class="btn" target="_blank" href="/reports/event/{{ event.id }}/pdf">Exporter PDF</a>
       <button class="btn primary" id="btn-share">Générer un lien pour les secouristes</button>
       <button class="btn" id="btn-close">Clôturer l'événement</button>
+      <button class="btn" id="btn-open" style="display:none;">Réouvrir l'événement</button>
     </div>
   </div>
 
@@ -78,12 +62,6 @@
     <div class="progress" style="margin-top:10px;"><div id="progress-bar" style="width:0%"></div></div>
     <div class="muted" id="progress-text" style="margin-top:6px;">0 / 0 vérifiés</div>
   </div>
-</div>
-
-<!-- NOUVEAU : barre de raccourcis parents -->
-<div class="card parents-card" style="margin-top:12px;">
-  <div class="title">Parents à vérifier</div>
-  <div id="parents-bar" class="parents-bar"></div>
 </div>
 
 <div class="card" style="margin-top:12px;">
@@ -100,22 +78,16 @@ let TREE = {{ (tree or [])|tojson }};
 const CURRENT_USER = "{{ (current_user.username if current_user is defined and current_user.is_authenticated else '')|e }}";
 let IS_OPEN = ("{{ event.status }}".toUpperCase() === "OPEN");
 
-/* ========= State & index DOM (pour MAJ incrémentales sans re-render) ========= */
-const NODE_MAP = new Map();     // id -> node (dans notre TREE local)
-const GROUP_EL = new Map();     // id -> box DOM du groupe
-const ITEM_EL  = new Map();     // id -> box DOM de l'item
-const ITEM_STATUS_TXT = new Map(); // id -> <div> statut + by
-const ITEM_QTY_TXT = new Map();    // id -> <span> Qté
-const CHARGED_CB = new Map();      // id -> checkbox "chargé"
+/* ========= Index DOM pour MAJ incrémentales ========= */
+const NODE_MAP = new Map();     // id -> node
+const GROUP_EL = new Map();     // id -> conteneur DOM du groupe
+const ITEM_EL  = new Map();     // id -> conteneur DOM de l'item
+const ITEM_STATUS_TXT = new Map();
+const ITEM_QTY_TXT = new Map();
+const VEHICLE_TAG = new Map();  // id -> span tag véhicule
+const CHARGE_BTN = new Map();   // id -> bouton "Charger"
 
-function indexTree(nodes){
-  (nodes||[]).forEach(function rec(n){
-    NODE_MAP.set(n.id, n);
-    (n.children||[]).forEach(rec);
-  });
-}
-
-/* -------------------- Helpers DOM -------------------- */
+/* ------- utils ------- */
 function el(tag, attrs={}, ...children){
   const e = document.createElement(tag);
   for(const [k,v] of Object.entries(attrs||{})){
@@ -130,7 +102,14 @@ function el(tag, attrs={}, ...children){
 const isItem = n => (n.type||"").toUpperCase()==="ITEM";
 const isGroup = n => (n.type||"").toUpperCase()==="GROUP";
 
-/* -------------------- Statuts descendants -------------------- */
+function indexTree(nodes){
+  (nodes||[]).forEach(function rec(n){
+    NODE_MAP.set(n.id, n);
+    (n.children||[]).forEach(rec);
+  });
+}
+
+/* ------- statuts ------- */
 function groupAllOk(n){
   let ok = true, hasItem=false;
   (function rec(x){
@@ -147,11 +126,6 @@ function groupHasBad(n){
   })(n);
   return bad;
 }
-function groupStatus(n){
-  if(groupAllOk(n)) return "OK";
-  if(groupHasBad(n)) return "BAD";
-  return "WAIT";
-}
 function flattenItems(nodes){
   const out=[]; (nodes||[]).forEach(function rec(n){
     if(isItem(n)) out.push(n);
@@ -159,15 +133,12 @@ function flattenItems(nodes){
   });
   return out;
 }
-
-/* -------------------- Comptage + progression -------------------- */
 function recomputeStats(){
   const items = flattenItems(TREE);
   const total = items.length;
   const ok = items.filter(i=>i.last_status==="OK").length;
   const bad = items.filter(i=>i.last_status==="NOT_OK").length;
   const wait = total - ok - bad;
-
   document.getElementById("stat-ok").textContent = `OK : ${ok}`;
   document.getElementById("stat-bad").textContent = `Non conformes : ${bad}`;
   document.getElementById("stat-wait").textContent = `En attente : ${wait}`;
@@ -176,24 +147,21 @@ function recomputeStats(){
   document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
 }
 
-/* -------------------- Rendu nœuds (1 fois) -------------------- */
 function itemStateClass(n){
   if(n.last_status==="OK") return "state-ok";
   if(n.last_status==="NOT_OK") return "state-bad";
   return "state-wait";
 }
 function groupStateClass(n){
-  const s = groupStatus(n);
-  if(s==="OK") return "state-ok";
-  if(s==="BAD") return "state-bad";
+  if(groupAllOk(n)) return "state-ok";
+  if(groupHasBad(n)) return "state-bad";
   return "state-wait";
 }
 function stateDot(n, isGroupNode){
   let cls="dot-wait", label="En attente";
   if(isGroupNode){
-    const s = groupStatus(n);
-    if(s==="OK") { cls="dot-ok"; label="Tout OK"; }
-    else if(s==="BAD") { cls="dot-bad"; label="Non conformes présents"; }
+    if(groupAllOk(n)) { cls="dot-ok"; label="Tout OK"; }
+    else if(groupHasBad(n)) { cls="dot-bad"; label="Non conformes présents"; }
   } else {
     if(n.last_status==="OK"){ cls="dot-ok"; label="OK"; }
     else if(n.last_status==="NOT_OK"){ cls="dot-bad"; label="Non conforme"; }
@@ -201,6 +169,7 @@ function stateDot(n, isGroupNode){
   return el("span", {class:"status-dot "+cls, title:label});
 }
 
+/* ------- rendu ------- */
 function renderItem(n){
   const statusLbl = n.last_status ? (n.last_status==="OK" ? "✅ OK" : "❌ Non conforme") : "⏳ En attente";
   const by = n.last_by ? ` (${n.last_by})` : "";
@@ -228,18 +197,32 @@ function renderItem(n){
   return wrap;
 }
 
+function canChargeGroup(n){
+  return IS_OPEN && groupAllOk(n) && !n.charged_vehicle;
+}
+
 function renderGroup(n){
-  const cb = el("input", {
-    type:"checkbox", id:`charged-${n.id}`, disabled:!IS_OPEN,
-    onchange:(e)=>setCharged(n.id, e.target.checked)
-  });
-  if(n.charged_vehicle) cb.checked = true;
-  CHARGED_CB.set(n.id, cb);
+  const nameBox = el("div", {class:"name"}, stateDot(n,true), n.name);
+
+  // Tag véhicule si déjà chargé
+  const veh = el("span", {class:"chip ok vehicle-tag", id:`veh-${n.id}`, style: (n.charged_vehicle?'':'display:none')},
+                 `🚐 ${n.vehicle_name || 'Véhicule'}`);
+  VEHICLE_TAG.set(n.id, veh);
+
+  // Bouton charger (seulement si tout OK, événement ouvert et pas déjà chargé)
+  const chargeBtn = el("button", {
+      class:"btn",
+      id:`charge-${n.id}`,
+      disabled:!canChargeGroup(n),
+      onclick:()=>chargeNode(n.id)
+    }, "🚐 Charger dans un véhicule");
+  CHARGE_BTN.set(n.id, chargeBtn);
 
   const header = el("div", {class:"header"},
-    el("div", {class:"name"}, stateDot(n,true), n.name),
-    el("label", {class:"check"}, cb, el("span", null, "Chargé dans le véhicule"))
+    nameBox,
+    el("div", {class:"row"}, veh, chargeBtn)
   );
+
   const children = el("div", {class:"childs"}, ...(n.children||[]).map(renderNode));
   const box = el("div", {class:`node ${groupStateClass(n)}`, id:`node-${n.id}`}, header, children);
   GROUP_EL.set(n.id, box);
@@ -252,11 +235,10 @@ function buildUIOnce(){
   root.innerHTML = "";
   indexTree(TREE);
   (TREE||[]).forEach(n => root.appendChild(renderNode(n)));
-  buildParentsBar();      // <<< nouveau
   recomputeStats();
 }
 
-/* -------------------- MAJ incrémentales (sans re-render) -------------------- */
+/* ------- MAJ incrémentales ------- */
 function applyItemDelta(local, incoming){
   local.last_status = (incoming.last_status || "PENDING").toUpperCase();
   local.last_by = incoming.last_by || "";
@@ -280,56 +262,26 @@ function applyGroupDelta(local){
   if(!box) return;
   box.classList.remove("state-ok","state-bad","state-wait");
   box.classList.add(groupStateClass(local));
-}
 
-/* ------- BARRE PARENTS (création/MAJ) ------- */
-function buildParentsBar(){
-  const holder = document.getElementById("parents-bar");
-  if(!holder) return;
-  holder.innerHTML = "";
-
-  const parents = Array.isArray(TREE) ? TREE.filter(n => isGroup(n)) : [];
-  parents.forEach(p => {
-    const s = groupStatus(p);
-    const pillClass = s==="OK" ? "pill-ok" : (s==="BAD" ? "pill-bad" : "pill-wait");
-    const pill = el("div", {class:"parent-pill "+pillClass, onclick:()=>scrollToParent(p.id)},
-      stateDot(p,true),
-      el("span", {class:"strong"}, p.name)
-    );
-    holder.appendChild(pill);
-  });
-}
-function updateParentsBarOnly(){
-  // met à jour simplement les classes des pastilles sans tout reconstruire (optionnel)
-  const parents = Array.isArray(TREE) ? TREE.filter(n => isGroup(n)) : [];
-  const holder = document.getElementById("parents-bar");
-  if(!holder) return;
-  const pills = holder.children;
-  parents.forEach((p, idx) => {
-    const s = groupStatus(p);
-    const cls = s==="OK" ? "pill-ok" : (s==="BAD" ? "pill-bad" : "pill-wait");
-    const elP = pills[idx];
-    if(!elP) return;
-    elP.classList.remove("pill-ok","pill-bad","pill-wait");
-    elP.classList.add(cls);
-    // met à jour la puce de statut (premier child)
-    const dot = elP.querySelector('.status-dot');
-    if(dot){
-      dot.classList.remove('dot-ok','dot-bad','dot-wait');
-      dot.classList.add(s==="OK"?'dot-ok':(s==="BAD"?'dot-bad':'dot-wait'));
+  // MAJ bouton et tag véhicule
+  const btn = CHARGE_BTN.get(local.id);
+  const tag = VEHICLE_TAG.get(local.id);
+  if(btn){
+    btn.disabled = !canChargeGroup(local);
+    if(local.charged_vehicle){
+      btn.disabled = true;
     }
-  });
-}
-function scrollToParent(id){
-  const target = document.getElementById("node-"+id);
-  if(!target) return;
-  target.scrollIntoView({behavior:"smooth", block:"start"});
-  setTimeout(()=>{ window.scrollBy({top:-70, left:0, behavior:"instant"}); }, 300);
-  target.classList.add("focus-ring");
-  setTimeout(()=> target.classList.remove("focus-ring"), 1200);
+  }
+  if(tag){
+    if(local.charged_vehicle){
+      tag.style.display = "";
+      tag.textContent = `🚐 ${local.vehicle_name || 'Véhicule'}`;
+    }else{
+      tag.style.display = "none";
+    }
+  }
 }
 
-/* met à jour localement puis rafraîchit barre parents + stats */
 function syncTreeIncoming(incomingNodes){
   (incomingNodes||[]).forEach(function recInc(nInc){
     const nLoc = NODE_MAP.get(nInc.id);
@@ -337,20 +289,21 @@ function syncTreeIncoming(incomingNodes){
     if(isItem(nLoc)){
       applyItemDelta(nLoc, nInc);
     } else {
+      // champs utiles
       if(typeof nInc.charged_vehicle !== "undefined"){
         nLoc.charged_vehicle = !!nInc.charged_vehicle;
-        const cb = CHARGED_CB.get(nLoc.id);
-        if(cb) cb.checked = nLoc.charged_vehicle;
+      }
+      if(typeof nInc.vehicle_name !== "undefined"){
+        nLoc.vehicle_name = nInc.vehicle_name;
       }
       (nInc.children||[]).forEach(recInc);
       applyGroupDelta(nLoc);
     }
   });
-  updateParentsBarOnly();
   recomputeStats();
 }
 
-/* -------------------- API calls -------------------- */
+/* ------- API ------- */
 async function refreshTree(){
   try{
     const r = await fetch(`/events/${EVENT_ID}/tree`, {credentials:"include"});
@@ -365,19 +318,32 @@ function verify(nodeId, status){
     method:"POST", credentials:"include",
     headers:{"Content-Type":"application/json"},
     body: JSON.stringify(payload)
-  })
-  .then(res=>res.ok?refreshTree():null)
-  .catch(()=>{});
-}
-function setCharged(nodeId, checked){
-  fetch(`/events/${EVENT_ID}/parent-status`, {
-    method:"POST", credentials:"include",
-    headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({node_id: nodeId, charged_vehicle: checked})
   }).then(()=> refreshTree());
 }
 
-/* -------------------- Actions haut de page -------------------- */
+function chargeNode(nodeId){
+  const node = NODE_MAP.get(nodeId);
+  if(!node) return;
+  if(!groupAllOk(node)){
+    alert("Tous les items de ce parent doivent être OK avant de le charger.");
+    return;
+  }
+  const veh = (prompt("Dans quel véhicule ce parent est-il chargé ? (ex: VSAV 1)") || "").trim();
+  if(!veh) return;
+
+  fetch(`/events/${EVENT_ID}/parent-status`, {
+    method:"POST", credentials:"include",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({node_id: nodeId, charged_vehicle: true, vehicle_name: veh})
+  }).then(async r=>{
+    if(!r.ok){
+      const t = await r.text(); alert(t||"Erreur"); return;
+    }
+    refreshTree();
+  });
+}
+
+/* ------- Actions haut de page ------- */
 document.getElementById("btn-share").addEventListener("click", ()=>{
   fetch(`/events/${EVENT_ID}/share-link`, {method:"POST", credentials:"include"})
     .then(r=>r.json()).then(res=>{
@@ -393,17 +359,25 @@ document.getElementById("btn-close").addEventListener("click", ()=>{
     method:"PATCH", credentials:"include",
     headers:{"Content-Type":"application/json"},
     body: JSON.stringify({status:"CLOSED"})
-  }).then(()=>{
-    IS_OPEN = false;
-    document.getElementById("status-badge").textContent = "Statut : CLOSED";
-    ITEM_EL.forEach(box=>{
-      box.querySelectorAll("button").forEach(b=> b.disabled = true);
-    });
+  }).then(()=>{ IS_OPEN=false; document.getElementById("status-badge").textContent="Statut : CLOSED";
+    document.getElementById("btn-open").style.display="";
+  });
+});
+document.getElementById("btn-open").addEventListener("click", ()=>{
+  fetch(`/events/${EVENT_ID}/status`, {
+    method:"PATCH", credentials:"include",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({status:"OPEN"})
+  }).then(r=>{
+    if(!r.ok) return alert("Seul l'administrateur peut réouvrir un évènement.");
+    IS_OPEN=true; document.getElementById("status-badge").textContent="Statut : OPEN";
+    document.getElementById("btn-open").style.display="none";
+    refreshTree();
   });
 });
 
-/* -------------------- Premier rendu + polling doux -------------------- */
-buildUIOnce();                     // construit 1 seule fois
-setInterval(refreshTree, 2000);    // met à jour uniquement les éléments modifiés (zéro clignotement)
+/* ------- initial ------- */
+buildUIOnce();
+setInterval(refreshTree, 2000);
 </script>
 {% endblock %}
