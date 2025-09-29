@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
 
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
@@ -13,6 +13,57 @@ from sqlalchemy import text
 db = SQLAlchemy()
 login_manager = LoginManager()
 socketio = SocketIO(async_mode="eventlet", cors_allowed_origins="*")  # sans Redis
+
+
+def _ensure_users_schema() -> None:
+    """
+    Auto-réparation idempotente de la table users pour éviter les erreurs
+    de NOT NULL sur created_at et garantir les defaults.
+    """
+    try:
+        # Ajouter les colonnes si absentes
+        db.session.execute(text(
+            "ALTER TABLE IF EXISTS users "
+            "ADD COLUMN IF NOT EXISTS active BOOLEAN"
+        ))
+        db.session.execute(text(
+            "ALTER TABLE IF EXISTS users "
+            "ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ"
+        ))
+
+        # Définir / forcer les DEFAULT
+        db.session.execute(text(
+            "ALTER TABLE IF EXISTS users "
+            "ALTER COLUMN active SET DEFAULT TRUE"
+        ))
+        db.session.execute(text(
+            "ALTER TABLE IF EXISTS users "
+            "ALTER COLUMN created_at SET DEFAULT NOW()"
+        ))
+
+        # Renseigner les valeurs NULL existantes
+        db.session.execute(text(
+            "UPDATE users SET active = TRUE WHERE active IS NULL"
+        ))
+        db.session.execute(text(
+            "UPDATE users SET created_at = NOW() WHERE created_at IS NULL"
+        ))
+
+        # Reposer NOT NULL proprement
+        db.session.execute(text(
+            "ALTER TABLE IF EXISTS users "
+            "ALTER COLUMN active SET NOT NULL"
+        ))
+        db.session.execute(text(
+            "ALTER TABLE IF EXISTS users "
+            "ALTER COLUMN created_at SET NOT NULL"
+        ))
+
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        # on ne bloque pas le boot si la réparation échoue ; les logs Docker montreront l'erreur
+
 
 # -----------------------------------------------------------------------------
 # Factory
@@ -35,7 +86,7 @@ def create_app() -> Flask:
     socketio.init_app(app)
 
     # ----------------- User loader (Flask-Login) -----------------
-    from .models import User  # import ici pour éviter cycles
+    from .models import User  # import local pour éviter cycles
 
     @login_manager.user_loader
     def load_user(user_id: str):
@@ -46,37 +97,20 @@ def create_app() -> Flask:
     login_manager.login_view = "pages.login"
 
     # ----------------- Auto-réparation schéma users -----------------
-    # Ajoute 'active' (BOOL) et 'created_at' si absents (idempotent, safe en prod)
     with app.app_context():
-        try:
-            db.session.execute(
-                text(
-                    "ALTER TABLE IF EXISTS users "
-                    "ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE"
-                )
-            )
-            db.session.execute(
-                text(
-                    "ALTER TABLE IF EXISTS users "
-                    "ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()"
-                )
-            )
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
+        _ensure_users_schema()
 
     # ----------------- Blueprints -----------------
-    # (ordre important si des endpoints se référencent)
     from .stock.views import bp as stock_api_bp
     from .events.views import bp as events_api_bp
     from .verify.views import bp as verify_api_bp
     from .views_html import bp as pages_bp
-    # Optionnels si présents dans ton code:
+
+    # Optionnels si présents
     try:
         from .reports.views import bp as reports_api_bp
         app.register_blueprint(reports_api_bp)
     except Exception:
-        # pas bloquant si module absent
         pass
     try:
         from .stats.views import bp as stats_api_bp
@@ -98,7 +132,9 @@ def create_app() -> Flask:
             if not admin:
                 admin = User(username="admin", role=Role.ADMIN)
                 admin.set_password("admin")
-                # .is_active setter existe, mais inutile de passer explicitement
+                # évite de dépendre du DEFAULT si le SGBD est tatillon
+                admin.created_at = datetime.now(timezone.utc)
+                admin.is_active = True
                 db.session.add(admin)
                 db.session.commit()
                 print("Admin created: admin/admin")
