@@ -1,125 +1,111 @@
-# app/__init__.py
 from __future__ import annotations
-from datetime import datetime
-import logging
-from flask import Flask, redirect, url_for
+
+import os
+from datetime import timedelta
+
+from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
 from flask_login import LoginManager
 from flask_socketio import SocketIO
-from .config import get_config
+from sqlalchemy import text
 
-# Extensions
+# Instances globales (importées ailleurs via: from . import db, login_manager, socketio)
 db = SQLAlchemy()
-migrate = Migrate()
 login_manager = LoginManager()
-login_manager.login_view = "pages.login"
-# Protection de session optionnelle
-login_manager.session_protection = "strong"
+socketio = SocketIO(async_mode="eventlet", cors_allowed_origins="*")  # sans Redis
 
-# Socket.IO (par défaut sans Redis, un seul worker/process)
-socketio = SocketIO(
-    async_mode="eventlet",
-    cors_allowed_origins="*",
-    message_queue=None,
-)
+# -----------------------------------------------------------------------------
+# Factory
+# -----------------------------------------------------------------------------
+def create_app() -> Flask:
+    app = Flask(__name__)
 
-# --------- USER LOADER (OBLIGATOIRE) ----------
-# Flask-Login a besoin de savoir recharger un user depuis l'id stocké en session.
-@login_manager.user_loader
-def load_user(user_id: str):
-    try:
-        from .models import User  # import local pour éviter les imports circulaires
+    # ----------------- Config -----------------
+    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me")
+    app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
+        "DATABASE_URL",
+        "postgresql+psycopg2://pcprep:pcprep@db:5432/pcprep",
+    )
+    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    app.config["REMEMBER_COOKIE_DURATION"] = timedelta(days=14)
+
+    # ----------------- Init libs -----------------
+    db.init_app(app)
+    login_manager.init_app(app)
+    socketio.init_app(app)
+
+    # ----------------- User loader (Flask-Login) -----------------
+    from .models import User  # import ici pour éviter cycles
+
+    @login_manager.user_loader
+    def load_user(user_id: str):
         if not user_id:
             return None
         return db.session.get(User, int(user_id))
-    except Exception:
-        return None
-# ----------------------------------------------
 
+    login_manager.login_view = "pages.login"
 
-def create_app() -> Flask:
-    app = Flask(__name__, instance_relative_config=False)
-
-    # Config
-    app.config.from_object(get_config())
-
-    # Init extensions
-    db.init_app(app)
-    migrate.init_app(app, db)
-    login_manager.init_app(app)
-
-    # Import models pour migrations
-    from . import models  # noqa: F401
-
-    # Socket.IO : si REDIS_URL présent, on l’active, sinon on reste en in-process
-    redis_url = app.config.get("REDIS_URL") or ""
-    if redis_url:
+    # ----------------- Auto-réparation schéma users -----------------
+    # Ajoute 'active' (BOOL) et 'created_at' si absents (idempotent, safe en prod)
+    with app.app_context():
         try:
-            global socketio
-            socketio = SocketIO(
-                async_mode="eventlet",
-                cors_allowed_origins="*",
-                message_queue=redis_url,
+            db.session.execute(
+                text(
+                    "ALTER TABLE IF EXISTS users "
+                    "ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE"
+                )
             )
-        except Exception as e:
-            logging.warning(
-                "SocketIO: Redis MQ désactivé (préflight KO: %s). Démarrage sans MQ.", e
+            db.session.execute(
+                text(
+                    "ALTER TABLE IF EXISTS users "
+                    "ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()"
+                )
             )
-    socketio.init_app(app)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
 
-    # Jinja globals (ex: footer année courante)
-    @app.context_processor
-    def inject_now():
-        return {"now": datetime.utcnow}
-
-    # Blueprints API
-    from .auth.views import bp as auth_api_bp
-    app.register_blueprint(auth_api_bp)
-
-    from .admin.views import bp as admin_api_bp
-    app.register_blueprint(admin_api_bp)
-
-    from .events.views import bp as events_api_bp
-    app.register_blueprint(events_api_bp)
-
+    # ----------------- Blueprints -----------------
+    # (ordre important si des endpoints se référencent)
     from .stock.views import bp as stock_api_bp
-    app.register_blueprint(stock_api_bp)
-
+    from .events.views import bp as events_api_bp
     from .verify.views import bp as verify_api_bp
-    app.register_blueprint(verify_api_bp)
-
-    from .reports.views import bp as reports_api_bp
-    app.register_blueprint(reports_api_bp)
-
-    from .stats.views import bp as stats_api_bp
-    app.register_blueprint(stats_api_bp)
-
-    from .pwa.views import bp as pwa_bp
-    app.register_blueprint(pwa_bp)
-
-    # Pages (HTML)
     from .views_html import bp as pages_bp
-    app.register_blueprint(pages_bp)
-
-    # Health / root
-    @app.get("/")
-    def index():
-        return redirect(url_for("pages.dashboard"))
-
-    @app.get("/health")
-    def health():
-        return {"status": "healthy"}
-
-    # Socket handlers (join_event, etc.)
-    from .sockets import register_socketio_handlers
-    register_socketio_handlers(socketio)
-
-    # CLI (seed templates) — optionnel
+    # Optionnels si présents dans ton code:
     try:
-        from .seeds_templates import register_cli as register_seed_cli
-        register_seed_cli(app)
+        from .reports.views import bp as reports_api_bp
+        app.register_blueprint(reports_api_bp)
+    except Exception:
+        # pas bloquant si module absent
+        pass
+    try:
+        from .stats.views import bp as stats_api_bp
+        app.register_blueprint(stats_api_bp)
     except Exception:
         pass
+
+    app.register_blueprint(stock_api_bp)   # routes /stock...
+    app.register_blueprint(events_api_bp)  # routes /events...
+    app.register_blueprint(verify_api_bp)  # routes /public/event...
+    app.register_blueprint(pages_bp)       # pages HTML (/dashboard, /admin, ...)
+
+    # ----------------- Seeding admin (idempotent) -----------------
+    with app.app_context():
+        try:
+            from .models import Role
+
+            admin = User.query.filter_by(username="admin").first()
+            if not admin:
+                admin = User(username="admin", role=Role.ADMIN)
+                admin.set_password("admin")
+                # .is_active setter existe, mais inutile de passer explicitement
+                db.session.add(admin)
+                db.session.commit()
+                print("Admin created: admin/admin")
+            else:
+                print("Admin already exists: admin")
+        except Exception as e:
+            db.session.rollback()
+            print("Seeding admin failed:", e)
 
     return app
