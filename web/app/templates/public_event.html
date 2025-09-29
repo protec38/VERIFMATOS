@@ -29,7 +29,9 @@
   .chip.wait{background:#101c2e;color:#b7c7dc;border-color:#24344f}
   .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
   .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
-  .vehicle-tag{margin-left:8px}
+
+  .vehicle-tag{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;
+    background:#102233;border:1px solid #1e3551;color:#b9d0f3;font-weight:700}
 </style>
 
 <div class="card">
@@ -75,11 +77,11 @@ let TREE = {{ (tree or [])|tojson }};
 const LS_KEY = "verifier_name_" + TOKEN;
 let VERIFIER_NAME = localStorage.getItem(LS_KEY) || "";
 
-/* hash simple pour éviter de rerendre si rien n’a changé */
+/* Hash simple pour éviter de rerendre si rien n’a changé */
 let _lastHash = "";
 function hash(obj){ try { return JSON.stringify(obj); } catch { return ""; } }
 
-/* utils */
+// Helpers DOM
 function el(tag, attrs={}, ...children){
   const e = document.createElement(tag);
   for(const [k,v] of Object.entries(attrs||{})){
@@ -94,7 +96,6 @@ function el(tag, attrs={}, ...children){
 const isItem = n => (n.type||"").toUpperCase()==="ITEM";
 const isGroup = n => (n.type||"").toUpperCase()==="GROUP";
 
-/* statuts */
 function groupAllOk(n){
   let ok = true, hasItem=false;
   (function rec(x){
@@ -155,13 +156,6 @@ function stateDot(n, isGroupNode){
   return el("span", {class:"status-dot "+cls, title:label});
 }
 
-/* rendu */
-const VEHICLE_TAG = new Map();
-const CHARGE_BTN = new Map();
-
-function canChargeGroup(n){
-  return groupAllOk(n) && !n.charged_vehicle; // côté public, pas de notion OPEN/CLOSED ici
-}
 function renderItem(n){
   const statusLbl = n.last_status ? (n.last_status==="OK" ? "✅ OK" : "❌ Non conforme") : "⏳ En attente";
   const by = n.last_by ? ` (${n.last_by})` : "";
@@ -179,17 +173,27 @@ function renderItem(n){
   return wrap;
 }
 function renderGroup(n){
-  const veh = el("span", {class:"chip ok vehicle-tag", id:`veh-${n.id}`, style:(n.charged_vehicle?'':'display:none')},
-                 `🚐 ${n.vehicle_name || 'Véhicule'}`);
-  VEHICLE_TAG.set(n.id, veh);
+  const titleRow = el("div", {class:"row", style:"gap:8px;align-items:center"},
+    stateDot(n,true),
+    el("div", {class:"name"}, n.name),
+    (n.charged_vehicle
+      ? el("span", {class:"vehicle-tag", id:`veh-${n.id}`}, "🚐 ", (n.vehicle_name || "Chargé"))
+      : el("span", {id:`veh-${n.id}`})
+    ),
+  );
 
-  const chargeBtn = el("button", {class:"btn", id:`charge-${n.id}`, disabled:!canChargeGroup(n), onclick:()=>chargeNode(n.id)},
-                      "🚐 Charger dans un véhicule");
-  CHARGE_BTN.set(n.id, chargeBtn);
+  // bouton “Charger” visible pour les secouristes aussi, mais bloqué si parent pas 100% OK
+  const actions = el("div", {class:"row", style:"gap:6px"},
+    el("button", {class:"btn", onclick:()=>onChargeClick(n.id)}, "🚐 Charger…"),
+    (n.charged_vehicle
+      ? el("button", {class:"btn ghost", onclick:()=>clearVehicle(n.id)}, "Retirer véhicule")
+      : null
+    )
+  );
 
   const header = el("div", {class:"header"},
-    el("div", {class:"name"}, stateDot(n,true), n.name),
-    el("div", {class:"row"}, veh, chargeBtn)
+    el("div", null, titleRow),
+    actions
   );
   const children = el("div", {class:"childs"}, ...(n.children||[]).map(renderNode));
   const box = el("div", {class:`node ${groupStateClass(n)}`, id:`node-${n.id}`}, header, children);
@@ -206,67 +210,59 @@ function buildUI(){
 }
 
 function fetchTree(){
-  fetch(`/public/event/${TOKEN}/tree`, {headers:{'Accept':'application/json'}})
+  fetch(`/public/event/{{ token }}/tree`, {headers:{'Accept':'application/json'}})
     .then(r=>r.json())
     .then(json => {
       const h = hash(json);
-      if (h !== _lastHash) {
+      if(h !== _lastHash){
         TREE = json; _lastHash = h; buildUI();
-      } else { recomputeStats(); }
-      // mettre à jour boutons & tags
-      (TREE||[]).forEach(function rec(n){
-        if(isGroup(n)){
-          const btn = CHARGE_BTN.get(n.id);
-          const tag = VEHICLE_TAG.get(n.id);
-          if(btn){ btn.disabled = !canChargeGroup(n); if(n.charged_vehicle) btn.disabled = true; }
-          if(tag){ tag.style.display = n.charged_vehicle ? "" : "none"; tag.textContent = `🚐 ${n.vehicle_name || 'Véhicule'}`; }
-          (n.children||[]).forEach(rec);
-        }
-      });
+      }else{
+        recomputeStats();
+      }
     })
     .catch(()=>{});
 }
 
 function verify(nodeId, status){
   if(!VERIFIER_NAME){ showGate(); return; }
-  fetch(`/public/event/${TOKEN}/verify`, {
+  fetch(`/public/event/{{ token }}/verify`, {
     method:"POST",
-    headers:{"Content-Type":"application/json", "Accept":"application/json"},
+    headers:{"Content-Type":"application/json","Accept":"application/json"},
     body: JSON.stringify({node_id: nodeId, status, verifier_name: VERIFIER_NAME})
   }).then(()=> fetchTree());
 }
-function chargeNode(nodeId){
+
+// ---------- Charger / retirer véhicule (public) ----------
+function onChargeClick(nodeId){
   if(!VERIFIER_NAME){ showGate(); return; }
-  // contrôle côté client: seulement si tout OK
-  const findNode = (nodes,id)=>{
-    let res=null; (nodes||[]).forEach(function rec(n){ if(n.id===id) res=n; else (n.children||[]).forEach(rec); });
-    return res;
-  };
-  const n = findNode(TREE, nodeId);
-  if(!n) return;
-  const allOk = (function check(x){
-    let ok=true; (x.children||[]).forEach(c=>{ ok = ok && check(c); });
-    if(isItem(x)) ok = ok && (x.last_status==="OK");
-    return ok;
-  })(n);
-  if(!allOk){ alert("Tous les items de ce parent doivent être OK avant de le charger."); return; }
-
-  const veh = (prompt("Dans quel véhicule ce parent est-il chargé ? (ex: VSAV 1)") || "").trim();
-  if(!veh) return;
-
-  fetch(`/public/event/${TOKEN}/parent-status`, {
+  const node = (TREE||[]).flatMap(function rec(n){return [n, ...(n.children||[]).flatMap(rec)]})(0);
+  // on retrouve rapidement dans NODE_MAP public (simple) :
+  let target=null; (TREE||[]).forEach(function rec(n){ if(n.id===nodeId) target=n; (n.children||[]).forEach(rec); });
+  if(!target) return;
+  if(!groupAllOk(target)){
+    alert("Ce parent contient encore des éléments non validés.");
+    return;
+  }
+  const veh = prompt("Dans quel véhicule est-il chargé ? (ex: VSAV 1)");
+  if(!veh){ return; }
+  fetch(`/public/event/{{ token }}/parent-status`, {
     method:"POST",
-    headers:{"Content-Type":"application/json", "Accept":"application/json"},
+    headers:{"Content-Type":"application/json","Accept":"application/json"},
     body: JSON.stringify({node_id: nodeId, charged_vehicle: true, vehicle_name: veh, verifier_name: VERIFIER_NAME})
-  }).then(async r=>{
-    if(!r.ok){ const t = await r.text(); alert(t||"Erreur"); return; }
-    fetchTree();
-  });
+  }).then(()=> fetchTree());
+}
+function clearVehicle(nodeId){
+  fetch(`/public/event/{{ token }}/parent-status`, {
+    method:"POST",
+    headers:{"Content-Type":"application/json","Accept":"application/json"},
+    body: JSON.stringify({node_id: nodeId, charged_vehicle: false, vehicle_name: ""})
+  }).then(()=> fetchTree());
 }
 
-/* Gate (nom & prénom) */
+// Gate (nom & prénom)
 function showGate(){ const gate = document.getElementById("gate"); gate.style.display = "flex"; document.getElementById("who").focus(); }
 function hideGate(){ document.getElementById("gate").style.display = "none"; }
+
 document.getElementById("start").addEventListener("click", ()=>{
   const name = (document.getElementById("who").value||"").trim();
   if(!name){ alert("Merci d’indiquer Nom & prénom"); return; }
@@ -277,7 +273,7 @@ document.getElementById("start").addEventListener("click", ()=>{
   setInterval(fetchTree, 2000);
 });
 
-/* Démarrage */
+// Démarrage
 if(VERIFIER_NAME){
   hideGate();
   buildUI();
