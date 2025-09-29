@@ -1,213 +1,146 @@
+# app/models.py — Modèles SQLAlchemy
 from __future__ import annotations
-
 import enum
-from datetime import datetime, date
+from datetime import datetime
 from typing import Optional
-
-from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
-
+from sqlalchemy import CheckConstraint, UniqueConstraint, Index
+from sqlalchemy.dialects.postgresql import JSONB
+from flask_login import UserMixin
 from . import db
 
-# -----------------------------------------------------------------------------
-# Enums
-# -----------------------------------------------------------------------------
+# ---- Rôles utilisateurs ----
 class Role(enum.Enum):
-    ADMIN = "ADMIN"
-    CHEF = "CHEF"
-    VIEWER = "VIEWER"
+    ADMIN = "admin"
+    CHEF = "chef"
+    VIEWER = "viewer"  # lecture seule
 
-
-class EventStatus(enum.Enum):
-    OPEN = "OPEN"
-    CLOSED = "CLOSED"
-
-
-class NodeType(enum.Enum):
-    GROUP = "GROUP"
-    ITEM = "ITEM"
-
-
-# Présent pour compat (certains modules importent ItemStatus depuis models)
-class ItemStatus(enum.Enum):
-    OK = "OK"
-    NOT_OK = "NOT_OK"
-
-
-# -----------------------------------------------------------------------------
-# Modèles
-# -----------------------------------------------------------------------------
 class User(UserMixin, db.Model):
     __tablename__ = "users"
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.Enum(Role), nullable=False, default=Role.CHEF)
+    is_active = db.Column(db.Boolean, default=True)
 
-    id: int = db.Column(db.Integer, primary_key=True)
-    username: str = db.Column(db.String(80), unique=True, index=True, nullable=False)
-    password_hash: str = db.Column(db.String(255), nullable=False)
-    role: Role = db.Column(db.Enum(Role), nullable=False, default=Role.VIEWER)
-
-    # Ajoutés / garantis par __init__.py avec ALTER TABLE IF NOT EXISTS
-    created_at: datetime = db.Column(
-        db.DateTime(timezone=True), nullable=False, server_default=db.func.now()
-    )
-    active: bool = db.Column(db.Boolean, nullable=False, default=True)
-
-    # ---- helpers password
-    def set_password(self, raw: str) -> None:
+    def set_password(self, raw: str):
         self.password_hash = generate_password_hash(raw)
 
     def check_password(self, raw: str) -> bool:
         return check_password_hash(self.password_hash, raw)
 
-    # ---- Flask-Login bridge (évite l'AttributeError du seeding)
     @property
-    def is_active(self) -> bool:  # Flask-Login lit ceci
-        return bool(self.active)
+    def can_manage_users(self) -> bool:
+        return self.role == Role.ADMIN
 
-    @is_active.setter
-    def is_active(self, value: bool) -> None:
-        self.active = bool(value)
+    @property
+    def can_manage_events(self) -> bool:
+        return self.role in (Role.ADMIN, Role.CHEF)
 
-    def __repr__(self) -> str:
-        return f"<User {self.username} ({self.role.name})>"
-
-
-class StockNode(db.Model):
-    __tablename__ = "stock_nodes"
-
-    id: int = db.Column(db.Integer, primary_key=True)
-    name: str = db.Column(db.String(255), nullable=False)
-    type: NodeType = db.Column(db.Enum(NodeType), nullable=False, default=NodeType.GROUP)
-    level: int = db.Column(db.Integer, nullable=False, default=0)
-
-    parent_id: Optional[int] = db.Column(
-        db.Integer, db.ForeignKey("stock_nodes.id", ondelete="CASCADE"), nullable=True
-    )
-    parent = db.relationship(
-        "StockNode", remote_side=[id], backref=db.backref("children", cascade="all, delete-orphan")
-    )
-
-    quantity: Optional[int] = db.Column(db.Integer, nullable=True)
-
-    def __repr__(self) -> str:
-        return f"<StockNode {self.id} {self.name} ({self.type.name}) lvl={self.level}>"
-
-
-# Association événement <-> parents racine sélectionnés
-event_stock = db.Table(
-    "event_stock",
-    db.Column("event_id", db.Integer, db.ForeignKey("events.id", ondelete="CASCADE"), primary_key=True),
-    db.Column("node_id", db.Integer, db.ForeignKey("stock_nodes.id", ondelete="CASCADE"), primary_key=True),
-)
-
+# ---- Événements ----
+class EventStatus(enum.Enum):
+    OPEN = "open"
+    CLOSED = "closed"
 
 class Event(db.Model):
     __tablename__ = "events"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    date = db.Column(db.Date, nullable=True)
+    status = db.Column(db.Enum(EventStatus), nullable=False, default=EventStatus.OPEN)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    created_by = db.relationship("User", backref="events")
 
-    id: int = db.Column(db.Integer, primary_key=True)
-    name: str = db.Column(db.String(255), nullable=False)
-    date: Optional[date] = db.Column(db.Date, nullable=True)
-    status: EventStatus = db.Column(db.Enum(EventStatus), nullable=False, default=EventStatus.OPEN)
-    created_at: datetime = db.Column(
-        db.DateTime(timezone=True), nullable=False, server_default=db.func.now()
-    )
-
-    created_by_id: Optional[int] = db.Column(
-        db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
-    created_by = db.relationship("User", foreign_keys=[created_by_id])
-
-    # parents racine rattachés
-    roots = db.relationship(
-        "StockNode",
-        secondary=event_stock,
-        backref=db.backref("events", lazy="dynamic"),
-        lazy="subquery",
-    )
-
-    def __repr__(self) -> str:
-        return f"<Event {self.id} {self.name} ({self.status.name})>"
-
-
+# Lien public de partage pour secouristes (pas de compte requis)
 class EventShareLink(db.Model):
     __tablename__ = "event_share_links"
+    id = db.Column(db.Integer, primary_key=True)
+    token = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    event_id = db.Column(db.Integer, db.ForeignKey("events.id"), nullable=False)
+    active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    event = db.relationship("Event", backref="share_links")
 
-    id: int = db.Column(db.Integer, primary_key=True)
-    event_id: int = db.Column(db.Integer, db.ForeignKey("events.id", ondelete="CASCADE"), nullable=False, index=True)
-    event = db.relationship("Event", backref=db.backref("share_links", cascade="all, delete-orphan"))
+# ---- Stock hiérarchique ≤ 5 niveaux ----
+class NodeType(enum.Enum):
+    GROUP = "group"  # parent/sous-parent/sous-sous-...
+    ITEM = "item"    # enfant vérifiable avec quantité
 
-    token: str = db.Column(db.String(64), unique=True, index=True, nullable=False)
-    active: bool = db.Column(db.Boolean, nullable=False, default=True)
-    created_at: datetime = db.Column(
-        db.DateTime(timezone=True), nullable=False, server_default=db.func.now()
-    )
-
-    def __repr__(self) -> str:
-        return f"<ShareLink ev={self.event_id} token={self.token[:8]} active={self.active}>"
-
-
-class EventNodeStatus(db.Model):
-    """
-    Statut côté événement pour un parent (ex: chargé dans véhicule + nom du véhicule).
-    Unicité par (event_id, node_id).
-    """
-    __tablename__ = "event_node_status"
-
-    id: int = db.Column(db.Integer, primary_key=True)
-    event_id: int = db.Column(db.Integer, db.ForeignKey("events.id", ondelete="CASCADE"), nullable=False, index=True)
-    node_id: int = db.Column(db.Integer, db.ForeignKey("stock_nodes.id", ondelete="CASCADE"), nullable=False, index=True)
-
-    charged_vehicle: bool = db.Column(db.Boolean, nullable=False, default=False)
-    vehicle_name: Optional[str] = db.Column(db.String(120), nullable=True)
-
-    event = db.relationship("Event", backref=db.backref("node_statuses", cascade="all, delete-orphan"))
-    node = db.relationship("StockNode")
+class StockNode(db.Model):
+    __tablename__ = "stock_nodes"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    type = db.Column(db.Enum(NodeType), nullable=False, default=NodeType.GROUP)
+    # 0 = racine (ex: SAC PS BLEU, AMBULANCE 1, TABLE, CHAISE...)
+    level = db.Column(db.Integer, nullable=False, default=0)
+    parent_id = db.Column(db.Integer, db.ForeignKey("stock_nodes.id"), nullable=True)
+    parent = db.relationship("StockNode", remote_side=[id], backref="children")
+    # quantité uniquement pertinente pour ITEM
+    quantity = db.Column(db.Integer, nullable=True)
 
     __table_args__ = (
-        db.UniqueConstraint("event_id", "node_id", name="uq_event_node"),
+        CheckConstraint("level >= 0 AND level <= 5", name="ck_level_0_5"),
     )
 
-    def __repr__(self) -> str:
-        return f"<EventNodeStatus ev={self.event_id} node={self.node_id} charged={self.charged_vehicle}>"
+    def is_leaf(self) -> bool:
+        return self.type == NodeType.ITEM
 
+# Association: sélection des racines de stock pour un événement
+event_stock = db.Table(
+    "event_stock",
+    db.Column("event_id", db.Integer, db.ForeignKey("events.id"), primary_key=True),
+    db.Column("node_id", db.Integer, db.ForeignKey("stock_nodes.id"), primary_key=True),
+)
 
+# ---- Vérifications / temps réel ----
+class ItemStatus(enum.Enum):
+    TODO = "todo"
+    OK = "ok"
+    NOT_OK = "not_ok"  # manquant / non conforme
+
+# Historique des vérifications d'items (enfants)
 class VerificationRecord(db.Model):
-    """
-    Historique des vérifications des ITEMS (OK/NOT_OK) + nom du vérificateur.
-    On garde 'status' en STRING pour éviter les soucis de JSON avec Enum.
-    """
     __tablename__ = "verification_records"
+    id = db.Column(db.Integer, primary_key=True)
+    event_id = db.Column(db.Integer, db.ForeignKey("events.id"), nullable=False, index=True)
+    node_id = db.Column(db.Integer, db.ForeignKey("stock_nodes.id"), nullable=False, index=True)  # ITEM uniquement
+    status = db.Column(db.Enum(ItemStatus), nullable=False, default=ItemStatus.OK)
+    verifier_name = db.Column(db.String(120), nullable=False)  # saisi sur la page publique
+    comment = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
-    id: int = db.Column(db.Integer, primary_key=True)
-    event_id: int = db.Column(db.Integer, db.ForeignKey("events.id", ondelete="CASCADE"), nullable=False, index=True)
-    node_id: int = db.Column(db.Integer, db.ForeignKey("stock_nodes.id", ondelete="CASCADE"), nullable=False, index=True)
-
-    status: str = db.Column(db.String(8), nullable=False)  # "OK" | "NOT_OK"
-    verifier_name: Optional[str] = db.Column(db.String(120), nullable=True)
-
-    created_at: datetime = db.Column(
-        db.DateTime(timezone=True), nullable=False, server_default=db.func.now(), index=True
-    )
-
-    event = db.relationship("Event", backref=db.backref("verifications", cascade="all, delete-orphan"))
+    event = db.relationship("Event", backref="verifications")
     node = db.relationship("StockNode")
 
     __table_args__ = (
-        db.Index("ix_verif_event_node_time", "event_id", "node_id", "created_at"),
+        Index("ix_verif_event_node_time", "event_id", "node_id", "created_at"),
     )
 
-    def __repr__(self) -> str:
-        return f"<Verif ev={self.event_id} node={self.node_id} {self.status} by={self.verifier_name}>"
+# Statut par parent pour l'événement (ex: 'Chargé dans le véhicule')
+class EventNodeStatus(db.Model):
+    __tablename__ = "event_node_status"
+    id = db.Column(db.Integer, primary_key=True)
+    event_id = db.Column(db.Integer, db.ForeignKey("events.id"), nullable=False, index=True)
+    node_id = db.Column(db.Integer, db.ForeignKey("stock_nodes.id"), nullable=False, index=True)  # GROUP uniquement
+    charged_vehicle = db.Column(db.Boolean, default=False, nullable=False)
+    comment = db.Column(db.Text, nullable=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
+    __table_args__ = (
+        UniqueConstraint("event_id", "node_id", name="uq_event_node_unique"),
+    )
 
+    event = db.relationship("Event")
+    node = db.relationship("StockNode")
+
+# ---- Audit minimal (RGPD/export possible) ----
 class AuditLog(db.Model):
     __tablename__ = "audit_logs"
-
-    id: int = db.Column(db.Integer, primary_key=True)
-    at: datetime = db.Column(db.DateTime(timezone=True), nullable=False, server_default=db.func.now())
-    user_id: Optional[int] = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    action: str = db.Column(db.Text, nullable=False)
+    id = db.Column(db.Integer, primary_key=True)
+    ts = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)  # public pages -> null
+    action = db.Column(db.String(120), nullable=False)
+    meta = db.Column(JSONB, nullable=True)
 
     user = db.relationship("User")
-
-    def __repr__(self) -> str:
-        return f"<AuditLog {self.id} user={self.user_id} at={self.at}>"
