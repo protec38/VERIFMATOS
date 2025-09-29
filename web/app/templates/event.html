@@ -28,11 +28,11 @@
   .chip.ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
   .chip.bad{background:#2a0e14;color:#ffd5dc;border-color:#75212f}
   .chip.wait{background:#101c2e;color:#b7c7dc;border-color:#24344f}
-  /* pas de clignotement */
   .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
   .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
 
-  .vehicle-tag{margin-left:8px}
+  .vehicle-tag{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;
+    background:#102233;border:1px solid #1e3551;color:#b9d0f3;font-weight:700}
 </style>
 
 <div class="grid cols-2">
@@ -47,8 +47,11 @@
     <div class="row wrap" style="margin-top:10px;">
       <a class="btn" target="_blank" href="/reports/event/{{ event.id }}/pdf">Exporter PDF</a>
       <button class="btn primary" id="btn-share">Générer un lien pour les secouristes</button>
-      <button class="btn" id="btn-close">Clôturer l'événement</button>
-      <button class="btn" id="btn-open" style="display:none;">Réouvrir l'événement</button>
+      {% if event.status != "CLOSED" %}
+        <button class="btn" id="btn-close">Clôturer l'événement</button>
+      {% else %}
+        <button class="btn" id="btn-reopen">Réouvrir l'événement</button>
+      {% endif %}
     </div>
   </div>
 
@@ -79,15 +82,20 @@ const CURRENT_USER = "{{ (current_user.username if current_user is defined and c
 let IS_OPEN = ("{{ event.status }}".toUpperCase() === "OPEN");
 
 /* ========= Index DOM pour MAJ incrémentales ========= */
-const NODE_MAP = new Map();     // id -> node
-const GROUP_EL = new Map();     // id -> conteneur DOM du groupe
-const ITEM_EL  = new Map();     // id -> conteneur DOM de l'item
-const ITEM_STATUS_TXT = new Map();
-const ITEM_QTY_TXT = new Map();
-const VEHICLE_TAG = new Map();  // id -> span tag véhicule
-const CHARGE_BTN = new Map();   // id -> bouton "Charger"
+const NODE_MAP = new Map();     // id -> node (dans notre TREE local)
+const GROUP_EL = new Map();     // id -> box DOM du groupe
+const ITEM_EL  = new Map();     // id -> box DOM de l'item
+const ITEM_STATUS_TXT = new Map(); // id -> <div> statut + by
+const ITEM_QTY_TXT = new Map();    // id -> <span> Qté
 
-/* ------- utils ------- */
+function indexTree(nodes){
+  (nodes||[]).forEach(function rec(n){
+    NODE_MAP.set(n.id, n);
+    (n.children||[]).forEach(rec);
+  });
+}
+
+/* -------------------- Helpers DOM -------------------- */
 function el(tag, attrs={}, ...children){
   const e = document.createElement(tag);
   for(const [k,v] of Object.entries(attrs||{})){
@@ -102,14 +110,7 @@ function el(tag, attrs={}, ...children){
 const isItem = n => (n.type||"").toUpperCase()==="ITEM";
 const isGroup = n => (n.type||"").toUpperCase()==="GROUP";
 
-function indexTree(nodes){
-  (nodes||[]).forEach(function rec(n){
-    NODE_MAP.set(n.id, n);
-    (n.children||[]).forEach(rec);
-  });
-}
-
-/* ------- statuts ------- */
+/* -------------------- Statuts descendants -------------------- */
 function groupAllOk(n){
   let ok = true, hasItem=false;
   (function rec(x){
@@ -133,12 +134,15 @@ function flattenItems(nodes){
   });
   return out;
 }
+
+/* -------------------- Comptage + progression -------------------- */
 function recomputeStats(){
   const items = flattenItems(TREE);
   const total = items.length;
   const ok = items.filter(i=>i.last_status==="OK").length;
   const bad = items.filter(i=>i.last_status==="NOT_OK").length;
   const wait = total - ok - bad;
+
   document.getElementById("stat-ok").textContent = `OK : ${ok}`;
   document.getElementById("stat-bad").textContent = `Non conformes : ${bad}`;
   document.getElementById("stat-wait").textContent = `En attente : ${wait}`;
@@ -147,6 +151,7 @@ function recomputeStats(){
   document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
 }
 
+/* -------------------- Rendu nœuds (1 fois) -------------------- */
 function itemStateClass(n){
   if(n.last_status==="OK") return "state-ok";
   if(n.last_status==="NOT_OK") return "state-bad";
@@ -169,7 +174,6 @@ function stateDot(n, isGroupNode){
   return el("span", {class:"status-dot "+cls, title:label});
 }
 
-/* ------- rendu ------- */
 function renderItem(n){
   const statusLbl = n.last_status ? (n.last_status==="OK" ? "✅ OK" : "❌ Non conforme") : "⏳ En attente";
   const by = n.last_by ? ` (${n.last_by})` : "";
@@ -197,30 +201,28 @@ function renderItem(n){
   return wrap;
 }
 
-function canChargeGroup(n){
-  return IS_OPEN && groupAllOk(n) && !n.charged_vehicle;
-}
-
 function renderGroup(n){
-  const nameBox = el("div", {class:"name"}, stateDot(n,true), n.name);
+  // entête groupe + actions chef
+  const titleRow = el("div", {class:"row", style:"gap:8px;align-items:center"},
+    stateDot(n,true),
+    el("div", {class:"name"}, n.name),
+    (n.charged_vehicle
+      ? el("span", {class:"vehicle-tag", id:`veh-${n.id}`}, "🚐 ", (n.vehicle_name || "Chargé"))
+      : el("span", {id:`veh-${n.id}`})
+    ),
+  );
 
-  // Tag véhicule si déjà chargé
-  const veh = el("span", {class:"chip ok vehicle-tag", id:`veh-${n.id}`, style: (n.charged_vehicle?'':'display:none')},
-                 `🚐 ${n.vehicle_name || 'Véhicule'}`);
-  VEHICLE_TAG.set(n.id, veh);
-
-  // Bouton charger (seulement si tout OK, événement ouvert et pas déjà chargé)
-  const chargeBtn = el("button", {
-      class:"btn",
-      id:`charge-${n.id}`,
-      disabled:!canChargeGroup(n),
-      onclick:()=>chargeNode(n.id)
-    }, "🚐 Charger dans un véhicule");
-  CHARGE_BTN.set(n.id, chargeBtn);
+  const actions = el("div", {class:"row", style:"gap:6px"},
+    el("button", {class:"btn", disabled:!IS_OPEN, onclick:()=>onChargeClick(n.id)}, "🚐 Charger…"),
+    (n.charged_vehicle
+      ? el("button", {class:"btn ghost", disabled:!IS_OPEN, onclick:()=>clearVehicle(n.id)}, "Retirer véhicule")
+      : null
+    )
+  );
 
   const header = el("div", {class:"header"},
-    nameBox,
-    el("div", {class:"row"}, veh, chargeBtn)
+    el("div", null, titleRow),
+    actions
   );
 
   const children = el("div", {class:"childs"}, ...(n.children||[]).map(renderNode));
@@ -238,7 +240,7 @@ function buildUIOnce(){
   recomputeStats();
 }
 
-/* ------- MAJ incrémentales ------- */
+/* -------------------- MAJ incrémentales -------------------- */
 function applyItemDelta(local, incoming){
   local.last_status = (incoming.last_status || "PENDING").toUpperCase();
   local.last_by = incoming.last_by || "";
@@ -257,53 +259,46 @@ function applyItemDelta(local, incoming){
   if(qtySpan) qtySpan.textContent = `Qté: ${local.quantity ?? 1}`;
 }
 
-function applyGroupDelta(local){
+function applyGroupDelta(local, incoming){
+  // charged/vehicle
+  if(typeof incoming.charged_vehicle !== "undefined") local.charged_vehicle = !!incoming.charged_vehicle;
+  if(typeof incoming.vehicle_name !== "undefined") local.vehicle_name = incoming.vehicle_name || "";
+
   const box = GROUP_EL.get(local.id);
   if(!box) return;
   box.classList.remove("state-ok","state-bad","state-wait");
   box.classList.add(groupStateClass(local));
 
-  // MAJ bouton et tag véhicule
-  const btn = CHARGE_BTN.get(local.id);
-  const tag = VEHICLE_TAG.get(local.id);
-  if(btn){
-    btn.disabled = !canChargeGroup(local);
+  const veh = document.getElementById(`veh-${local.id}`);
+  if(veh){
     if(local.charged_vehicle){
-      btn.disabled = true;
-    }
-  }
-  if(tag){
-    if(local.charged_vehicle){
-      tag.style.display = "";
-      tag.textContent = `🚐 ${local.vehicle_name || 'Véhicule'}`;
+      veh.className = "vehicle-tag";
+      veh.textContent = "";
+      veh.append("🚐 ", local.vehicle_name || "Chargé");
     }else{
-      tag.style.display = "none";
+      veh.className = "";
+      veh.textContent = "";
     }
   }
 }
 
 function syncTreeIncoming(incomingNodes){
-  (incomingNodes||[]).forEach(function recInc(nInc){
+  (incomingNodes||[]).forEach(function rec(nInc){
     const nLoc = NODE_MAP.get(nInc.id);
     if(!nLoc) return;
     if(isItem(nLoc)){
       applyItemDelta(nLoc, nInc);
     } else {
-      // champs utiles
-      if(typeof nInc.charged_vehicle !== "undefined"){
-        nLoc.charged_vehicle = !!nInc.charged_vehicle;
-      }
-      if(typeof nInc.vehicle_name !== "undefined"){
-        nLoc.vehicle_name = nInc.vehicle_name;
-      }
-      (nInc.children||[]).forEach(recInc);
-      applyGroupDelta(nLoc);
+      // descendre d'abord
+      (nInc.children||[]).forEach(rec);
+      // puis mettre à jour le groupe (classes + véhicule)
+      applyGroupDelta(nLoc, nInc);
     }
   });
   recomputeStats();
 }
 
-/* ------- API ------- */
+/* -------------------- API calls -------------------- */
 async function refreshTree(){
   try{
     const r = await fetch(`/events/${EVENT_ID}/tree`, {credentials:"include"});
@@ -318,32 +313,40 @@ function verify(nodeId, status){
     method:"POST", credentials:"include",
     headers:{"Content-Type":"application/json"},
     body: JSON.stringify(payload)
-  }).then(()=> refreshTree());
+  })
+  .then(res=>res.ok?refreshTree():null)
+  .catch(()=>{});
 }
 
-function chargeNode(nodeId){
+// ---------- Charger / retirer un véhicule sur un parent ----------
+function onChargeClick(nodeId){
+  // Chef: autorisé uniquement si tout OK sous le parent
   const node = NODE_MAP.get(nodeId);
-  if(!node) return;
+  if(!node){ return; }
   if(!groupAllOk(node)){
-    alert("Tous les items de ce parent doivent être OK avant de le charger.");
+    alert("Ce parent contient encore des éléments non validés.");
     return;
   }
-  const veh = (prompt("Dans quel véhicule ce parent est-il chargé ? (ex: VSAV 1)") || "").trim();
-  if(!veh) return;
-
+  const veh = prompt("Dans quel véhicule est-il chargé ? (ex: VSAV 1)");
+  if(!veh){ return; }
+  setVehicle(nodeId, veh);
+}
+function setVehicle(nodeId, vehicleName){
   fetch(`/events/${EVENT_ID}/parent-status`, {
     method:"POST", credentials:"include",
     headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({node_id: nodeId, charged_vehicle: true, vehicle_name: veh})
-  }).then(async r=>{
-    if(!r.ok){
-      const t = await r.text(); alert(t||"Erreur"); return;
-    }
-    refreshTree();
-  });
+    body: JSON.stringify({node_id: nodeId, charged_vehicle: true, vehicle_name: vehicleName})
+  }).then(()=> refreshTree());
+}
+function clearVehicle(nodeId){
+  fetch(`/events/${EVENT_ID}/parent-status`, {
+    method:"POST", credentials:"include",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({node_id: nodeId, charged_vehicle: false, vehicle_name: ""})
+  }).then(()=> refreshTree());
 }
 
-/* ------- Actions haut de page ------- */
+/* -------------------- Actions haut de page -------------------- */
 document.getElementById("btn-share").addEventListener("click", ()=>{
   fetch(`/events/${EVENT_ID}/share-link`, {method:"POST", credentials:"include"})
     .then(r=>r.json()).then(res=>{
@@ -354,29 +357,37 @@ document.getElementById("btn-share").addEventListener("click", ()=>{
       }
     });
 });
-document.getElementById("btn-close").addEventListener("click", ()=>{
-  fetch(`/events/${EVENT_ID}/status`, {
-    method:"PATCH", credentials:"include",
-    headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({status:"CLOSED"})
-  }).then(()=>{ IS_OPEN=false; document.getElementById("status-badge").textContent="Statut : CLOSED";
-    document.getElementById("btn-open").style.display="";
+const btnClose = document.getElementById("btn-close");
+if(btnClose){
+  btnClose.addEventListener("click", ()=>{
+    fetch(`/events/${EVENT_ID}/status`, {
+      method:"PATCH", credentials:"include",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({status:"CLOSED"})
+    }).then(()=>{
+      IS_OPEN = false;
+      document.getElementById("status-badge").textContent = "Statut : CLOSED";
+      document.querySelectorAll("#tree button").forEach(b=> b.disabled = true);
+    });
   });
-});
-document.getElementById("btn-open").addEventListener("click", ()=>{
-  fetch(`/events/${EVENT_ID}/status`, {
-    method:"PATCH", credentials:"include",
-    headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({status:"OPEN"})
-  }).then(r=>{
-    if(!r.ok) return alert("Seul l'administrateur peut réouvrir un évènement.");
-    IS_OPEN=true; document.getElementById("status-badge").textContent="Statut : OPEN";
-    document.getElementById("btn-open").style.display="none";
-    refreshTree();
+}
+const btnReopen = document.getElementById("btn-reopen");
+if(btnReopen){
+  btnReopen.addEventListener("click", ()=>{
+    fetch(`/events/${EVENT_ID}/status`, {
+      method:"PATCH", credentials:"include",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({status:"OPEN"})
+    }).then(()=>{
+      IS_OPEN = true;
+      document.getElementById("status-badge").textContent = "Statut : OPEN";
+      document.querySelectorAll("#tree button").forEach(b=> b.disabled = false);
+      refreshTree();
+    });
   });
-});
+}
 
-/* ------- initial ------- */
+/* -------------------- Premier rendu + polling doux -------------------- */
 buildUIOnce();
 setInterval(refreshTree, 2000);
 </script>
