@@ -250,7 +250,7 @@
       const match = (name) => !filter || name.toLowerCase().includes(filter.toLowerCase());
 
       function nodeEl(n){
-        const box = h('div', {class:'node'});
+        const box = h('div', {class:'node', 'data-id': String(n.id)});
         const head = h('div', {class:'header'});
         const sel = h('input', {type:'checkbox', class:'selbox'});
         sel.checked = SEL.has(n.id);
@@ -267,7 +267,7 @@
           name.append(' ', b);
         }
         head.append(name);
-        if(n.type==='GROUP'){ bindDnDFor(head, n); }
+        bindDnDFor(head, n);
 
         
         const right = h('div', {style:'margin-left:auto; display:flex; gap:6px; align-items:center'});
@@ -852,10 +852,15 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const g = document.getElementById('global-search');
   if(!g) return;
   g.addEventListener('input', ()=>{
-    const q = (g.value||'').trim().toLowerCase();
-    document.querySelectorAll('#tree .node .name').forEach(el=>{
-      const txt = el.textContent.toLowerCase();
-      el.parentElement.parentElement.style.display = (q && !txt.includes(q)) ? 'none' : '';
+    const qraw = (g.value||'').trim();
+    const q = qraw.toLowerCase();
+    const idQuery = qraw.startsWith('#') ? qraw.slice(1) : (/^\d+$/.test(qraw) ? qraw : null);
+    document.querySelectorAll('#tree .node').forEach(node=>{
+      const nameEl = node.querySelector('.name');
+      const txt = (nameEl ? nameEl.textContent : '').toLowerCase();
+      const nid = node.getAttribute('data-id') || '';
+      const match = idQuery ? (nid === idQuery) : (!q ? true : txt.includes(q));
+      node.style.display = match ? '' : 'none';
     });
   });
 });
