@@ -260,7 +260,7 @@ async function loadRoots(){
     const data = await api('/stock/roots');
     ROOTS = Array.isArray(data) ? data : [];
     if(!ROOTS.length){ CURRENT_ROOT_ID = null; renderRoots(); renderTreeEmpty(); return; }
-    if(!CURRENT_ROOT_ID || !ROOTS.some(r=>r.id===CURRENT_ROOT_ID)){
+    if(!CURRENT_ROOT_ID || !ROOTS.some(r=>r.id==CURRENT_ROOT_ID)){
       CURRENT_ROOT_ID = ROOTS[0].id;
     }
     renderRoots();
