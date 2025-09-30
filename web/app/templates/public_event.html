@@ -3,55 +3,26 @@
 {% block content %}
 
 <style>
-  .state-ok{
-    border-color: var(--success) !important;
-    background:
-      radial-gradient(600px 200px at top left, rgba(18,184,134,.15), transparent),
-      #0f1e2f;
-    box-shadow: 0 0 0 1px rgba(18,184,134,.35) inset, 0 0 18px rgba(18,184,134,.15);
-  }
-  .state-bad{
-    border-color: var(--danger) !important;
-    background:
-      radial-gradient(600px 200px at top left, rgba(255,107,107,.12), transparent),
-      #0f1a27;
-    box-shadow: 0 0 0 1px rgba(255,107,107,.30) inset, 0 0 18px rgba(255,107,107,.12);
-  }
-  .state-wait{
-    border-color: var(--border) !important;
-    background:
-      radial-gradient(600px 200px at top left, rgba(45,123,191,.08), transparent),
-      var(--bg-2);
-  }
-  .chip{padding:4px 8px;border-radius:999px;font-weight:800;font-size:12px;border:1px solid var(--border);}
+  .state-ok{border-color:var(--success)!important;background:radial-gradient(600px 200px at top left, rgba(18,184,134,.15), transparent),#0f1e2f;box-shadow:0 0 0 1px rgba(18,184,134,.35) inset,0 0 18px rgba(18,184,134,.15)}
+  .state-bad{border-color:var(--danger)!important;background:radial-gradient(600px 200px at top left, rgba(255,107,107,.12), transparent),#0f1a27;box-shadow:0 0 0 1px rgba(255,107,107,.30) inset,0 0 18px rgba(255,107,107,.12)}
+  .state-wait{border-color:var(--border)!important;background:radial-gradient(600px 200px at top left, rgba(45,123,191,.08), transparent),var(--bg-2)}
+  .chip{padding:4px 8px;border-radius:999px;font-weight:800;font-size:12px;border:1px solid var(--border)}
   .chip.ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
   .chip.bad{background:#2a0e14;color:#ffd5dc;border-color:#75212f}
   .chip.wait{background:#101c2e;color:#b7c7dc;border-color:#24344f}
-
   .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
   .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
-
   .parents-card .title{display:flex;align-items:center;gap:10px}
   .parents-bar{display:flex;gap:8px;overflow:auto;padding:8px 2px}
-  .parent-pill{
-    display:inline-flex;align-items:center;gap:8px;
-    padding:8px 12px;border-radius:999px;border:1px solid var(--border);cursor:pointer;
-    user-select:none;white-space:nowrap;transition:transform .08s ease, box-shadow .08s ease, border-color .08s ease;
-    background:#0f1a2a;color:var(--text)
-  }
-  .parent-pill:hover{transform:translateY(-1px)}
+  .parent-pill{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;border:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap;background:#0f1a2a;color:var(--text)}
   .pill-ok{border-color:#1d6e5d;background:#0e2a24;color:#bff3e7}
   .pill-bad{border-color:#75212f;background:#2a0e14;color:#ffd5dc}
   .pill-wait{border-color:#24344f;background:#101c2e;color:#b7c7dc}
-  .focus-ring{outline:2px solid var(--pc-orange); outline-offset:2px; transition:outline-color .6s ease}
-
-  .vehicle{font-size:12px; opacity:.9; padding:2px 6px; border-radius:6px; border:1px dashed var(--border); margin-left:8px}
-  .vehicle.on{background:#0e2a24; color:#bff3e7; border-color:#1d6e5d}
-  .vehicle.off{background:#101c2e; color:#b7c7dc; border-color:#24344f}
-
-  .op-badge{font-size:12px; padding:4px 8px; border-radius:999px; border:1px solid var(--border); background:#0f1e2f}
-
-  /* Modals */
+  .focus-ring{outline:2px solid var(--pc-orange); outline-offset:2px}
+  .vehicle{font-size:12px;opacity:.9;padding:2px 6px;border-radius:6px;border:1px dashed var(--border);margin-left:8px}
+  .vehicle.on{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
+  .vehicle.off{background:#101c2e;color:#b7c7dc;border-color:#24344f}
+  .op-badge{font-size:12px;padding:4px 8px;border-radius:999px;border:1px solid var(--border);background:#0f1e2f}
   .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.6);z-index:50}
   .modal.show{display:flex}
   .modal .box{background:#0f1a2a;border:1px solid var(--border);border-radius:12px;padding:18px;max-width:480px;width:92%}
@@ -60,9 +31,6 @@
   .muted-small{font-size:12px;color:#9ab}
   .btn[disabled]{opacity:.6;cursor:not-allowed}
 </style>
-
-<!-- Métadonnées fiables (status) -->
-<div id="event-meta" data-open="{{ '1' if (event.status.name if event.status else '') == 'OPEN' else '0' }}"></div>
 
 <div class="grid cols-2">
   <div class="card">
@@ -74,7 +42,7 @@
       <div class="row" style="gap:8px;align-items:center">
         <span id="op-badge" class="op-badge" title="Secouriste">Secouriste : —</span>
         <button class="btn" id="btn-change-op">Changer de nom</button>
-        <span class="badge" id="status-badge">Statut : {{ event.status.name if event.status else event.status }}</span>
+        <span class="badge" id="status-badge">Statut : {{ event.status }}</span>
       </div>
     </div>
   </div>
@@ -104,7 +72,7 @@
   <div id="tree" class="tree" style="margin-top:10px;"></div>
 </div>
 
-<!-- Modal Identité (à l’arrivée si pas de nom mémorisé) -->
+<!-- Modal Identité -->
 <div id="idModal" class="modal" aria-hidden="true">
   <div class="box">
     <h3 style="margin-top:0">Votre identité</h3>
@@ -137,9 +105,7 @@
 <script>
 const TOKEN = "{{ token }}";
 let TREE = {{ (tree or [])|tojson }};
-
-// ✅ Détection robuste de l'état OPEN/CLOSED
-let IS_OPEN = (document.getElementById('event-meta').dataset.open === '1');
+let IS_OPEN = {{ 'true' if is_open else 'false' }}; // ✅ booléen fiable
 
 /* ========= State ========= */
 const NODE_MAP = new Map();
@@ -149,9 +115,6 @@ const ITEM_STATUS_TXT = new Map();
 const ITEM_QTY_TXT = new Map();
 const VEH_LABEL = new Map();
 let CHARGE_TARGET_ID = null;
-
-// Action à rejouer après saisie de nom (ex: verify/charge)
-let PENDING_ACTION = null;
 
 /* ---------- Utils ---------- */
 function indexTree(nodes){
@@ -272,7 +235,6 @@ function renderItem(n){
 }
 
 function renderGroup(n){
-  // Badge véhicule (RACINES)
   const veh = el("span", {class:"vehicle "+(n.charged_vehicle?'on':'off')},
     n.charged_vehicle ? `Chargé sur : ${n.charged_vehicle_name || "—"}` : "Non chargé"
   );
@@ -285,7 +247,7 @@ function renderGroup(n){
 
   const header = el("div", {class:"header"}, left);
 
-  // “Charger…” — uniquement RACINES & évènement ouvert
+  // Bouton “Charger…” — racines uniquement
   if(n.is_event_root){
     const chargeBtn = el("button", {
       class:"btn primary",
@@ -398,20 +360,13 @@ function scrollToParent(id){
 }
 
 /* ---------- Identité secouriste ---------- */
-function getSavedName(){
-  return localStorage.getItem("pcprep_operator_name") || "";
-}
+function getSavedName(){ return localStorage.getItem("pcprep_operator_name") || ""; }
 function setSavedName(full){
   localStorage.setItem("pcprep_operator_name", full);
   document.getElementById("op-badge").textContent = "Secouriste : " + full;
 }
-function openIdModal(){
-  document.getElementById("idModal").classList.add("show");
-  document.getElementById("opLast").focus();
-}
-function closeIdModal(){
-  document.getElementById("idModal").classList.remove("show");
-}
+function openIdModal(){ document.getElementById("idModal").classList.add("show"); document.getElementById("opLast").focus(); }
+function closeIdModal(){ document.getElementById("idModal").classList.remove("show"); }
 function validateIdInputs(){
   const last = (document.getElementById("opLast").value || "").trim();
   const first = (document.getElementById("opFirst").value || "").trim();
@@ -423,15 +378,9 @@ document.getElementById("idConfirmBtn").addEventListener("click", ()=>{
   const last = (document.getElementById("opLast").value || "").trim();
   const first = (document.getElementById("opFirst").value || "").trim();
   if(!(last && first)) return;
-  const full = `${first} ${last}`; // Format "Prénom NOM"
+  const full = `${first} ${last}`; // "Prénom NOM"
   setSavedName(full);
   closeIdModal();
-  // 🔁 Rejoue l’action qui avait été demandée (OK/NOK/charge)
-  if(typeof PENDING_ACTION === 'function'){
-    const fn = PENDING_ACTION;
-    PENDING_ACTION = null;
-    fn();
-  }
 });
 document.getElementById("btn-change-op").addEventListener("click", ()=>{
   const saved = getSavedName().split(" ");
@@ -455,79 +404,55 @@ async function refreshTree(){
     syncTreeIncoming(latest);
   }catch(_){}
 }
-
-function requireOperatorName(pendingFn){
+function requireOperatorName(){
   const full = getSavedName();
   if(full) return full;
-  // Pas de nom -> ouvre le modal et mémorise l’action à rejouer
-  PENDING_ACTION = pendingFn || null;
   openIdModal();
   return null;
 }
-
 function verify(nodeId, status){
   if(!IS_OPEN){ alert("Événement fermé."); return; }
-  const run = ()=>{
-    const name = getSavedName();
-    const payload = { node_id: nodeId, status, verifier_name: name };
-    fetch(`/public/event/{{ token }}/verify`, {
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body: JSON.stringify(payload)
-    })
-    .then(res=>res.ok?refreshTree():res.text().then(t=>alert(t)))
-    .catch(()=>{});
-  };
-  if(!getSavedName()){
-    requireOperatorName(run);
-    return;
-  }
-  run();
+  const name = requireOperatorName();
+  if(!name) return;
+  const payload = { node_id: nodeId, status, verifier_name: name };
+  fetch(`/public/event/{{ token }}/verify`, {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify(payload)
+  })
+  .then(res=>res.ok?refreshTree():res.text().then(t=>alert(t)))
+  .catch(()=>{});
 }
 
 /* ---------- Charger (RACINES uniquement) ---------- */
+let CHARGE_TARGET_ID = null;
 function openChargeModal(nodeId, nodeName){
   if(!IS_OPEN){ alert("Événement fermé."); return; }
-  const runOpen = ()=>{
-    const node = NODE_MAP.get(nodeId);
-    if(!node || !node.is_event_root){
-      alert("Le chargement n'est autorisé que sur les parents racines.");
-      return;
-    }
-    if(!groupAllOk(node)){
-      alert("Impossible de charger : tous les sous-éléments doivent être OK.");
-      return;
-    }
-    CHARGE_TARGET_ID = nodeId;
-    document.getElementById("chargeTarget").textContent = nodeName + " (id "+nodeId+")";
-    const vinp = document.getElementById("vehicleInput");
-    vinp.value = "";
-    document.getElementById("chargeModal").classList.add("show");
-    vinp.focus();
-    validateCharge();
-  };
-  if(!getSavedName()){
-    requireOperatorName(runOpen);
-    return;
-  }
-  runOpen();
+  const name = requireOperatorName();
+  if(!name) return;
+  const node = NODE_MAP.get(nodeId);
+  if(!node || !node.is_event_root){ alert("Le chargement n'est autorisé que sur les parents racines."); return; }
+  if(!groupAllOk(node)){ alert("Impossible de charger : tous les sous-éléments doivent être OK."); return; }
+  CHARGE_TARGET_ID = nodeId;
+  document.getElementById("chargeTarget").textContent = nodeName + " (id "+nodeId+")";
+  const vinp = document.getElementById("vehicleInput");
+  vinp.value = "";
+  document.getElementById("chargeModal").classList.add("show");
+  vinp.focus();
+  validateCharge();
 }
-function closeChargeModal(){
-  document.getElementById("chargeModal").classList.remove("show");
-  CHARGE_TARGET_ID = null;
-}
+function closeChargeModal(){ document.getElementById("chargeModal").classList.remove("show"); CHARGE_TARGET_ID = null; }
 function validateCharge(){
   const v = (document.getElementById("vehicleInput").value || "").trim();
   document.getElementById("chargeBtn").disabled = !v;
 }
 document.getElementById("vehicleInput").addEventListener("input", validateCharge);
-
 document.getElementById("chargeBtn").addEventListener("click", async ()=>{
   const nodeId = CHARGE_TARGET_ID;
   if(!nodeId) return;
   const vehicle = (document.getElementById("vehicleInput").value || "").trim();
   const op = getSavedName();
-  if(!vehicle){ return; }
+  if(!vehicle) return;
   try{
     const r = await fetch(`/public/event/{{ token }}/charge`, {
       method:"POST",
