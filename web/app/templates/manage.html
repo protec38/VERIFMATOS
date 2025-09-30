@@ -22,6 +22,19 @@
   /* Dropdown Ops '⋯' */
   .dd-ops{position:relative;display:inline-block}
   .dd-ops .dd-menu{right:0;left:auto}
+
+  /* Multi-sélection & Drag-drop */
+  .selbar{position:sticky;top:0;z-index:5;background:#0f1a2a;border:1px solid var(--border);border-radius:10px;margin:10px 0;padding:10px;display:none;gap:8px;align-items:center}
+  .selbar.show{display:flex}
+  .selbar .count{font-weight:700}
+  .selbar .btn{padding:6px 10px}
+
+  .node.drag-over{outline:2px dashed #37527a; outline-offset: 4px}
+  .drop-root{border:1px dashed var(--border);border-radius:8px;padding:8px;text-align:center;margin:6px 0;opacity:.85}
+  .drop-root.drag-over{background:#0f1e2f;}
+
+  .selbox{margin-right:8px}
+
 </style>
 
 
@@ -34,7 +47,8 @@
       </div>
       <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
         <button class="btn primary" id="btn-root-add">➕ Parent racine</button>  <a class="btn" href="/stock/export.json" download>⬇ Export JSON</a>
-        <label class="btn">📄 Choisir JSON…
+        <label class="btn">📄 Choisir JSON…</label>
+        <input id="global-search" type="search" placeholder="Rechercher (nom ou ID)…" style="min-width:220px">
           <input type="file" id="import-file" accept="application/json" style="display:none">
         </label>
         <select id="import-mode">
@@ -238,6 +252,10 @@
       function nodeEl(n){
         const box = h('div', {class:'node'});
         const head = h('div', {class:'header'});
+        const sel = h('input', {type:'checkbox', class:'selbox'});
+        sel.checked = SEL.has(n.id);
+        sel.onchange = (e)=>{ toggleSelect(n.id, e.shiftKey || e.ctrlKey || e.metaKey); };
+        head.append(sel);
         const name = h('div', {class:'name'}, n.name + `  (lvl ${n.level}, ${n.type})`);
         name.style.cursor = 'pointer';
         name.onclick = () => selectNode(n.id);
@@ -249,6 +267,7 @@
           name.append(' ', b);
         }
         head.append(name);
+        if(n.type==='GROUP'){ bindDnDFor(head, n); }
 
         
         const right = h('div', {style:'margin-left:auto; display:flex; gap:6px; align-items:center'});
@@ -355,7 +374,16 @@
     async function loadTree(){
       const sel = document.getElementById('root-select');
       const rid = sel.value;
-      if(!rid){ TREE = null; ALL_NODES = []; SELECTED_ID = null; hideEditor(); document.getElementById('stock-tree').innerHTML = '<div class="muted">Aucune racine</div>'; return; }
+      if(!rid){ TREE = null; ALL_NODES = []; SELECTED_ID = null; hideEditor(); document.getElementById('stock-tree').innerHTML = '
+<div id="selbar" class="selbar">
+  <span class="count"><span id="sel-count">0</span> sélectionné(s)</span>
+  <button class="btn" id="sel-move">Déplacer vers…</button>
+  <button class="btn" id="sel-dup">Dupliquer vers…</button>
+  <button class="btn" id="sel-del">Supprimer</button>
+  <div style="margin-left:auto;opacity:.8">Astuce: Ctrl/Cmd+clic pour multi-sélection</div>
+</div>
+<div id="drop-root" class="drop-root">Déposer ici pour mettre à la racine</div>
+<div class="muted">Aucune racine</div>'; return; }
       TREE = await api('/stock/'+rid+'/tree');
       ALL_NODES = flatten(TREE);
       SELECTED_ID = null;
@@ -690,6 +718,146 @@ document.addEventListener('input', (e)=>{
     const qtyEl = document.getElementById('add-qty');
     if(qtyEl){ const v = parseInt(qtyEl.value||'0',10); qtyEl.style.borderColor = (isNaN(v)||v<0)?'#a33':''; }
   }
+});
+
+
+// ------- Multi-sélection -------
+const SEL = new Set();
+function updateSelbar(){
+  const c = SEL.size;
+  document.getElementById('sel-count').textContent = c;
+  document.getElementById('selbar').classList.toggle('show', c>0);
+}
+function toggleSelect(id, multi){
+  if(!multi){ SEL.clear(); }
+  if(SEL.has(id) && multi){ SEL.delete(id); } else { SEL.add(id); }
+  updateSelbar();
+  renderTree(); // re-render to update checkboxes state
+}
+function clearSelection(){ SEL.clear(); updateSelbar(); renderTree(); }
+
+// Bind selection bar buttons
+document.addEventListener('DOMContentLoaded', ()=>{
+  document.getElementById('sel-del').onclick = async ()=>{
+    if(SEL.size===0) return;
+    if(!confirm('Supprimer '+SEL.size+' nœud(s) et leurs sous-arbres ?')) return;
+    for(const id of Array.from(SEL)){
+      try{ await api('/stock/'+id, {method:'DELETE'}); }catch(e){ alert('Échec suppression id '+id+': '+(e.message||e)); }
+    }
+    clearSelection();
+    await loadRoots(); await loadTree();
+  };
+  document.getElementById('sel-move').onclick = ()=>{
+    if(SEL.size===0) return;
+    // ouvrir moveModal avec le 1er sélectionné comme référence pour exclure descendants
+    openMoveModal(Array.from(SEL)[0]);
+    // et marquer que c'est un move de sélection
+    window.__moveBulk = true;
+  };
+  document.getElementById('sel-dup').onclick = ()=>{
+    if(SEL.size===0) return;
+    openDupModal(Array.from(SEL)[0]);
+    window.__dupBulk = true;
+  };
+});
+
+// Redéfinir confirmMove / confirmDup pour gérer le bulk si flag activé
+const __confirmMove_orig = confirmMove;
+confirmMove = async function(){
+  const v = document.getElementById('move-parent').value;
+  const parent_id = v ? parseInt(v,10) : null;
+  const ids = (window.__moveBulk ? Array.from(SEL) : [MOVE_NODE_ID]).filter(Boolean);
+  try{
+    for(const id of ids){
+      await api('/stock/'+id, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({parent_id})});
+    }
+    closeMoveModal();
+    window.__moveBulk = false;
+    clearSelection();
+    await loadRoots(); await loadTree();
+  }catch(e){ alert('Échec déplacement: '+(e.message||e)); }
+};
+const __confirmDup_orig = confirmDup;
+confirmDup = async function(){
+  const new_name_base = (document.getElementById('dup-name').value || '').trim();
+  const v = document.getElementById('dup-parent').value;
+  const new_parent_id = v ? parseInt(v,10) : null;
+  const ids = (window.__dupBulk ? Array.from(SEL) : [DUP_NODE_ID]).filter(Boolean);
+  try{
+    let i=0;
+    for(const id of ids){
+      const new_name = ids.length>1 ? `${new_name_base} (${++i})` : new_name_base;
+      await api('/stock/'+id+'/duplicate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({new_name, new_parent_id})});
+    }
+    closeDupModal();
+    window.__dupBulk = false;
+    clearSelection();
+    await loadRoots(); await loadTree();
+  }catch(e){ alert('Échec duplication: '+(e.message||e)); }
+};
+
+// ------- Drag & Drop -------
+let DRAG_ID = null;
+function canDrop(targetNode, dragId){
+  if(!targetNode || targetNode.type !== 'GROUP') return false;
+  if(targetNode.id === dragId) return false;
+  // éviter déposer sur un descendant
+  function isDesc(n, targetId){
+    if(n.id === targetId) return true;
+    return (n.children||[]).some(c=>isDesc(c, targetId));
+  }
+  const dragNode = findNode(dragId);
+  return !isDesc(dragNode, targetNode.id);
+}
+function bindDnDFor(el, node){
+  el.draggable = true;
+  el.addEventListener('dragstart', (e)=>{
+    DRAG_ID = node.id;
+    e.dataTransfer.setData('text/plain', String(node.id));
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  el.addEventListener('dragover', (e)=>{
+    if(canDrop(node, DRAG_ID)){ e.preventDefault(); el.closest('.node')?.classList.add('drag-over'); }
+  });
+  el.addEventListener('dragleave', ()=> el.closest('.node')?.classList.remove('drag-over'));
+  el.addEventListener('drop', async (e)=>{
+    e.preventDefault();
+    el.closest('.node')?.classList.remove('drag-over');
+    if(!canDrop(node, DRAG_ID)) return;
+    try{
+      await api('/stock/'+DRAG_ID, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({parent_id: node.id})});
+      DRAG_ID = null;
+      await loadRoots(); await loadTree();
+    }catch(err){ alert('Échec déplacement: '+(err.message||err)); }
+  });
+}
+// Drop to root
+document.addEventListener('DOMContentLoaded', ()=>{
+  const rootDZ = document.getElementById('drop-root');
+  rootDZ.addEventListener('dragover', (e)=>{ if(DRAG_ID){ e.preventDefault(); rootDZ.classList.add('drag-over'); } });
+  rootDZ.addEventListener('dragleave', ()=> rootDZ.classList.remove('drag-over'));
+  rootDZ.addEventListener('drop', async (e)=>{
+    e.preventDefault(); rootDZ.classList.remove('drag-over');
+    if(!DRAG_ID) return;
+    try{
+      await api('/stock/'+DRAG_ID, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({parent_id: null})});
+      DRAG_ID = null;
+      await loadRoots(); await loadTree();
+    }catch(err){ alert('Échec déplacement: '+(err.message||err)); }
+  });
+});
+
+// ------- Recherche globale -------
+document.addEventListener('DOMContentLoaded', ()=>{
+  const g = document.getElementById('global-search');
+  if(!g) return;
+  g.addEventListener('input', ()=>{
+    const q = (g.value||'').trim().toLowerCase();
+    document.querySelectorAll('#tree .node .name').forEach(el=>{
+      const txt = el.textContent.toLowerCase();
+      el.parentElement.parentElement.style.display = (q && !txt.includes(q)) ? 'none' : '';
+    });
+  });
 });
 
 // Init
