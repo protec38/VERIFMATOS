@@ -15,18 +15,10 @@ from ..models import (
     EventShareLink,
     StockNode,
     NodeType,
-    VerificationRecord,
     EventNodeStatus,
     event_stock,
     Role,
 )
-from ..tree_query import build_event_tree
-
-# SocketIO optionnel : on ne fait rien si absent
-try:
-    from .. import socketio  # type: ignore
-except Exception:
-    socketio = None
 
 # ======================
 # Blueprints STABLES
@@ -59,23 +51,62 @@ def _event_from_token_or_404(token: str) -> Event:
         abort(404, description="Lien public invalide.")
     return link.event
 
-def _status_is_open(ev: Event) -> bool:
-    raw = getattr(ev.status, "name", ev.status)
-    return str(raw).upper() == "OPEN"
 
-def _emit(channel: str, payload: dict) -> None:
+def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
+    """Construit l’arbre pour l’événement."""
+    # 1) récupère les racines attachées à l’événement
+    rows = db.session.execute(select(StockNode).join(
+        event_stock, StockNode.id == event_stock.c.node_id
+    ).where(event_stock.c.event_id == event_id)).scalars().all()
+
+    # on ne garde que les GROUP comme racines
+    roots = [n for n in rows if n.type == NodeType.GROUP]
+    roots_ids = [r.id for r in roots]
+
+    # 2) pour chaque racine, construire récursivement (GROUP -> ITEM)
+    def serialize(node: StockNode) -> Dict[str, Any]:
+        out = {
+            "id": node.id,
+            "name": node.name,
+            "type": node.type.name,
+            "children": []
+        }
+        # statut dernier known si ITEM
+        if node.type == NodeType.ITEM:
+            ens = EventNodeStatus.query.filter_by(event_id=event_id, node_id=node.id).first()
+            if ens:
+                out["last_status"] = (ens.status.name if ens.status else None)
+                out["updated_at"] = ens.updated_at.isoformat() if ens.updated_at else None
+                out["verifier_name"] = ens.verifier_name
+                out["comment"] = ens.comment
+                # propriétés optionnelles
+                if hasattr(ens, "charged_vehicle"):
+                    out["charged_vehicle"] = ens.charged_vehicle
+                if hasattr(ens, "charged_vehicle_name"):
+                    out["charged_vehicle_name"] = ens.charged_vehicle_name
+        else:
+            # enfants
+            ch = StockNode.query.filter_by(parent_id=node.id).all()
+            out["children"] = [serialize(c) for c in ch]
+        return out
+
+    return [serialize(r) for r in roots if r.id in roots_ids]
+
+
+def _emit(event: str, payload: Dict[str, Any]):
+    """Placeholder pour du websocket/event-stream si besoin."""
     try:
-        if socketio is not None:
-            socketio.emit(channel, payload, room=f"event_{payload.get('event_id')}")
+        # hook si existant
+        pass
     except Exception:
         pass
 
 def _all_items_ok(subtree: Dict[str, Any]) -> bool:
-    ok = True
     has_item = False
+    ok = True
 
-    def rec(n: Dict[str, Any]) -> None:
-        nonlocal ok, has_item
+    def rec(n: Dict[str, Any]):
+        nonlocal has_item, ok
         ntype = (n.get("type") or "").upper()
         if ntype == "ITEM":
             has_item = True
@@ -102,6 +133,7 @@ def _find_node(tree: List[Dict[str, Any]], node_id: int) -> Dict[str, Any] | Non
 # ============================================
 
 @bp_events.post("/")
+@bp_events.post("")
 @login_required
 def create_event():
     """Créer un événement + attacher les parents racines (GROUP)."""
@@ -117,22 +149,19 @@ def create_event():
         abort(400, description="name et root_ids (liste non vide) requis.")
 
     # date optionnelle (YYYY-MM-DD)
-    try:
-        dt = datetime.fromisoformat(date_str).date() if date_str else None
-    except Exception:
-        abort(400, description="date invalide (YYYY-MM-DD).")
+    date = None
+    if date_str:
+        try:
+            date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        except Exception:
+            abort(400, description="Format de date invalide (attendu YYYY-MM-DD).")
 
-    # Création
-    ev = Event(
-        name=name,
-        date=dt,
-        status=EventStatus.OPEN,
-        created_by_id=current_user.id,
-    )
+    # création event
+    ev = Event(name=name, status=EventStatus.OPEN, date=date, created_by=current_user.id)
     db.session.add(ev)
-    db.session.flush()  # pour obtenir ev.id
+    db.session.flush()
 
-    # Attacher les racines
+    # attache les racines
     seen = set()
     for nid in root_ids:
         try:
@@ -202,52 +231,67 @@ def event_verify(event_id: int):
     if not node:
         abort(404, description="Élément introuvable.")
     if node.type != NodeType.ITEM:
-        abort(400, description="Seuls les items peuvent être vérifiés.")
+        abort(400, description="Seuls les ITEM sont vérifiables directement.")
 
-    rec = VerificationRecord(
-        event_id=ev.id,
-        node_id=node_id,
-        status=status,
-        verifier_name=verifier_name,
-    )
-    db.session.add(rec)
+    ens = EventNodeStatus.query.filter_by(event_id=ev.id, node_id=node.id).first()
+    if not ens:
+        ens = EventNodeStatus(event_id=ev.id, node_id=node.id)
+        db.session.add(ens)
+
+    ens.status = EventStatus.OK if status == "OK" else EventStatus.NOT_OK
+    ens.verifier_name = verifier_name or None
+    ens.updated_at = datetime.utcnow()
+
+    # commentaire optionnel
+    comment = (payload.get("comment") or "").strip() or None
+    ens.comment = comment
+
     db.session.commit()
 
+    # émettre un petit signal pour front (si websocket)
     _emit("event_update", {
-        "type": "item_verified",
+        "type": "verify",
         "event_id": ev.id,
-        "node_id": node_id,
-        "status": status,
-        "by": verifier_name,
+        "node_id": node.id,
+        "status": ens.status.name,
+        "verifier_name": ens.verifier_name,
+        "comment": ens.comment,
     })
-    return jsonify({"ok": True, "record_id": rec.id})
+
+    return jsonify({"ok": True})
+
 
 @bp_events.post("/<int:event_id>/parent-status")
 @login_required
-def event_parent_status(event_id: int):
+def event_parent_charged(event_id: int):
+    """Marquer un parent (GROUP) comme « chargé » pour un véhicule."""
     if not _is_manager():
         abort(403)
     ev = _event_or_404(event_id)
     if not _status_is_open(ev):
-        return jsonify({"error": "Événement fermé — modification impossible."}), 403
+        return jsonify({"error": "Événement fermé — vérifications verrouillées."}), 403
 
     payload = request.get_json(silent=True) or {}
     node_id = int(payload.get("node_id") or 0)
     charged_vehicle = bool(payload.get("charged_vehicle"))
+    operator_name = (payload.get("operator_name") or current_user.username or "").strip()
     vehicle_name = (payload.get("vehicle_name") or "").strip() or None
 
     if not node_id:
         abort(400, description="node_id requis.")
-
     node = db.session.get(StockNode, node_id)
-    if not node or node.type != NodeType.GROUP:
-        abort(400, description="Seuls les parents (GROUP) sont concernés.")
+    if not node:
+        abort(404, description="Élément introuvable.")
+    if node.type != NodeType.GROUP:
+        abort(400, description="Seuls les GROUP peuvent être marqués comme chargés.")
 
-    ens = (
-        EventNodeStatus.query.filter_by(event_id=ev.id, node_id=node.id).first()
-        or EventNodeStatus(event_id=ev.id, node_id=node.id)
-    )
+    ens = EventNodeStatus.query.filter_by(event_id=ev.id, node_id=node.id).first()
+    if not ens:
+        ens = EventNodeStatus(event_id=ev.id, node_id=node.id)
+
     ens.charged_vehicle = charged_vehicle
+    ens.updated_at = datetime.utcnow()
+    ens.verifier_name = operator_name or None
     if hasattr(ens, "charged_vehicle_name"):
         ens.charged_vehicle_name = vehicle_name if charged_vehicle else None
 
@@ -275,49 +319,66 @@ def event_set_status(event_id: int):
 
     data = request.get_json(silent=True) or {}
     status_raw = (data.get("status") or "").upper()
+
     if status_raw not in ("OPEN", "CLOSED"):
-        abort(400, description="status invalide (OPEN|CLOSED).")
+        abort(400, description="Statut invalide (OPEN ou CLOSED).")
 
     ev.status = EventStatus.OPEN if status_raw == "OPEN" else EventStatus.CLOSED
+    ev.updated_at = datetime.utcnow()
     db.session.commit()
-    return jsonify({"ok": True, "status": status_raw})
+
+    _emit("event_update", {"type": "status", "event_id": ev.id, "status": ev.status.name})
+    return jsonify({"ok": True, "status": ev.status.name})
+
 
 @bp_events.post("/<int:event_id>/share-link")
 @login_required
-def event_share_link(event_id: int):
+def create_public_share_link(event_id: int):
     if not _is_manager():
         abort(403)
     ev = _event_or_404(event_id)
 
-    link = EventShareLink.query.filter_by(event_id=ev.id, active=True).first()
-    if not link:
-        token = secrets.token_urlsafe(16)
-        link = EventShareLink(event_id=ev.id, token=token, active=True)
-        db.session.add(link)
-        db.session.commit()
+    # on désactive les anciens liens actifs
+    EventShareLink.query.filter_by(event_id=ev.id, active=True).update({"active": False})
 
-    url = f"/public/event/{link.token}"
-    return jsonify({"ok": True, "token": link.token, "url": url})
+    token = secrets.token_urlsafe(24)
+    link = EventShareLink(event_id=ev.id, token=token, active=True)
+    db.session.add(link)
+    db.session.commit()
+
+    return jsonify({"ok": True, "token": token, "url": f"/public/event/{token}"})
+
 
 @bp_events.post("/<int:event_id>/delete")
 @login_required
-def event_delete(event_id: int):
-    """Suppression d’un événement (managers seulement)."""
+def delete_event(event_id: int):
     if not _is_manager():
         abort(403)
     ev = _event_or_404(event_id)
 
-    VerificationRecord.query.filter_by(event_id=ev.id).delete()
+    # supprime les statuts
     EventNodeStatus.query.filter_by(event_id=ev.id).delete()
-    db.session.execute(event_stock.delete().where(event_stock.c.event_id == ev.id))
+    # supprime les liens partagés
     EventShareLink.query.filter_by(event_id=ev.id).delete()
+    # détache les roots
+    db.session.execute(event_stock.delete().where(event_stock.c.event_id == ev.id))
+    # enfin supprime l'événement
     db.session.delete(ev)
     db.session.commit()
+
     return jsonify({"ok": True})
 
 
+def _status_is_open(ev: Event) -> bool:
+    try:
+        return ev.status == EventStatus.OPEN
+    except Exception:
+        # si enum différent
+        return str(ev.status).upper() == "OPEN"
+
+
 # ============================================
-# PUBLIC (Secouristes via lien partagé)
+# PUBLIC (pas d’authentification)
 # ============================================
 
 @bp_public.get("/event/<token>/tree")
@@ -335,77 +396,62 @@ def public_verify(token: str):
     payload = request.get_json(silent=True) or {}
     node_id = int(payload.get("node_id") or 0)
     status = (payload.get("status") or "").upper()
-    verifier_name = (payload.get("verifier_name") or "").strip()
+    verifier_name = (payload.get("verifier_name") or "")
+    comment = (payload.get("comment") or "").strip() or None
 
-    if not node_id or status not in ("OK", "NOT_OK") or not verifier_name:
-        abort(400, description="Paramètres invalides (node_id, status, verifier_name).")
+    if not node_id or status not in ("OK", "NOT_OK"):
+        abort(400, description="Paramètres invalides (node_id, status).")
 
     node = db.session.get(StockNode, node_id)
-    if not node:
-        abort(404, description="Élément introuvable.")
-    if node.type != NodeType.ITEM:
-        abort(400, description="Seuls les items peuvent être vérifiés.")
+    if not node or node.type != NodeType.ITEM:
+        abort(404, description="Élément introuvable ou non vérifiable.")
 
-    rec = VerificationRecord(
-        event_id=ev.id,
-        node_id=node_id,
-        status=status,
-        verifier_name=verifier_name,
-    )
-    db.session.add(rec)
+    ens = EventNodeStatus.query.filter_by(event_id=ev.id, node_id=node.id).first()
+    if not ens:
+        ens = EventNodeStatus(event_id=ev.id, node_id=node.id)
+        db.session.add(ens)
+
+    ens.status = EventStatus.OK if status == "OK" else EventStatus.NOT_OK
+    ens.verifier_name = verifier_name or None
+    ens.updated_at = datetime.utcnow()
+    ens.comment = comment
+
     db.session.commit()
-
     _emit("event_update", {
-        "type": "item_verified",
+        "type": "public_verify",
         "event_id": ev.id,
-        "node_id": node_id,
-        "status": status,
-        "by": verifier_name,
+        "node_id": node.id,
+        "status": ens.status.name,
+        "verifier_name": ens.verifier_name,
+        "comment": ens.comment,
     })
-    return jsonify({"ok": True, "record_id": rec.id})
+    return jsonify({"ok": True})
+
 
 @bp_public.post("/event/<token>/charge")
-def public_charge(token: str):
+def public_parent_charge(token: str):
     ev = _event_from_token_or_404(token)
     if not _status_is_open(ev):
-        return jsonify({"error": "Événement fermé — chargement impossible."}), 403
+        return jsonify({"error": "Événement fermé — vérifications verrouillées."}), 403
 
     payload = request.get_json(silent=True) or {}
     node_id = int(payload.get("node_id") or 0)
-    vehicle_name = (payload.get("vehicle_name") or "").strip()
+    charged_vehicle = bool(payload.get("charged_vehicle"))
     operator_name = (payload.get("operator_name") or "").strip()
+    vehicle_name = (payload.get("vehicle_name") or "").strip() or None
 
-    if not node_id or not vehicle_name:
-        abort(400, description="Paramètres invalides (node_id, vehicle_name).")
-
+    if not node_id:
+        abort(400, description="node_id requis.")
     node = db.session.get(StockNode, node_id)
     if not node or node.type != NodeType.GROUP:
-        abort(400, description="Le chargement est réservé aux parents (GROUP).")
+        abort(404, description="Parent introuvable ou non GROUP.")
 
-    present = db.session.execute(
-        select(event_stock.c.node_id).where(
-            event_stock.c.event_id == ev.id,
-            event_stock.c.node_id == node.id,
-        )
-    ).first()
-    if not present:
-        abort(400, description="Seules les racines de l’événement peuvent être chargées.")
-
-    try:
-        tree = build_event_tree(ev.id)
-        sub = _find_node(tree, node.id)
-        if sub is not None and not _all_items_ok(sub):
-            abort(400, description="Impossible de charger : tous les sous-éléments doivent être OK.")
-    except Exception:
-        pass
-
-    ens = (
-        EventNodeStatus.query.filter_by(event_id=ev.id, node_id=node.id).first()
+    ens = EventNodeStatus.query.filter_by(event_id=ev.id, node_id=node.id).first() \
         or EventNodeStatus(event_id=ev.id, node_id=node.id)
-    )
-    ens.charged_vehicle = True
+    ens.charged_vehicle = charged_vehicle
     if hasattr(ens, "charged_vehicle_name"):
-        ens.charged_vehicle_name = vehicle_name
+        ens.charged_vehicle_name = vehicle_name if charged_vehicle else None
+
     db.session.add(ens)
     db.session.commit()
 
