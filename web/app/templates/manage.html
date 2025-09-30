@@ -85,6 +85,10 @@
             <label class="muted">Quantité</label>
             <input id="edit-qty" type="number" min="0" value="0" style="max-width:140px;">
           </div>
+          <div id="expiry-wrap" style="display:none;">
+            <label class="muted">Péremption</label>
+            <input id="edit-expiry" type="date" style="max-width:180px;">
+          </div>
         </div>
 
         <div class="row">
@@ -262,8 +266,8 @@
       document.getElementById('edit-name').value = n.name;
       document.getElementById('edit-type').value = n.type;
       const qtyWrap = document.getElementById('qty-wrap');
-      if(n.type === 'ITEM'){ qtyWrap.style.display = ''; document.getElementById('edit-qty').value = n.quantity ?? 0; }
-      else { qtyWrap.style.display = 'none'; }
+      if(n.type === 'ITEM'){ qtyWrap.style.display = ''; document.getElementById('edit-qty').value = n.quantity ?? 0; document.getElementById('expiry-wrap').style.display=''; document.getElementById('edit-expiry').value = (n.expiry_date||''); }
+      else { qtyWrap.style.display = 'none'; document.getElementById('expiry-wrap').style.display='none'; document.getElementById('edit-expiry').value=''; }
       fillParentSelect();
     }
 
@@ -329,6 +333,8 @@
       if(type === 'ITEM'){
         const qty = parseInt(document.getElementById('edit-qty').value || '0', 10);
         payload.quantity = isNaN(qty) ? 0 : qty;
+        const ex = document.getElementById('edit-expiry').value; // '' ou 'YYYY-MM-DD'
+        payload.expiry_date = ex || null; // envoie null pour effacer
       }
       // Changement de parent ?
       if(parent_id !== null) payload.parent_id = parent_id;
