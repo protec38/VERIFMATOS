@@ -41,7 +41,7 @@ def _parse_iso_date(s: Optional[str]) -> Optional[date]:
         return None
     return date.fromisoformat(s)
 
-# --- sérialisation avec péremption (pour l'export) ---
+# --- sérialisation avec péremption (pour l’export) ---
 def _serialize_tree_full(n: StockNode) -> Dict[str, Any]:
     out = {
         "name": n.name,
@@ -144,7 +144,8 @@ def update_node_api(node_id: int):
         else:
             qty = None if node.type != NodeType.ITEM else node.quantity
 
-        update_node(node_id=node_id, *,name=name, parent_id=parent_id, quantity=qty)
+        # ✅ correction: pas de '*' dans l'appel
+        update_node(node_id=node_id, name=name, parent_id=parent_id, quantity=qty)
 
         # expiry_date (ITEM uniquement)
         if node.type == NodeType.ITEM and "expiry_date" in data:
@@ -237,16 +238,12 @@ def import_stock():
             return _bad_request("Invalid JSON file")
     else:
         data_obj = request.get_json(silent=True)
-        if not isinstance(data_obj, dict):
+        if not isinstance(data_obj, dict) and not isinstance(data_obj, list):
             return _bad_request("JSON body expected")
 
-    roots = data_obj.get("roots")
+    roots = data_obj.get("roots") if isinstance(data_obj, dict) else data_obj
     if roots is None:
-        # autoriser aussi le cas où le JSON est directement une liste de racines
-        if isinstance(data_obj, list):
-            roots = data_obj
-        else:
-            return _bad_request("Missing 'roots' array")
+        return _bad_request("Missing 'roots' array")
 
     if mode not in ("merge", "replace"):
         return _bad_request("mode must be 'merge' or 'replace'")
@@ -254,7 +251,6 @@ def import_stock():
     try:
         if mode == "replace":
             # suppression complète du stock
-            # (ordre: on supprime du bas vers le haut)
             all_nodes = db.session.query(StockNode).all()
             for n in reversed(all_nodes):
                 db.session.delete(n)
