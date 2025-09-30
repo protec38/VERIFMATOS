@@ -1,4 +1,4 @@
-# app/views_html.py — Pages HTML (Jinja): Stock/Admin; création d’événement multi-parents; page événement avec TREE injecté
+# app/views_html.py — Pages HTML (Jinja): Stock/Admin; création d’événement; page événement; page publique secouristes
 from __future__ import annotations
 from datetime import datetime
 from flask import Blueprint, render_template, render_template_string, request, redirect, url_for, abort, current_app
@@ -35,7 +35,6 @@ def can_manage_event() -> bool:
 # -------------------------
 @bp.route("/login", methods=["GET"])
 def login():
-    # Le POST /login est géré par app/auth/views.py
     return render_template_string(
         '{% extends "base.html" %}{% block content %}'
         '<div class="card"><div class="title">Connexion</div>'
@@ -58,7 +57,6 @@ def logout():
 @bp.route("/dashboard", methods=["GET", "POST"])
 @login_required
 def dashboard():
-    # Création via formulaire HTML (pas le JSON)
     if request.method == "POST":
         if not can_manage_event():
             abort(403)
@@ -75,7 +73,6 @@ def dashboard():
         if not name or not root_ids:
             abort(400, description="Nom et au moins un parent racine requis")
 
-        # Parse date (optionnelle)
         date = None
         if date_str:
             try:
@@ -90,12 +87,12 @@ def dashboard():
             created_by_id=current_user.id,
         )
         db.session.add(ev)
-        db.session.flush()  # pour ev.id
+        db.session.flush()  # ev.id
 
+        from .models import StockNode, NodeType, event_stock
         added = 0
         for rid in sorted(set(root_ids)):
             root = db.session.get(StockNode, rid)
-            # ✅ racine = parent_id is None (et de type GROUP)
             if not root or root.type != NodeType.GROUP or root.parent_id is not None:
                 continue
             db.session.execute(event_stock.insert().values(event_id=ev.id, node_id=root.id))
@@ -111,12 +108,10 @@ def dashboard():
         db.session.commit()
         return redirect(url_for("pages.event_page", event_id=ev.id))
 
-    # GET
     if not can_view():
         abort(403)
 
     events = Event.query.order_by(Event.created_at.desc()).all()
-    # ✅ lister les parents racine à partir de parent_id==None (et GROUP)
     roots = (
         StockNode.query
         .filter(StockNode.parent_id.is_(None), StockNode.type == NodeType.GROUP)
@@ -126,7 +121,7 @@ def dashboard():
     return render_template("home.html", events=events, can_manage=can_manage_event(), roots=roots)
 
 # -------------------------
-# Page Événement
+# Page Événement (interne)
 # -------------------------
 @bp.get("/events/<int:event_id>")
 @login_required
@@ -150,7 +145,13 @@ def public_event_page(token: str):
         abort(404)
     ev = link.event
     tree = build_event_tree(ev.id)
-    return render_template("public_event.html", event=ev, tree=tree, token=token)
+    return render_template(
+        "public_event.html",
+        event=ev,
+        tree=tree,
+        token=token,
+        is_open=(ev.status == EventStatus.OPEN),  # ✅ booléen fiable pour le template
+    )
 
 # -------------------------
 # STOCK (UI) — ADMIN ONLY
@@ -173,6 +174,8 @@ def admin_page():
 
     if request.method == "POST":
         action = request.form.get("action") or ""
+        from .models import User, Role
+
         if action == "create_user":
             username = (request.form.get("username") or "").strip()
             password = (request.form.get("password") or "").strip()
@@ -243,7 +246,7 @@ def admin_page():
     return render_template("admin.html", users=users, Role=Role)
 
 # -------------------------
-# Page Péremptions (nouvelle)
+# Page Péremptions
 # -------------------------
 @bp.get("/peremption")
 @login_required
