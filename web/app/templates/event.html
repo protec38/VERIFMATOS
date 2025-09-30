@@ -50,6 +50,14 @@
   .pill-bad{border-color:#75212f;background:#2a0e14;color:#ffd5dc}
   .pill-wait{border-color:#24344f;background:#101c2e;color:#b7c7dc}
   .focus-ring{outline:2px solid var(--pc-orange); outline-offset:2px; transition:outline-color .6s ease}
+
+  /* --- Modal chargement véhicule --- */
+  .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.6);z-index:50}
+  .modal.show{display:flex}
+  .modal .box{background:#0f1a2a;border:1px solid var(--border);border-radius:12px;padding:18px;max-width:420px;width:92%}
+  .modal .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+  .modal input[type=text]{width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:#0f1e2f;color:var(--text)}
+
 </style>
 
 <div class="grid cols-2">
@@ -92,7 +100,20 @@
     <div class="muted">Vert = tout OK • Rouge = au moins un non conforme • Bleu = en attente</div>
   </div>
   <div id="tree" class="tree" style="margin-top:10px;"></div>
+
+<!-- Modal Charger véhicule -->
+<div id="chargeModal" class="modal" aria-hidden="true">
+  <div class="box">
+    <h3 style="margin-top:0">Charger ce parent</h3>
+    <p>Nom du véhicule :</p>
+    <input type="text" id="vehicleInput" placeholder="Ex : VPSP 1 / VL 2" />
+    <div class="actions">
+      <button class="btn" onclick="closeChargeModal()">Annuler</button>
+      <button class="btn primary" onclick="confirmCharge()">Valider</button>
+    </div>
+  </div>
 </div>
+
 
 <script>
 const EVENT_ID = {{ event.id }};
@@ -231,14 +252,29 @@ function renderItem(n){
 function renderGroup(n){
   const cb = el("input", {
     type:"checkbox", id:`charged-${n.id}`, disabled:!IS_OPEN,
-    onchange:(e)=>setCharged(n.id, e.target.checked)
+    onchange:(e)=>{
+      // si on coche -> ouverture popup pour saisir véhicule
+      if(e.target.checked){
+        e.target.checked = false; // on attend la confirmation
+        openChargeModal(n.id);
+      }else{
+        // décocher = décharger immédiatement
+        setCharged(n.id, false);
+      }
+    }
   });
   if(n.charged_vehicle) cb.checked = true;
   CHARGED_CB.set(n.id, cb);
 
+  const chargeBtn = el("button", {
+    class:"btn primary",
+    disabled: !IS_OPEN,
+    onclick: ()=> openChargeModal(n.id)
+  }, "Charger…");
+
   const header = el("div", {class:"header"},
     el("div", {class:"name"}, stateDot(n,true), n.name),
-    el("label", {class:"check"}, cb, el("span", null, "Chargé dans le véhicule"))
+    el("div", {class:"check"}, cb, el("span", null, "Marqué chargé"), chargeBtn)
   );
   const children = el("div", {class:"childs"}, ...(n.children||[]).map(renderNode));
   const box = el("div", {class:`node ${groupStateClass(n)}`, id:`node-${n.id}`}, header, children);
@@ -401,6 +437,69 @@ document.getElementById("btn-close").addEventListener("click", ()=>{
     });
   });
 });
+
+/* ------- Modal 'Charger' ------- */
+let CHARGE_TARGET_ID = null;
+function openChargeModal(nodeId){
+  if(!IS_OPEN){ alert("Événement fermé."); return; }
+  const node = NODE_MAP.get(nodeId);
+  if(!node){ alert("Parent introuvable"); return; }
+  // Vérifier que tous les descendants sont OK
+  if(!groupAllOk(node)){
+    alert("Impossible de charger : tous les sous-éléments doivent être OK.");
+    return;
+  }
+  CHARGE_TARGET_ID = nodeId;
+  document.getElementById("chargeModal").classList.add("show");
+  const input = document.getElementById("vehicleInput");
+  input.value = "";
+  input.focus();
+}
+function closeChargeModal(){
+  document.getElementById("chargeModal").classList.remove("show");
+  CHARGE_TARGET_ID = null;
+}
+async function confirmCharge(){
+  const input = document.getElementById("vehicleInput");
+  const vehicle = (input.value || "").trim();
+  if(!vehicle){ alert("Merci d'indiquer le nom du véhicule."); return; }
+  const nodeId = CHARGE_TARGET_ID;
+  if(!nodeId){ return; }
+
+  try{
+    // 1) Obtenir (ou créer) un token de lien public
+    const lr = await fetch(`/events/${EVENT_ID}/share-link`, {method:"POST", credentials:"include"});
+    const lj = await lr.json();
+    if(!lj || !lj.token){ throw new Error("Lien public indisponible"); }
+    const token = lj.token;
+
+    // 2) Appel endpoint public pour enregistrer le nom du véhicule + verrou charger
+    const r1 = await fetch(`/public/event/${token}/charge`, {
+      method:"POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ node_id: nodeId, vehicle_name: vehicle, operator_name: CURRENT_USER || "" })
+    });
+    if(!r1.ok){
+      const err = await r1.json().catch(()=>({}));
+      throw new Error(err.error || "Échec du chargement");
+    }
+
+    // 3) Mettre le flag interne (pour broadcast SocketIO et cohérence)
+    await fetch(`/events/${EVENT_ID}/parent-status`, {
+      method:"POST", credentials:"include",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ node_id: nodeId, charged_vehicle: true })
+    });
+
+    const cb = CHARGED_CB.get(nodeId);
+    if(cb) cb.checked = true;
+    closeChargeModal();
+    refreshTree();
+  }catch(e){
+    alert(e.message || "Erreur réseau");
+  }
+}
+
 
 /* -------------------- Premier rendu + polling doux -------------------- */
 buildUIOnce();                     // construit 1 seule fois
