@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+{% set title = "Péremptions" %}
+{% block content %}
+
+<style>
+  .cards {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+  @media (max-width: 980px){ .cards{grid-template-columns:1fr} }
+
+  .card{border:1px solid var(--border);border-radius:12px;padding:16px;background:#0f1a2a}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .wrap{flex-wrap:wrap}
+  .title{font-weight:700;font-size:18px}
+  .muted{opacity:.8}
+
+  .chip{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:999px;padding:6px 10px}
+  .chip span{font-weight:700}
+  .chip-btn{cursor:pointer;user-select:none}
+  .chip.active{box-shadow:0 0 0 1px var(--text) inset}
+  .chip.expired{border-color:#a33;background:#2a1111}
+  .chip.j30{border-color:#b86b00;background:#2a1b0f}
+  .chip.j60{border-color:#b3a100;background:#2a270f}
+  .chip.later{border-color:#17614f;background:#0f2a22}
+  .chip.no_date{border-color:#3b4a63;background:#0f1e2f}
+
+  .btn{padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#0f1e2f;cursor:pointer}
+  .btn:hover{filter:brightness(1.1)}
+  .btn.primary{border-color:var(--pc-orange)}
+  .search{flex:1;display:flex;gap:8px}
+  .search input{flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#0f1e2f;color:var(--text)}
+
+  table{width:100%;border-collapse:separate;border-spacing:0 8px}
+  thead th{font-size:12px;opacity:.8;text-align:left;padding:0 10px}
+  tbody td{background:#0f1e2f;border:1px solid var(--border);padding:10px}
+  tbody tr td:first-child{border-radius:10px 0 0 10px}
+  tbody tr td:last-child{border-radius:0 10px 10px 0}
+  .tag{display:inline-flex;border:1px dashed var(--border);border-radius:999px;padding:2px 8px;font-size:12px;opacity:.9}
+
+  .badge{display:inline-flex;padding:2px 8px;border-radius:999px;border:1px dashed var(--border);font-size:12px;opacity:.9}
+  .badge.today{border-color:#37527a}
+
+  .cat-pill{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:999px;border:1px solid var(--border);font-size:12px}
+  .cat-expired{border-color:#a33;background:#2a1111}
+  .cat-j30{border-color:#b86b00;background:#2a1b0f}
+  .cat-j60{border-color:#b3a100;background:#2a270f}
+  .cat-later{border-color:#17614f;background:#0f2a22}
+  .cat-no_date{border-color:#3b4a63;background:#0f1e2f}
+
+  .sortable{cursor:pointer;user-select:none}
+  .sortable:hover{text-decoration:underline}
+</style>
+
+<div class="cards">
+  <div class="card">
+    <div class="row">
+      <div>
+        <div class="title">Péremptions</div>
+        <div class="muted">Suivi des dates de péremption des ITEMS (pharma, consommables…)</div>
+      </div>
+      <span id="todayBadge" class="badge today">Aujourd'hui : —</span>
+    </div>
+
+    <div class="row wrap" style="gap:8px;margin-top:10px">
+      <div id="chip-all"     class="chip chip-btn active"><span>Tout</span> <small id="c_all">0</small></div>
+      <div id="chip-expired" class="chip chip-btn expired"><span>Périmé</span> <small id="c_expired">0</small></div>
+      <div id="chip-j30"     class="chip chip-btn j30"><span>≤ 30 j</span> <small id="c_j30">0</small></div>
+      <div id="chip-j60"     class="chip chip-btn j60"><span>≤ 60 j</span> <small id="c_j60">0</small></div>
+      <div id="chip-later"   class="chip chip-btn later"><span>> 60 j</span> <small id="c_later">0</small></div>
+      <div id="chip-no_date" class="chip chip-btn no_date"><span>Sans date</span> <small id="c_no_date">0</small></div>
+
+      <div class="search" style="margin-left:auto;min-width:260px">
+        <input id="q" type="search" placeholder="Rechercher un item…" />
+        <button class="btn" id="btn-export">Exporter CSV</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div class="title">Liste</div>
+      <div class="muted" id="resultCount">0 éléments</div>
+    </div>
+
+    <div style="overflow:auto;margin-top:10px">
+      <table>
+        <thead>
+          <tr>
+            <th class="sortable" data-sort="name">Item</th>
+            <th style="min-width:90px">Quantité</th>
+            <th class="sortable" data-sort="expiry_date" style="min-width:140px">Péremption</th>
+            <th style="min-width:100px">Catégorie</th>
+            <th class="sortable" data-sort="id" style="min-width:90px">ID</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+let RAW = {expired:[], j30:[], j60:[], later:[], no_date:[], today:null};
+let FILTER = "all";
+let SEARCH = "";
+let SORT = {key:"expiry_date", dir:1}; // 1 asc, -1 desc
+
+const $$ = (s,p=document)=>p.querySelector(s);
+const $$$ = (s,p=document)=>Array.from(p.querySelectorAll(s));
+
+function fmtDate(d){ return d ? d : "—"; }
+function catLabel(c){
+  if(c==="expired") return "Périmé";
+  if(c==="j30") return "≤ 30 j";
+  if(c==="j60") return "≤ 60 j";
+  if(c==="later") return "> 60 j";
+  return "Sans date";
+}
+function catClass(c){
+  return c==="expired" ? "cat-expired" :
+         c==="j30" ? "cat-j30" :
+         c==="j60" ? "cat-j60" :
+         c==="later" ? "cat-later" : "cat-no_date";
+}
+function rowHTML(it, cat){
+  return `
+    <tr>
+      <td>${it.name}</td>
+      <td>${it.quantity ?? 0}</td>
+      <td>${fmtDate(it.expiry_date)}</td>
+      <td><span class="cat-pill ${catClass(cat)}">${catLabel(cat)}</span></td>
+      <td>${it.id}</td>
+    </tr>
+  `;
+}
+
+function normalize(items, cat){ return (items||[]).map(x=>({...x, __cat:cat})); }
+
+function filtered(){
+  let all = [
+    ...normalize(RAW.expired,"expired"),
+    ...normalize(RAW.j30,"j30"),
+    ...normalize(RAW.j60,"j60"),
+    ...normalize(RAW.later,"later"),
+    ...normalize(RAW.no_date,"no_date"),
+  ];
+  if(FILTER!=="all"){ all = all.filter(x=>x.__cat===FILTER); }
+  if(SEARCH){
+    const q = SEARCH.toLowerCase();
+    all = all.filter(x=> (x.name||"").toLowerCase().includes(q));
+  }
+  // sort
+  all.sort((a,b)=>{
+    const k = SORT.key;
+    let av = a[k], bv = b[k];
+    if(k==="expiry_date"){
+      // nulls last
+      av = av || "9999-12-31";
+      bv = bv || "9999-12-31";
+    }
+    if(typeof av === "string") av = av.toLowerCase();
+    if(typeof bv === "string") bv = bv.toLowerCase();
+    if(av < bv) return -1*SORT.dir;
+    if(av > bv) return  1*SORT.dir;
+    return 0;
+  });
+  return all;
+}
+
+function render(){
+  // counters
+  $$("#c_expired").textContent = (RAW.expired||[]).length;
+  $$("#c_j30").textContent = (RAW.j30||[]).length;
+  $$("#c_j60").textContent = (RAW.j60||[]).length;
+  $$("#c_later").textContent = (RAW.later||[]).length;
+  $$("#c_no_date").textContent = (RAW.no_date||[]).length;
+  const allCount = ["expired","j30","j60","later","no_date"].reduce((s,k)=>s+(RAW[k]?.length||0),0);
+  $$("#c_all").textContent = allCount;
+
+  // today
+  $$("#todayBadge").textContent = "Aujourd'hui : " + (RAW.today || "—");
+
+  // list
+  const rows = filtered();
+  $$("#resultCount").textContent = rows.length + " élément" + (rows.length>1?"s":"");
+  $$("#tbody").innerHTML = rows.map(r=>rowHTML(r, r.__cat)).join("");
+}
+
+async function fetchAll(){
+  try{
+    const resp = await fetch("/stats/stock/expiry");
+    if(!resp.ok) return;
+    const data = await resp.json();
+    RAW = data || {};
+    render();
+  }catch(e){}
+}
+
+function setFilter(f){
+  FILTER = f;
+  $$$(".chip").forEach(c => c.classList.remove("active"));
+  $$("#chip-"+(f==="all"?"all":f)).classList.add("active");
+  render();
+}
+
+function bindUI(){
+  // chips
+  $$("#chip-all").onclick = ()=>setFilter("all");
+  $$("#chip-expired").onclick = ()=>setFilter("expired");
+  $$("#chip-j30").onclick = ()=>setFilter("j30");
+  $$("#chip-j60").onclick = ()=>setFilter("j60");
+  $$("#chip-later").onclick = ()=>setFilter("later");
+  $$("#chip-no_date").onclick = ()=>setFilter("no_date");
+
+  // search
+  $$("#q").addEventListener("input", (e)=>{
+    SEARCH = (e.target.value||"").trim();
+    render();
+  });
+
+  // sorting
+  $$$("th.sortable").forEach(th=>{
+    th.addEventListener("click", ()=>{
+      const key = th.dataset.sort;
+      if(SORT.key === key){ SORT.dir *= -1; } else { SORT.key = key; SORT.dir = 1; }
+      render();
+    });
+  });
+
+  // export
+  $$("#btn-export").onclick = ()=>{
+    const rows = filtered();
+    const headers = ["Item","Quantité","Péremption","Catégorie","ID"];
+    const lines = [headers.join(";")].concat(
+      rows.map(r => [
+        (r.name||"").replace(/;/g, ","),
+        String(r.quantity ?? 0),
+        r.expiry_date || "",
+        catLabel(r.__cat),
+        String(r.id),
+      ].join(";"))
+    );
+    const blob = new Blob(["\ufeff" + lines.join("\n")], {type:"text/csv;charset=utf-8"}); // BOM UTF-8
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "peremptions.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+}
+
+document.addEventListener("DOMContentLoaded", ()=>{
+  bindUI();
+  fetchAll();
+  // refresh doux toutes les 2 min
+  setInterval(fetchAll, 120000);
+});
+</script>
+
+{% endblock %}
