@@ -1,6 +1,6 @@
 # app/verify/views.py
 from __future__ import annotations
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from flask import Blueprint, jsonify, request, abort, render_template
 from .. import db
 from ..models import (
@@ -11,6 +11,8 @@ from ..models import (
     StockNode,
     ItemStatus,
     IssueCode,
+    EventNodeStatus,
+    NodeType,
 )
 from ..tree_query import build_event_tree
 
@@ -30,6 +32,22 @@ def _sanitize_tree(node: Dict[str, Any]) -> Dict[str, Any]:
     On se contente ici de retourner tel quel pour la page publique.
     """
     return node
+
+def _find_node(tree: List[dict], node_id: int) -> Optional[dict]:
+    """Retrouve un nœud dans l'arbre JSON (par id)."""
+    for r in tree:
+        if r.get("id") == node_id:
+            return r
+        stack = list(r.get("children", []))
+        while stack:
+            n = stack.pop()
+            if n.get("id") == node_id:
+                return n
+            stack.extend(n.get("children", []))
+    return None
+
+def _node_in_tree(tree: List[dict], node_id: int) -> bool:
+    return _find_node(tree, node_id) is not None
 
 # -------------------- Pages publiques --------------------
 
@@ -60,7 +78,7 @@ def public_event_tree(token: str):
     tree = [_sanitize_tree(n) for n in tree]
     return jsonify(tree)
 
-# -------------------- Vérification publique --------------------
+# -------------------- Vérification publique (ITEM) --------------------
 
 @bp.post("/public/event/<token>/verify")
 def public_verify_item(token: str):
@@ -162,3 +180,84 @@ def public_verify_item(token: str):
     db.session.commit()
 
     return jsonify({"ok": True, "record_id": rec.id})
+
+# -------------------- Chargement d'un parent (GROUP) --------------------
+
+@bp.post("/public/event/<token>/charge")
+def public_charge_parent(token: str):
+    """
+    Marque un parent (GROUP) comme 'chargé' pour l'événement <token>,
+    après vérification que TOUS ses items descendants sont OK.
+    Données:
+      - node_id (int) : id du parent GROUP
+      - vehicle_name (str) : nom du véhicule saisi par l'opérateur
+      - operator_name (str, optionnel) : si présent, journalise le nom (sinon utiliser côté UI le même que verifier_name)
+    Effet:
+      - upsert EventNodeStatus(event_id, node_id) avec:
+        charged_vehicle=True, comment="Véhicule: <vehicle_name>"
+    """
+    link = EventShareLink.query.filter_by(token=token, active=True).first()
+    if not link or not link.event:
+        abort(404)
+    ev = link.event
+    if ev.status != EventStatus.OPEN:
+        abort(403, description="Événement fermé")
+
+    data = _json()
+    try:
+        node_id = int(data.get("node_id") or 0)
+    except Exception:
+        abort(400, description="node_id invalide")
+
+    vehicle_name = (data.get("vehicle_name") or "").strip()
+    if not vehicle_name:
+        abort(400, description="Nom du véhicule requis")
+
+    operator_name = (data.get("operator_name") or "").strip() or None
+
+    node = db.session.get(StockNode, node_id)
+    if not node:
+        abort(404, description="Parent introuvable")
+    if node.type != NodeType.GROUP:
+        abort(400, description="Seuls les parents (GROUP) peuvent être chargés")
+
+    # Vérifie que ce node appartient bien à l'arbre de l'événement
+    tree: List[dict] = build_event_tree(ev.id) or []
+    if not _node_in_tree(tree, node_id):
+        abort(400, description="Le parent ne fait pas partie de cet événement")
+
+    # Vérifie l'état 'complete' du parent (tous les items OK)
+    node_json = _find_node(tree, node_id)
+    if not node_json:
+        abort(404, description="Parent introuvable dans l'arbre")
+    if not node_json.get("complete", False):
+        abort(400, description="Impossible de charger: tous les items ne sont pas OK")
+
+    # Upsert EventNodeStatus
+    ens = (
+        EventNodeStatus.query
+        .filter_by(event_id=ev.id, node_id=node_id)
+        .first()
+    )
+    if not ens:
+        ens = EventNodeStatus(event_id=ev.id, node_id=node_id)
+
+    ens.charged_vehicle = True
+    # On stocke le nom du véhicule dans comment (pour éviter une migration maintenant)
+    # Format simple et lisible:
+    comment_parts = [f"Véhicule: {vehicle_name}"]
+    if operator_name:
+        comment_parts.append(f"Par: {operator_name}")
+    ens.comment = " | ".join(comment_parts)
+
+    db.session.add(ens)
+    db.session.commit()
+
+    return jsonify({
+        "ok": True,
+        "event_id": ev.id,
+        "node_id": node_id,
+        "charged_vehicle": True,
+        "comment": ens.comment,
+        "updated_at": ens.updated_at.isoformat() if ens.updated_at else None,
+    })
