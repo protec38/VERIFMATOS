@@ -1,4 +1,4 @@
-# app/stock/views.py — API CRUD hiérarchie de stock (ADMIN only)
+# app/stock/views.py — API hiérarchie de stock
 from __future__ import annotations
 
 import json
@@ -25,6 +25,7 @@ bp = Blueprint("stock", __name__)
 # Helpers & droits
 # -------------------------------------------------
 def require_admin() -> bool:
+    # Gestion du stock réservée aux ADMIN (cohérent avec le reste du projet)
     return current_user.is_authenticated and current_user.role == Role.ADMIN
 
 def _bad_request(msg: str, code: int = 400):
@@ -41,21 +42,8 @@ def _parse_iso_date(s: Optional[str]) -> Optional[date]:
         return None
     return date.fromisoformat(s)
 
-# --- sérialisation avec péremption (pour l’export) ---
-def _serialize_tree_full(n: StockNode) -> Dict[str, Any]:
-    out = {
-        "name": n.name,
-        "type": n.type.name,
-        "quantity": n.quantity if n.type == NodeType.ITEM else None,
-        "expiry_date": n.expiry_date.isoformat() if getattr(n, "expiry_date", None) else None,
-        "children": [],
-    }
-    for c in sorted(n.children, key=lambda x: (x.level, x.id)):
-        out["children"].append(_serialize_tree_full(c))
-    return out
-
 # -------------------------------------------------
-# LIST ROOTS
+# ROOTS
 # -------------------------------------------------
 @bp.get("/stock/roots")
 @login_required
@@ -69,7 +57,7 @@ def get_roots():
     ])
 
 # -------------------------------------------------
-# READ TREE (par racine)
+# TREE (par racine)
 # -------------------------------------------------
 @bp.get("/stock/tree")
 @login_required
@@ -86,18 +74,20 @@ def get_tree():
     return jsonify(serialize_tree(root))
 
 # -------------------------------------------------
-# CREATE NODE (root ou enfant)
+# CREATE (root ou enfant)
 # -------------------------------------------------
 @bp.post("/stock")
 @login_required
 def create_node_api():
     if not require_admin():
         return _bad_request("Forbidden", 403)
+
     data = request.get_json() or {}
     name = (data.get("name") or "").strip()
     type_str = (data.get("type") or "").strip()
     parent_id = data.get("parent_id")
     quantity = data.get("quantity")
+
     if not name:
         return _bad_request("name required")
     try:
@@ -108,35 +98,43 @@ def create_node_api():
             quantity = int(quantity or 0)
         else:
             quantity = None
+
         node = create_node(name=name, type_=type_, parent_id=parent_id, quantity=quantity)
-        # Si ITEM: prise en charge éventuelle d'une péremption
+
+        # expiry_date (ITEM)
         expiry = _parse_iso_date(data.get("expiry_date"))
         if type_ == NodeType.ITEM and expiry:
             node.expiry_date = expiry
             db.session.commit()
-        return jsonify({"id": node.id, "name": node.name, "level": node.level, "type": node.type.name}), 201
+
+        return jsonify({
+            "id": node.id, "name": node.name, "level": node.level, "type": node.type.name
+        }), 201
     except ValueError as e:
         return _bad_request(str(e))
     except Exception as e:
         return _bad_request(str(e))
 
 # -------------------------------------------------
-# UPDATE NODE (rename, reparent, qty, expiry)
+# UPDATE (rename, reparent, qty, expiry)
 # -------------------------------------------------
 @bp.patch("/stock/<int:node_id>")
 @login_required
 def update_node_api(node_id: int):
     if not require_admin():
         return _bad_request("Forbidden", 403)
+
     data = request.get_json() or {}
     try:
         node = db.session.get(StockNode, node_id)
         if not node:
             return _bad_request("Not found", 404)
+
         name = (data.get("name") or node.name).strip()
         parent_id = data.get("parent_id", node.parent_id)
         if parent_id is not None:
             parent_id = int(parent_id)
+
         # qty only for ITEM
         qty = data.get("quantity", node.quantity)
         if node.type == NodeType.ITEM and qty is not None:
@@ -144,7 +142,7 @@ def update_node_api(node_id: int):
         else:
             qty = None if node.type != NodeType.ITEM else node.quantity
 
-        # ✅ correction: pas de '*' dans l'appel
+        # ✅ appel correct (pas de '*')
         update_node(node_id=node_id, name=name, parent_id=parent_id, quantity=qty)
 
         # expiry_date (ITEM uniquement)
@@ -153,14 +151,16 @@ def update_node_api(node_id: int):
             db.session.commit()
 
         node = db.session.get(StockNode, node_id)  # refresh
-        return jsonify({"id": node.id, "name": node.name, "level": node.level, "type": node.type.name})
+        return jsonify({
+            "id": node.id, "name": node.name, "level": node.level, "type": node.type.name
+        })
     except ValueError as e:
         return _bad_request(str(e))
     except Exception as e:
         return _bad_request(str(e))
 
 # -------------------------------------------------
-# DELETE NODE (subtree)
+# DELETE (subtree)
 # -------------------------------------------------
 @bp.delete("/stock/<int:node_id>")
 @login_required
@@ -183,6 +183,7 @@ def delete_node_api(node_id: int):
 def duplicate_node_api(node_id: int):
     if not require_admin():
         return _bad_request("Forbidden", 403)
+
     data = request.get_json() or {}
     new_name = (data.get("new_name") or "").strip()
     new_parent_id = data.get("new_parent_id")
@@ -206,13 +207,26 @@ def duplicate_node_api(node_id: int):
 def export_stock_json():
     if not require_admin():
         return _bad_request("Forbidden", 403)
+
     roots = list_roots()
+
+    def _serialize_tree_full(n: StockNode) -> Dict[str, Any]:
+        out = {
+            "name": n.name,
+            "type": n.type.name,
+            "quantity": n.quantity if n.type == NodeType.ITEM else None,
+            "expiry_date": n.expiry_date.isoformat() if getattr(n, "expiry_date", None) else None,
+            "children": [],
+        }
+        for c in sorted(n.children, key=lambda x: (x.level, x.id)):
+            out["children"].append(_serialize_tree_full(c))
+        return out
+
     payload = {
         "version": "1",
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "roots": [_serialize_tree_full(r) for r in roots],
     }
-    # retour JSON pretty avec BOM-safe
     return Response(
         json.dumps(payload, ensure_ascii=False, indent=2),
         mimetype="application/json; charset=utf-8",
@@ -229,7 +243,8 @@ def import_stock():
         return _bad_request("Forbidden", 403)
 
     mode = (request.args.get("mode") or request.form.get("mode") or "merge").lower().strip()
-    # Récup JSON soit via file upload, soit via body JSON
+
+    # Récup JSON via file upload OU via body JSON
     data_obj: Optional[Dict[str, Any]] = None
     if "file" in request.files:
         try:
@@ -237,11 +252,15 @@ def import_stock():
         except Exception:
             return _bad_request("Invalid JSON file")
     else:
-        data_obj = request.get_json(silent=True)
-        if not isinstance(data_obj, dict) and not isinstance(data_obj, list):
+        payload = request.get_json(silent=True)
+        if isinstance(payload, dict):
+            data_obj = payload
+        elif isinstance(payload, list):
+            data_obj = {"roots": payload}
+        else:
             return _bad_request("JSON body expected")
 
-    roots = data_obj.get("roots") if isinstance(data_obj, dict) else data_obj
+    roots = data_obj.get("roots")
     if roots is None:
         return _bad_request("Missing 'roots' array")
 
