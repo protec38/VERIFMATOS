@@ -61,6 +61,9 @@
   .btn[disabled]{opacity:.6;cursor:not-allowed}
 </style>
 
+<!-- Métadonnées fiables (status) -->
+<div id="event-meta" data-open="{{ '1' if (event.status.name if event.status else '') == 'OPEN' else '0' }}"></div>
+
 <div class="grid cols-2">
   <div class="card">
     <div class="row space-between">
@@ -71,7 +74,7 @@
       <div class="row" style="gap:8px;align-items:center">
         <span id="op-badge" class="op-badge" title="Secouriste">Secouriste : —</span>
         <button class="btn" id="btn-change-op">Changer de nom</button>
-        <span class="badge" id="status-badge">Statut : {{ event.status }}</span>
+        <span class="badge" id="status-badge">Statut : {{ event.status.name if event.status else event.status }}</span>
       </div>
     </div>
   </div>
@@ -101,7 +104,7 @@
   <div id="tree" class="tree" style="margin-top:10px;"></div>
 </div>
 
-<!-- Modal Identité (affiché à l’arrivée si pas de nom mémorisé) -->
+<!-- Modal Identité (à l’arrivée si pas de nom mémorisé) -->
 <div id="idModal" class="modal" aria-hidden="true">
   <div class="box">
     <h3 style="margin-top:0">Votre identité</h3>
@@ -132,10 +135,11 @@
 </div>
 
 <script>
-const EVENT_ID = {{ event.id }};
 const TOKEN = "{{ token }}";
 let TREE = {{ (tree or [])|tojson }};
-let IS_OPEN = ("{{ event.status }}".toUpperCase() === "OPEN");
+
+// ✅ Détection robuste de l'état OPEN/CLOSED
+let IS_OPEN = (document.getElementById('event-meta').dataset.open === '1');
 
 /* ========= State ========= */
 const NODE_MAP = new Map();
@@ -145,6 +149,9 @@ const ITEM_STATUS_TXT = new Map();
 const ITEM_QTY_TXT = new Map();
 const VEH_LABEL = new Map();
 let CHARGE_TARGET_ID = null;
+
+// Action à rejouer après saisie de nom (ex: verify/charge)
+let PENDING_ACTION = null;
 
 /* ---------- Utils ---------- */
 function indexTree(nodes){
@@ -419,9 +426,14 @@ document.getElementById("idConfirmBtn").addEventListener("click", ()=>{
   const full = `${first} ${last}`; // Format "Prénom NOM"
   setSavedName(full);
   closeIdModal();
+  // 🔁 Rejoue l’action qui avait été demandée (OK/NOK/charge)
+  if(typeof PENDING_ACTION === 'function'){
+    const fn = PENDING_ACTION;
+    PENDING_ACTION = null;
+    fn();
+  }
 });
 document.getElementById("btn-change-op").addEventListener("click", ()=>{
-  // Pré-remplir depuis le badge si possible
   const saved = getSavedName().split(" ");
   if(saved.length >= 2){
     document.getElementById("opFirst").value = saved[0] || "";
@@ -437,56 +449,68 @@ document.getElementById("btn-change-op").addEventListener("click", ()=>{
 /* ---------- API (public) ---------- */
 async function refreshTree(){
   try{
-    const r = await fetch(`/public/event/${TOKEN}/tree`);
+    const r = await fetch(`/public/event/{{ token }}/tree`);
     if(!r.ok) return;
     const latest = await r.json();
     syncTreeIncoming(latest);
   }catch(_){}
 }
 
-function requireOperatorName(){
+function requireOperatorName(pendingFn){
   const full = getSavedName();
   if(full) return full;
-  // Ouvre le modal et bloque l’action
+  // Pas de nom -> ouvre le modal et mémorise l’action à rejouer
+  PENDING_ACTION = pendingFn || null;
   openIdModal();
   return null;
 }
 
 function verify(nodeId, status){
   if(!IS_OPEN){ alert("Événement fermé."); return; }
-  const name = requireOperatorName();
-  if(!name) return; // l'utilisateur doit valider le modal
-  const payload = { node_id: nodeId, status, verifier_name: name };
-  fetch(`/public/event/${TOKEN}/verify`, {
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body: JSON.stringify(payload)
-  })
-  .then(res=>res.ok?refreshTree():res.text().then(t=>alert(t)))
-  .catch(()=>{});
+  const run = ()=>{
+    const name = getSavedName();
+    const payload = { node_id: nodeId, status, verifier_name: name };
+    fetch(`/public/event/{{ token }}/verify`, {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(payload)
+    })
+    .then(res=>res.ok?refreshTree():res.text().then(t=>alert(t)))
+    .catch(()=>{});
+  };
+  if(!getSavedName()){
+    requireOperatorName(run);
+    return;
+  }
+  run();
 }
 
 /* ---------- Charger (RACINES uniquement) ---------- */
 function openChargeModal(nodeId, nodeName){
   if(!IS_OPEN){ alert("Événement fermé."); return; }
-  const name = requireOperatorName();
-  if(!name) return;
-  const node = NODE_MAP.get(nodeId);
-  if(!node || !node.is_event_root){
-    alert("Le chargement n'est autorisé que sur les parents racines.");
+  const runOpen = ()=>{
+    const node = NODE_MAP.get(nodeId);
+    if(!node || !node.is_event_root){
+      alert("Le chargement n'est autorisé que sur les parents racines.");
+      return;
+    }
+    if(!groupAllOk(node)){
+      alert("Impossible de charger : tous les sous-éléments doivent être OK.");
+      return;
+    }
+    CHARGE_TARGET_ID = nodeId;
+    document.getElementById("chargeTarget").textContent = nodeName + " (id "+nodeId+")";
+    const vinp = document.getElementById("vehicleInput");
+    vinp.value = "";
+    document.getElementById("chargeModal").classList.add("show");
+    vinp.focus();
+    validateCharge();
+  };
+  if(!getSavedName()){
+    requireOperatorName(runOpen);
     return;
   }
-  if(!groupAllOk(node)){
-    alert("Impossible de charger : tous les sous-éléments doivent être OK.");
-    return;
-  }
-  CHARGE_TARGET_ID = nodeId;
-  document.getElementById("chargeTarget").textContent = nodeName + " (id "+nodeId+")";
-  const vinp = document.getElementById("vehicleInput");
-  vinp.value = "";
-  document.getElementById("chargeModal").classList.add("show");
-  vinp.focus();
-  validateCharge();
+  runOpen();
 }
 function closeChargeModal(){
   document.getElementById("chargeModal").classList.remove("show");
@@ -505,7 +529,7 @@ document.getElementById("chargeBtn").addEventListener("click", async ()=>{
   const op = getSavedName();
   if(!vehicle){ return; }
   try{
-    const r = await fetch(`/public/event/${TOKEN}/charge`, {
+    const r = await fetch(`/public/event/{{ token }}/charge`, {
       method:"POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ node_id: nodeId, vehicle_name: vehicle, operator_name: op })
