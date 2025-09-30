@@ -54,16 +54,13 @@ def _event_from_token_or_404(token: str) -> Event:
 
 def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
     """Construit l’arbre pour l’événement."""
-    # 1) récupère les racines attachées à l’événement
     rows = db.session.execute(select(StockNode).join(
         event_stock, StockNode.id == event_stock.c.node_id
     ).where(event_stock.c.event_id == event_id)).scalars().all()
 
-    # on ne garde que les GROUP comme racines
     roots = [n for n in rows if n.type == NodeType.GROUP]
     roots_ids = [r.id for r in roots]
 
-    # 2) pour chaque racine, construire récursivement (GROUP -> ITEM)
     def serialize(node: StockNode) -> Dict[str, Any]:
         out = {
             "id": node.id,
@@ -71,7 +68,6 @@ def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
             "type": node.type.name,
             "children": []
         }
-        # statut dernier known si ITEM
         if node.type == NodeType.ITEM:
             ens = EventNodeStatus.query.filter_by(event_id=event_id, node_id=node.id).first()
             if ens:
@@ -79,13 +75,11 @@ def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
                 out["updated_at"] = ens.updated_at.isoformat() if ens.updated_at else None
                 out["verifier_name"] = ens.verifier_name
                 out["comment"] = ens.comment
-                # propriétés optionnelles
                 if hasattr(ens, "charged_vehicle"):
                     out["charged_vehicle"] = ens.charged_vehicle
                 if hasattr(ens, "charged_vehicle_name"):
                     out["charged_vehicle_name"] = ens.charged_vehicle_name
         else:
-            # enfants
             ch = StockNode.query.filter_by(parent_id=node.id).all()
             out["children"] = [serialize(c) for c in ch]
         return out
@@ -94,9 +88,7 @@ def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
 
 
 def _emit(event: str, payload: Dict[str, Any]):
-    """Placeholder pour du websocket/event-stream si besoin."""
     try:
-        # hook si existant
         pass
     except Exception:
         pass
@@ -148,7 +140,6 @@ def create_event():
     if not name or not isinstance(root_ids, list) or not root_ids:
         abort(400, description="name et root_ids (liste non vide) requis.")
 
-    # date optionnelle (YYYY-MM-DD)
     date = None
     if date_str:
         try:
@@ -156,12 +147,11 @@ def create_event():
         except Exception:
             abort(400, description="Format de date invalide (attendu YYYY-MM-DD).")
 
-    # création event
-    ev = Event(name=name, status=EventStatus.OPEN, date=date, created_by=current_user.id)
+    # ⚠️ FIX ici : created_by attend un objet User (relation), pas un int
+    ev = Event(name=name, status=EventStatus.OPEN, date=date, created_by=current_user)
     db.session.add(ev)
     db.session.flush()
 
-    # attache les racines
     seen = set()
     for nid in root_ids:
         try:
@@ -186,7 +176,6 @@ def create_event():
 @bp_events.get("/list")
 @login_required
 def list_events():
-    """Lister tous les événements (dashboard)."""
     if not _can_view():
         abort(403)
     evs = Event.query.order_by(Event.created_at.desc()).all()
@@ -239,16 +228,12 @@ def event_verify(event_id: int):
         db.session.add(ens)
 
     ens.status = EventStatus.OK if status == "OK" else EventStatus.NOT_OK
-    ens.verifier_name = verifier_name or None
+    ens.verifier_name = verifier_name
     ens.updated_at = datetime.utcnow()
-
-    # commentaire optionnel
     comment = (payload.get("comment") or "").strip() or None
     ens.comment = comment
 
     db.session.commit()
-
-    # émettre un petit signal pour front (si websocket)
     _emit("event_update", {
         "type": "verify",
         "event_id": ev.id,
@@ -264,7 +249,6 @@ def event_verify(event_id: int):
 @bp_events.post("/<int:event_id>/parent-status")
 @login_required
 def event_parent_charged(event_id: int):
-    """Marquer un parent (GROUP) comme « chargé » pour un véhicule."""
     if not _is_manager():
         abort(403)
     ev = _event_or_404(event_id)
@@ -338,7 +322,6 @@ def create_public_share_link(event_id: int):
         abort(403)
     ev = _event_or_404(event_id)
 
-    # on désactive les anciens liens actifs
     EventShareLink.query.filter_by(event_id=ev.id, active=True).update({"active": False})
 
     token = secrets.token_urlsafe(24)
@@ -356,13 +339,9 @@ def delete_event(event_id: int):
         abort(403)
     ev = _event_or_404(event_id)
 
-    # supprime les statuts
     EventNodeStatus.query.filter_by(event_id=ev.id).delete()
-    # supprime les liens partagés
     EventShareLink.query.filter_by(event_id=ev.id).delete()
-    # détache les roots
     db.session.execute(event_stock.delete().where(event_stock.c.event_id == ev.id))
-    # enfin supprime l'événement
     db.session.delete(ev)
     db.session.commit()
 
@@ -373,7 +352,6 @@ def _status_is_open(ev: Event) -> bool:
     try:
         return ev.status == EventStatus.OPEN
     except Exception:
-        # si enum différent
         return str(ev.status).upper() == "OPEN"
 
 
