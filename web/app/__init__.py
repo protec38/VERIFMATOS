@@ -1,128 +1,99 @@
 # app/__init__.py
 from __future__ import annotations
-from datetime import datetime
-import logging
-from flask import Flask, redirect, url_for
+
+import os
+from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager
-from flask_socketio import SocketIO
-from .config import get_config
 
-# Extensions
+# Flask-SocketIO est optionnel : on l'initialise sans Redis par défaut
+try:
+    from flask_socketio import SocketIO
+except Exception:  # pragma: no cover
+    SocketIO = None  # type: ignore
+
+# ----- extensions singletons -----
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
-login_manager.login_view = "pages.login"
-# Protection de session optionnelle
-login_manager.session_protection = "strong"
 
-# Socket.IO (par défaut sans Redis, un seul worker/process)
-socketio = SocketIO(
-    async_mode="eventlet",
-    cors_allowed_origins="*",
-    message_queue=None,
-)
-
-# --------- USER LOADER (OBLIGATOIRE) ----------
-# Flask-Login a besoin de savoir recharger un user depuis l'id stocké en session.
-@login_manager.user_loader
-def load_user(user_id: str):
-    try:
-        from .models import User  # import local pour éviter les imports circulaires
-        if not user_id:
-            return None
-        return db.session.get(User, int(user_id))
-    except Exception:
-        return None
-# ----------------------------------------------
+# On crée toujours un objet socketio, mais il n'utilisera Redis que si demandé
+socketio = SocketIO(logger=False, engineio_logger=False, cors_allowed_origins="*") if SocketIO else None
 
 
-def create_app() -> Flask:
-    app = Flask(__name__, instance_relative_config=False)
+def create_app(config_object: str | None = None) -> Flask:
+    """
+    Application factory.
+    - Redis est désactivé par défaut (message_queue=None).
+    - Pour l'activer, définis explicitement SOCKETIO_MESSAGE_QUEUE (ex: redis://redis:6379/0).
+    - Tu peux aussi forcer la désactivation via DISABLE_SOCKETS=1.
+    """
+    app = Flask(__name__)
 
-    # Config
-    app.config.from_object(get_config())
+    # ---------- configuration ----------
+    # Charge d'abord depuis une classe config si fournie
+    if config_object:
+        app.config.from_object(config_object)
 
-    # Init extensions
+    # Variables d'environnement usuelles (s'il n'y a pas déjà une config)
+    app.config.setdefault("SECRET_KEY", os.getenv("SECRET_KEY", "change-me"))
+    app.config.setdefault("SQLALCHEMY_DATABASE_URI",
+                          os.getenv("DATABASE_URL", "sqlite:///app.db"))
+    app.config.setdefault("SQLALCHEMY_TRACK_MODIFICATIONS", False)
+
+    # ---------- init extensions ----------
     db.init_app(app)
     migrate.init_app(app, db)
     login_manager.init_app(app)
+    login_manager.login_view = "auth.login"
 
-    # Import models pour migrations
-    from . import models  # noqa: F401
+    # ----- SocketIO (sans Redis par défaut) -----
+    global socketio
+    if SocketIO:
+        # On ne lit Redis QUE si l'admin l'a explicitement demandé.
+        # Cas désactivé si :
+        #  - DISABLE_SOCKETS=1
+        #  - ou SOCKETIO_MESSAGE_QUEUE absent/vidé/"none"/"disabled"/"off"
+        disable_sockets = os.getenv("DISABLE_SOCKETS", "").strip() in ("1", "true", "yes")
+        mq_raw = os.getenv("SOCKETIO_MESSAGE_QUEUE", "").strip()
+        use_queue = (not disable_sockets) and mq_raw and mq_raw.lower() not in ("none", "disabled", "off", "0")
 
-    # Socket.IO : si REDIS_URL présent, on l’active, sinon on reste en in-process
-    redis_url = app.config.get("REDIS_URL") or ""
-    if redis_url:
-        try:
-            global socketio
-            socketio = SocketIO(
-                async_mode="eventlet",
-                cors_allowed_origins="*",
-                message_queue=redis_url,
-            )
-        except Exception as e:
-            logging.warning(
-                "SocketIO: Redis MQ désactivé (préflight KO: %s). Démarrage sans MQ.", e
-            )
-    socketio.init_app(app)
+        # Mode async : eventlet si dispo (tu utilises déjà le worker eventlet), sinon threading
+        async_mode = os.getenv("SOCKETIO_ASYNC_MODE", "eventlet")
 
-    # Jinja globals (ex: footer année courante)
-    @app.context_processor
-    def inject_now():
-        return {"now": datetime.utcnow}
+        socketio.init_app(
+            app,
+            cors_allowed_origins="*",
+            async_mode=async_mode,
+            message_queue=(mq_raw if use_queue else None),  # <- pas de Redis par défaut
+        )
+    else:
+        socketio = None  # sécurité si le paquet n'est pas installé
 
-    # Blueprints API
-    from .auth.views import bp as auth_api_bp
-    app.register_blueprint(auth_api_bp)
+    # ---------- enregistrement des blueprints ----------
+    # NOTE : on importe ici pour éviter toute boucle d'import
+    from .events.views import bp_events, bp_public  # tes endpoints events + public
+    app.register_blueprint(bp_events)
+    app.register_blueprint(bp_public)
 
-    from .admin.views import bp as admin_api_bp
-    app.register_blueprint(admin_api_bp)
-
-    from .events.views import bp_events as events_api_bp, bp_public as public_api_bp
-# ...
-    app.register_blueprint(events_api_bp)         # -> /events/...
-    app.register_blueprint(public_api_bp)         # -> /public/event/...
-
-
-    from .stock.views import bp as stock_api_bp
-    app.register_blueprint(stock_api_bp)
-
-    from .verify.views import bp as verify_api_bp
-    app.register_blueprint(verify_api_bp)
-
-    from .reports.views import bp as reports_api_bp
-    app.register_blueprint(reports_api_bp)
-
-    from .stats.views import bp as stats_api_bp
-    app.register_blueprint(stats_api_bp)
-
-    from .pwa.views import bp as pwa_bp
-    app.register_blueprint(pwa_bp)
-
-    # Pages (HTML)
-    from .views_html import bp as pages_bp
-    app.register_blueprint(pages_bp)
-
-    # Health / root
-    @app.get("/")
-    def index():
-        return redirect(url_for("pages.dashboard"))
-
-    @app.get("/health")
-    def health():
-        return {"status": "healthy"}
-
-    # Socket handlers (join_event, etc.)
-    from .sockets import register_socketio_handlers
-    register_socketio_handlers(socketio)
-
-    # CLI (seed templates) — optionnel
+    # Si tu as d'autres blueprints (auth, ui, etc.), garde-les :
     try:
-        from .seeds_templates import register_cli as register_seed_cli
-        register_seed_cli(app)
+        from .auth.views import bp as bp_auth  # facultatif si présent chez toi
+        app.register_blueprint(bp_auth)
+    except Exception:
+        pass
+
+    try:
+        from .verify.views import bp as bp_verify  # facultatif si présent chez toi
+        app.register_blueprint(bp_verify)
     except Exception:
         pass
 
     return app
+
+
+# Optionnel : support d'une app globale si ton Procfile/Gunicorn l'exige
+# (Si tu lances gunicorn "app:app", ceci garantit que 'app' existe)
+if os.getenv("CREATE_GLOBAL_FLASK_APP", "1") == "1":
+    app = create_app()
