@@ -103,10 +103,6 @@
 </div>
 
 <script>
-// Initialisation robuste de l'état OPEN (jamais vide)
-const OPEN_RAW = "{{ 'OPEN' if is_open else 'CLOSED' }}";
-let IS_OPEN = (OPEN_RAW === "OPEN");
-
 const TOKEN = "{{ token }}";
 let TREE = {{ (tree or [])|tojson }};
 
@@ -214,7 +210,6 @@ function renderItem(n){
   const statusLbl = s==="OK" ? "✅ OK" : (s==="NOT_OK" ? "❌ Non conforme" : "⏳ En attente");
   const by = n.last_by ? ` (${n.last_by})` : "";
 
-  // ✅ toujours cliquable; le blocage se fait côté handler (IS_OPEN + nom)
   const right = el("div", {class:"row"},
     el("button", {class:"btn success", onclick:()=>verify(n.id,"OK")}, "OK"),
     el("button", {class:"btn ghost", onclick:()=>verify(n.id,"NOT_OK")}, "Non conforme"),
@@ -250,7 +245,6 @@ function renderGroup(n){
 
   const header = el("div", {class:"header"}, left);
 
-  // Bouton “Charger…” — racines uniquement; cliquable (contrôle dans openChargeModal)
   if(n.is_event_root){
     const chargeBtn = el("button", {
       class:"btn primary",
@@ -400,7 +394,7 @@ document.getElementById("btn-change-op").addEventListener("click", ()=>{
 /* ---------- API (public) ---------- */
 async function refreshTree(){
   try{
-    const r = await fetch(`/public/event/${TOKEN}/tree`);
+    const r = await fetch(`/public/event/{{ token }}/tree`);
     if(!r.ok) return;
     const latest = await r.json();
     syncTreeIncoming(latest);
@@ -412,23 +406,30 @@ function requireOperatorName(){
   openIdModal();
   return null;
 }
+function notifyFromResponse(res){
+  // Essaye d'afficher un message utile renvoyé par l’API
+  if(!res.ok){
+    return res.json().then(j=>{
+      alert(j && (j.error||j.message) ? (j.error||j.message) : "Action impossible.");
+    }).catch(()=>res.text().then(t=>alert(t || "Action impossible.")));
+  }
+  return Promise.resolve();
+}
 function verify(nodeId, status){
-  if(!IS_OPEN){ alert("Événement fermé — les vérifications sont verrouillées."); return; }
   const name = requireOperatorName();
   if(!name) return;
   const payload = { node_id: nodeId, status, verifier_name: name };
-  fetch(`/public/event/${TOKEN}/verify`, {
+  fetch(`/public/event/{{ token }}/verify`, {
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body: JSON.stringify(payload)
   })
-  .then(res=>res.ok?refreshTree():res.text().then(t=>alert(t)))
+  .then(res => notifyFromResponse(res).then(()=> res.ok && refreshTree()))
   .catch(()=>{});
 }
 
 /* ---------- Charger (RACINES uniquement) ---------- */
 function openChargeModal(nodeId, nodeName){
-  if(!IS_OPEN){ alert("Événement fermé — chargement impossible."); return; }
   const name = requireOperatorName();
   if(!name) return;
   const node = NODE_MAP.get(nodeId);
@@ -455,19 +456,18 @@ document.getElementById("chargeBtn").addEventListener("click", async ()=>{
   const op = getSavedName();
   if(!vehicle) return;
   try{
-    const r = await fetch(`/public/event/${TOKEN}/charge`, {
+    const r = await fetch(`/public/event/{{ token }}/charge`, {
       method:"POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ node_id: nodeId, vehicle_name: vehicle, operator_name: op })
     });
-    if(!r.ok){
-      const err = await r.json().catch(()=>({}));
-      throw new Error(err.error || "Échec du chargement");
+    await notifyFromResponse(r);
+    if(r.ok){
+      closeChargeModal();
+      refreshTree();
     }
-    closeChargeModal();
-    refreshTree();
   }catch(e){
-    alert(e.message || "Erreur réseau");
+    alert("Erreur réseau");
   }
 });
 
@@ -476,7 +476,6 @@ document.getElementById("chargeBtn").addEventListener("click", async ()=>{
   buildUIOnce();
   setInterval(refreshTree, 2000);
 
-  // Identité : si pas mémorisée, ouvrir le modal dès l’arrivée
   const saved = getSavedName();
   if(saved){
     setSavedName(saved);
