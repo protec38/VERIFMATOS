@@ -16,7 +16,9 @@ from .validators import (
 # Utils internes
 # -------------------------------------------------
 def _is_descendant(potential_parent: StockNode, child: StockNode) -> bool:
-    """True si potential_parent est dans la branche descendante de child (évite cycles)."""
+    """
+    True si 'potential_parent' se trouve dans le sous-arbre de 'child' (évite les cycles).
+    """
     stack = list(child.children)
     while stack:
         n = stack.pop()
@@ -26,7 +28,9 @@ def _is_descendant(potential_parent: StockNode, child: StockNode) -> bool:
     return False
 
 def _subtree_depth(n: StockNode) -> int:
-    """Profondeur max du sous-arbre (1 = n)."""
+    """
+    Profondeur max du sous-arbre (1 = n lui-même).
+    """
     if not n.children:
         return 1
     return 1 + max(_subtree_depth(c) for c in n.children)
@@ -41,6 +45,12 @@ def _apply_level_rec(n: StockNode, level: int):
 # CRUD
 # -------------------------------------------------
 def create_node(*, name: str, type_: NodeType, parent_id: Optional[int], quantity: Optional[int]) -> StockNode:
+    """
+    Crée un noeud:
+      - parent_id None => racine (level=1)
+      - type GROUP => quantity ignorée (None)
+      - type ITEM  => quantity >= 0 requise
+    """
     parent = db.session.get(StockNode, parent_id) if parent_id else None
     ensure_can_add_child(parent)
     level = compute_new_level(parent)
@@ -59,6 +69,12 @@ def create_node(*, name: str, type_: NodeType, parent_id: Optional[int], quantit
     return node
 
 def update_node(*, node_id: int, name: Optional[str] = None, parent_id: Optional[int] = None, quantity: Optional[int] = None) -> StockNode:
+    """
+    Met à jour un noeud:
+      - name (optionnel)
+      - quantity (ITEM uniquement)
+      - reparentage si parent_id différent de l'actuel (y compris vers None pour racine)
+    """
     node = db.session.get(StockNode, node_id)
     if not node:
         raise LookupError("node not found")
@@ -67,27 +83,29 @@ def update_node(*, node_id: int, name: Optional[str] = None, parent_id: Optional
     if name is not None:
         node.name = name.strip() or node.name
 
-    # Quantité (ITEM)
+    # Quantité
     if node.type == NodeType.ITEM:
         if quantity is not None:
             if quantity < 0:
                 raise ValueError("quantity must be >= 0")
             node.quantity = quantity
     else:
-        node.quantity = None
+        node.quantity = None  # GROUP: force None
 
-    # Reparentage
-    if parent_id is not None or parent_id is None:
+    # Reparentage uniquement si changement effectif
+    if parent_id != node.parent_id:
         parent = db.session.get(StockNode, parent_id) if parent_id else None
         if parent is not None:
             ensure_can_add_child(parent)
+            # pas de cycle: le nouveau parent ne peut pas être un descendant du noeud
             if _is_descendant(parent, node):
                 raise ValueError("cannot set parent to a descendant (cycle)")
-        # Vérifier hauteur max
+        # Profondeur max respectée pour tout le sous-arbre déplacé
         new_level = compute_new_level(parent)
         depth = _subtree_depth(node)
         if new_level + depth - 1 > MAX_LEVEL:
             raise ValueError(f"moving would exceed max level {MAX_LEVEL}")
+
         node.parent = parent
         _apply_level_rec(node, new_level)
 
@@ -95,6 +113,9 @@ def update_node(*, node_id: int, name: Optional[str] = None, parent_id: Optional
     return node
 
 def delete_node(node_id: int):
+    """
+    Supprime le noeud et tout son sous-arbre (post-order).
+    """
     node = db.session.get(StockNode, node_id)
     if not node:
         raise LookupError("node not found")
@@ -108,16 +129,23 @@ def delete_node(node_id: int):
     db.session.commit()
 
 def duplicate_subtree(root_id: int, *, new_name: Optional[str] = None, new_parent_id: Optional[int] = None) -> StockNode:
+    """
+    Duplique le sous-arbre 'root_id' sous 'new_parent_id' (ou racine), avec:
+      - contrôle de profondeur totale
+      - copie de quantity (ITEM) et expiry_date (ITEM)
+      - rename de la racine si new_name fourni
+    """
     root = db.session.get(StockNode, root_id)
     if not root:
         raise LookupError("root not found")
+
     parent = db.session.get(StockNode, new_parent_id) if new_parent_id else None
     ensure_can_add_child(parent)
 
     base_level = compute_new_level(parent)
     ensure_level_valid(base_level)
 
-    # Vérifier profondeur totale
+    # profondeur totale
     def depth(n: StockNode) -> int:
         if not n.children:
             return 1
@@ -135,7 +163,7 @@ def duplicate_subtree(root_id: int, *, new_name: Optional[str] = None, new_paren
             parent=parent_new,
             quantity=n.quantity if n.type == NodeType.ITEM else None,
         )
-        # Copier la péremption (ITEM)
+        # Copier la péremption pour ITEM
         if n.type == NodeType.ITEM:
             copy.expiry_date = getattr(n, "expiry_date", None)
         db.session.add(copy)
@@ -149,7 +177,9 @@ def duplicate_subtree(root_id: int, *, new_name: Optional[str] = None, new_paren
     return new_root
 
 def serialize_tree(node: StockNode) -> Dict[str, Any]:
-    """Sérialise un sous-arbre pour l’UI admin (manage.html)."""
+    """
+    Sérialise un sous-arbre pour l’UI admin (manage.html).
+    """
     out: Dict[str, Any] = {
         "id": node.id,
         "name": node.name,
@@ -165,4 +195,7 @@ def serialize_tree(node: StockNode) -> Dict[str, Any]:
     return out
 
 def list_roots() -> List[StockNode]:
+    """
+    Liste ordonnée de toutes les racines (parent_id=None).
+    """
     return StockNode.query.filter_by(parent_id=None).order_by(StockNode.id).all()
