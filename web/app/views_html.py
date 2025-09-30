@@ -1,4 +1,4 @@
-# app/views_html.py — Pages HTML (Jinja): Stock/Admin; création d’événement; page événement; page publique secouristes
+# app/views_html.py — Pages HTML (Jinja)
 from __future__ import annotations
 from datetime import datetime
 
@@ -159,12 +159,19 @@ def public_event_page(token: str):
         abort(404)
     ev = link.event
     tree = build_event_tree(ev.id)
+
+    # ✅ Normalisation robuste du statut:
+    # - si Enum => ev.status.name
+    # - si string => 'OPEN'/'CLOSED'
+    status_raw = getattr(ev.status, "name", ev.status)
+    is_open = str(status_raw).upper() == "OPEN"
+
     return render_template(
         "public_event.html",
         event=ev,
         tree=tree,
         token=token,
-        is_open=(ev.status == EventStatus.OPEN),  # ✅ booléen fiable pour le template
+        is_open=is_open,  # booléen toujours correct
     )
 
 # -------------------------
