@@ -1,8 +1,19 @@
 # app/views_html.py — Pages HTML (Jinja): Stock/Admin; création d’événement; page événement; page publique secouristes
 from __future__ import annotations
 from datetime import datetime
-from flask import Blueprint, render_template, render_template_string, request, redirect, url_for, abort, current_app
+
+from flask import (
+    Blueprint,
+    render_template,
+    render_template_string,
+    request,
+    redirect,
+    url_for,
+    abort,
+    current_app,
+)
 from flask_login import login_required, current_user, logout_user
+
 from . import db
 from .models import (
     Event,
@@ -52,7 +63,7 @@ def logout():
     return redirect(url_for("pages.login"))
 
 # -------------------------
-# Dashboard
+# Dashboard (liste événements + création)
 # -------------------------
 @bp.route("/dashboard", methods=["GET", "POST"])
 @login_required
@@ -73,33 +84,35 @@ def dashboard():
         if not name or not root_ids:
             abort(400, description="Nom et au moins un parent racine requis")
 
-        date = None
+        dt = None
         if date_str:
             try:
-                date = datetime.fromisoformat(date_str).date()
+                dt = datetime.fromisoformat(date_str).date()
             except Exception:
-                date = None
+                dt = None
 
         ev = Event(
             name=name,
-            date=date,
+            date=dt,
             status=EventStatus.OPEN,
             created_by_id=current_user.id,
         )
         db.session.add(ev)
         db.session.flush()  # ev.id
 
-        from .models import StockNode, NodeType, event_stock
+        # Associer les parents racine sélectionnés
         added = 0
         for rid in sorted(set(root_ids)):
             root = db.session.get(StockNode, rid)
             if not root or root.type != NodeType.GROUP or root.parent_id is not None:
-                continue
+                continue  # on ne prend que les VRAIES racines
             db.session.execute(event_stock.insert().values(event_id=ev.id, node_id=root.id))
             added += 1
 
-        current_app.logger.info("[DASH CREATE] ev_id=%s name=%s roots=%s added=%s",
-                                ev.id, ev.name, root_ids, added)
+        current_app.logger.info(
+            "[DASH CREATE] ev_id=%s name=%s roots=%s added=%s",
+            ev.id, ev.name, root_ids, added
+        )
 
         if not added:
             db.session.rollback()
@@ -108,6 +121,7 @@ def dashboard():
         db.session.commit()
         return redirect(url_for("pages.event_page", event_id=ev.id))
 
+    # GET: afficher la liste + les parents racine possibles
     if not can_view():
         abort(403)
 
@@ -174,7 +188,6 @@ def admin_page():
 
     if request.method == "POST":
         action = request.form.get("action") or ""
-        from .models import User, Role
 
         if action == "create_user":
             username = (request.form.get("username") or "").strip()
