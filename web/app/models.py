@@ -14,11 +14,8 @@ class Role(enum.Enum):
     ADMIN = "admin"
     CHEF = "chef"
     VIEWER = "viewer"  # lecture seule
+...
 
-class User(UserMixin, db.Model):
-    __tablename__ = "users"
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.Enum(Role), nullable=False, default=Role.CHEF)
     is_active = db.Column(db.Boolean, default=True)
@@ -99,6 +96,12 @@ class ItemStatus(enum.Enum):
     OK = "ok"
     NOT_OK = "not_ok"  # manquant / non conforme
 
+# ---- [NOUVEAU] Codes motif pour NOT_OK ----
+class IssueCode(enum.Enum):
+    BROKEN = "broken"     # cassé
+    MISSING = "missing"   # manquant
+    OTHER = "other"       # autre
+
 # Historique des vérifications d'items (enfants)
 class VerificationRecord(db.Model):
     __tablename__ = "verification_records"
@@ -109,6 +112,11 @@ class VerificationRecord(db.Model):
     verifier_name = db.Column(db.String(120), nullable=False)  # saisi sur la page publique
     comment = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    # ---- [NOUVEAU] Champs pour motifs/quantités quand NOT_OK ----
+    issue_code = db.Column(db.Enum(IssueCode), nullable=True)  # seulement si NOT_OK
+    observed_qty = db.Column(db.Integer, nullable=True)        # quantité réellement constatée
+    missing_qty  = db.Column(db.Integer, nullable=True)        # nombre manquant
 
     event = db.relationship("Event", backref="verifications")
     node = db.relationship("StockNode")
