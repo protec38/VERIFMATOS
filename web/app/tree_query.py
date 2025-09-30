@@ -1,172 +1,114 @@
-# app/tree_query.py
+# app/tree_query.py — construction du TREE pour une page évènement
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
-from datetime import datetime
+from typing import Dict, Any, List, Optional
+from sqlalchemy import desc
 
 from . import db
 from .models import (
+    Event,
     StockNode,
     NodeType,
-    event_stock,
     VerificationRecord,
     EventNodeStatus,
+    event_stock,
 )
 
-# -------------------------------------------------------------------
-# Types internes
-# -------------------------------------------------------------------
+def _norm_status(s: Optional[str]) -> str:
+    if not s:
+        return "PENDING"
+    s = s.upper()
+    if s in ("NOT_OK", "NOK", "KO", "NOT-OK", "NOTOK"):
+        return "NOT_OK"
+    if s == "OK":
+        return "OK"
+    return "PENDING"
 
-@dataclass
-class ItemState:
-    status: str            # "OK" | "NOT_OK" | "TODO"
-    by: Optional[str]      # dernier vérificateur
-    at: Optional[str]      # ISO8601 (string) pour JSON-safety
 
-
-# -------------------------------------------------------------------
-# Helpers
-# -------------------------------------------------------------------
-
-def _to_iso(dt: Optional[datetime]) -> Optional[str]:
-    if not dt:
-        return None
-    try:
-        return dt.isoformat()
-    except Exception:
-        return None
-
-def _latest_verifications_map(event_id: int) -> Dict[int, ItemState]:
-    """
-    Pour chaque node_id (ITEM) de l'événement, retourne uniquement la DERNIÈRE vérification.
-    """
-    rows: List[VerificationRecord] = (
-        VerificationRecord.query
-        .filter_by(event_id=event_id)
-        .order_by(VerificationRecord.node_id.asc(), VerificationRecord.created_at.desc())
+def _latest_verifs_map(event_id: int, node_ids: List[int]) -> Dict[int, Dict[str, str]]:
+    if not node_ids:
+        return {}
+    # Dernier enregistrement par node_id (created_at desc, id desc)
+    q = (
+        db.session.query(VerificationRecord)
+        .filter(VerificationRecord.event_id == event_id, VerificationRecord.node_id.in_(node_ids))
+        .order_by(desc(VerificationRecord.created_at), desc(VerificationRecord.id))
         .all()
     )
-    latest: Dict[int, ItemState] = {}
-    for r in rows:
-        if r.node_id in latest:
-            continue  # on a déjà la plus récente pour ce node_id
-        s = getattr(r.status, "name", str(r.status)).upper() if r.status else "TODO"
-        latest[r.node_id] = ItemState(
-            status=s if s in {"OK", "NOT_OK", "TODO"} else "TODO",
-            by=r.verifier_name,
-            at=_to_iso(r.created_at),
-        )
-    return latest
-
-def _parent_status_map(event_id: int) -> Dict[int, bool]:
-    """
-    Map node_id (GROUP) -> charged_vehicle (bool) pour l'événement.
-    """
-    rows: List[EventNodeStatus] = EventNodeStatus.query.filter_by(event_id=event_id).all()
-    return {r.node_id: bool(r.charged_vehicle) for r in rows}
-
-def _children_index(all_nodes: List[StockNode]) -> Dict[Optional[int], List[StockNode]]:
-    """
-    Index parent_id -> [children] pour parcourir l'arbre efficacement sans N+1.
-    """
-    idx: Dict[Optional[int], List[StockNode]] = {}
-    for n in all_nodes:
-        idx.setdefault(n.parent_id, []).append(n)
-    # tri stable pour un rendu constant
-    for k in idx:
-        idx[k].sort(key=lambda x: (x.type.name, x.name.lower()))
-    return idx
+    seen = set()
+    out: Dict[int, Dict[str, str]] = {}
+    for r in q:
+        if r.node_id in seen:
+            continue
+        seen.add(r.node_id)
+        out[r.node_id] = {
+            "status": _norm_status(r.status),
+            "by": r.verifier_name or "",
+        }
+    return out
 
 
-# -------------------------------------------------------------------
-# Construction récursive
-# -------------------------------------------------------------------
+def _ens_map(event_id: int) -> Dict[int, EventNodeStatus]:
+    ens_list = db.session.query(EventNodeStatus).filter_by(event_id=event_id).all()
+    return {e.node_id: e for e in ens_list}
 
-def _build_subtree(node: StockNode,
-                   idx: Dict[Optional[int], List[StockNode]],
-                   latest: Dict[int, ItemState],
-                   charged_map: Dict[int, bool]) -> Tuple[dict, int, int]:
-    """
-    Construit récursivement un sous-arbre JSON-safe.
-    Retourne (data, ok_count, total_items).
-    """
-    # ITEM (feuille)
+
+def _serialize(node: StockNode, verifs: Dict[int, Dict[str, str]], is_root: bool, ens_map: Dict[int, EventNodeStatus]) -> Dict[str, Any]:
     if node.type == NodeType.ITEM:
-        state = latest.get(node.id, ItemState(status="TODO", by=None, at=None))
-        data = {
+        last = verifs.get(node.id)
+        return {
             "id": node.id,
             "name": node.name,
             "type": "ITEM",
-            "level": node.level,
-            "quantity": node.quantity or 0,
+            "quantity": node.quantity,
+            "last_status": _norm_status(last["status"]) if last else "PENDING",
+            "last_by": last["by"] if last else "",
             "children": [],
-            "last_status": state.status,
-            "last_by": state.by,
-            "last_at": state.at,
         }
-        ok = 1 if state.status == "OK" else 0
-        return data, ok, 1
 
-    # GROUP (parent)
-    ok_sum = 0
-    total_sum = 0
-    children = []
-    for c in idx.get(node.id, []):
-        cj, ok_c, tot_c = _build_subtree(c, idx, latest, charged_map)
-        children.append(cj)
-        ok_sum += ok_c
-        total_sum += tot_c
-
-    complete = (total_sum > 0 and ok_sum == total_sum)
-    data = {
+    # GROUP
+    data: Dict[str, Any] = {
         "id": node.id,
         "name": node.name,
         "type": "GROUP",
-        "level": node.level,
-        "quantity": None,
-        "children": children,
-        "ok_count": ok_sum,
-        "total_items": total_sum,
-        "complete": complete,
-        # Nouvel attribut : état "chargé" (pour le bouton/checkbox UI)
-        "charged_vehicle": bool(charged_map.get(node.id, False)),
+        "children": [],
+        "is_event_root": bool(is_root),
     }
-    return data, ok_sum, total_sum
+    if is_root:
+        ens = ens_map.get(node.id)
+        data["charged_vehicle"] = bool(ens.charged_vehicle) if ens else False
+        data["charged_vehicle_name"] = (ens.vehicle_name or None) if ens else None
+
+    # ordre stable
+    for c in sorted(node.children, key=lambda x: (x.level, x.id)):
+        data["children"].append(_serialize(c, verifs, False, ens_map))
+    return data
 
 
-# -------------------------------------------------------------------
-# Entrée principale
-# -------------------------------------------------------------------
+def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
+    ev = db.session.get(Event, event_id)
+    if not ev:
+        return []
 
-def build_event_tree(event_id: int) -> List[dict]:
-    """
-    Construit l'arbre complet pour un événement :
-      - Prend les racines (level=0) associées via event_stock
-      - Ajoute, pour chaque parent (GROUP), `charged_vehicle`
-      - Ajoute, pour chaque ITEM, `last_status`, `last_by`, `last_at` (ISO) et `quantity`
-      - Calcule `ok_count`, `total_items`, `complete` pour chaque parent
-    Retourne une liste de racines (dict JSON-safe).
-    """
-    # Racines associées à l'événement (seulement level 0)
-    roots: List[StockNode] = (
+    # Racines de l'évènement (parents choisis)
+    root_nodes: List[StockNode] = (
         db.session.query(StockNode)
         .join(event_stock, event_stock.c.node_id == StockNode.id)
         .filter(event_stock.c.event_id == event_id)
-        .filter(StockNode.parent_id.is_(None))
-        .order_by(StockNode.name.asc())
+        .order_by(StockNode.id.asc())
         .all()
     )
-    if not roots:
-        return []
 
-    # On charge tout l'inventaire pour éviter N+1
-    all_nodes: List[StockNode] = db.session.query(StockNode).all()
-    idx = _children_index(all_nodes)
-    latest = _latest_verifications_map(event_id)
-    charged_map = _parent_status_map(event_id)
+    # Collecter tous les ITEM ids (pour batcher les verifs)
+    item_ids: List[int] = []
+    def collect_items(n: StockNode):
+        if n.type == NodeType.ITEM:
+            item_ids.append(n.id)
+        for c in n.children:
+            collect_items(c)
+    for r in root_nodes:
+        collect_items(r)
 
-    out: List[dict] = []
-    for r in roots:
-        node_json, _, _ = _build_subtree(r, idx, latest, charged_map)
-        out.append(node_json)
-    return out
+    verifs = _latest_verifs_map(event_id, item_ids)
+    ens_map = _ens_map(event_id)
+
+    return [_serialize(r, verifs, True, ens_map) for r in root_nodes]
