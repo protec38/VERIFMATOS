@@ -34,7 +34,6 @@ def ensure_item_quantity(type_: NodeType, quantity: Optional[int]) -> None:
     else:
         # GROUP
         if quantity is not None:
-            # On impose None pour éviter toute confusion dans la DB/UI.
             raise ValueError("GROUP cannot have a quantity (must be null)")
 
 
