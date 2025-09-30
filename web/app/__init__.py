@@ -48,7 +48,6 @@ def create_app() -> Flask:
     db.init_app(app)
     migrate.init_app(app, db)
     login_manager.init_app(app)
-    
 
     # Import models pour migrations
     from . import models  # noqa: F401
@@ -102,10 +101,6 @@ def create_app() -> Flask:
     # Pages (HTML)
     from .views_html import bp as pages_bp
     app.register_blueprint(pages_bp)
-
-    from .public.parent_status import bp as public_parent_bp
-    app.register_blueprint(public_parent_bp)
-
 
     # Health / root
     @app.get("/")
