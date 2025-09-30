@@ -11,11 +11,11 @@ from sqlalchemy import select
 from .. import db
 from ..models import (
     Event,
-    EventStatus,
+    EventStatus,         # OPEN / CLOSED pour l'événement
     EventShareLink,
     StockNode,
     NodeType,
-    EventNodeStatus,
+    EventNodeStatus,     # Statut par nœud pendant un événement
     event_stock,
     Role,
 )
@@ -51,6 +51,24 @@ def _event_from_token_or_404(token: str) -> Event:
         abort(404, description="Lien public invalide.")
     return link.event
 
+def _as_status_name(val: Any) -> str | None:
+    """
+    Retourne une chaîne 'OK' / 'NOT_OK' / autre si val est :
+    - un Enum avec .name
+    - une string
+    - bool (True->OK, False->NOT_OK)
+    - None -> None
+    """
+    if val is None:
+        return None
+    if hasattr(val, "name"):
+        try:
+            return str(val.name).upper()
+        except Exception:
+            pass
+    if isinstance(val, bool):
+        return "OK" if val else "NOT_OK"
+    return str(val).upper()
 
 def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
     """Construit l’arbre pour l’événement."""
@@ -71,7 +89,7 @@ def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
         if node.type == NodeType.ITEM:
             ens = EventNodeStatus.query.filter_by(event_id=event_id, node_id=node.id).first()
             if ens:
-                out["last_status"] = (ens.status.name if ens.status else None)
+                out["last_status"] = _as_status_name(ens.status)
                 out["updated_at"] = ens.updated_at.isoformat() if ens.updated_at else None
                 out["verifier_name"] = ens.verifier_name
                 out["comment"] = ens.comment
@@ -89,6 +107,7 @@ def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
 
 def _emit(event: str, payload: Dict[str, Any]):
     try:
+        # hook websocket si présent
         pass
     except Exception:
         pass
@@ -147,7 +166,7 @@ def create_event():
         except Exception:
             abort(400, description="Format de date invalide (attendu YYYY-MM-DD).")
 
-    # ⚠️ FIX ici : created_by attend un objet User (relation), pas un int
+    # created_by est une relation -> on passe l'objet User
     ev = Event(name=name, status=EventStatus.OPEN, date=date, created_by=current_user)
     db.session.add(ev)
     db.session.flush()
@@ -210,7 +229,7 @@ def event_verify(event_id: int):
 
     payload = request.get_json(silent=True) or {}
     node_id = int(payload.get("node_id") or 0)
-    status = (payload.get("status") or "").upper()
+    status = (payload.get("status") or "").upper()          # "OK" | "NOT_OK"
     verifier_name = (payload.get("verifier_name") or current_user.username or "").strip()
 
     if not node_id or status not in ("OK", "NOT_OK"):
@@ -227,18 +246,21 @@ def event_verify(event_id: int):
         ens = EventNodeStatus(event_id=ev.id, node_id=node.id)
         db.session.add(ens)
 
-    ens.status = EventStatus.OK if status == "OK" else EventStatus.NOT_OK
-    ens.verifier_name = verifier_name
+    # ✅ on stocke la chaîne "OK"/"NOT_OK" (pas EventStatus)
+    ens.status = status
+    ens.verifier_name = verifier_name or None
     ens.updated_at = datetime.utcnow()
+
     comment = (payload.get("comment") or "").strip() or None
     ens.comment = comment
 
     db.session.commit()
+
     _emit("event_update", {
         "type": "verify",
         "event_id": ev.id,
         "node_id": node.id,
-        "status": ens.status.name,
+        "status": _as_status_name(ens.status),
         "verifier_name": ens.verifier_name,
         "comment": ens.comment,
     })
@@ -373,7 +395,7 @@ def public_verify(token: str):
 
     payload = request.get_json(silent=True) or {}
     node_id = int(payload.get("node_id") or 0)
-    status = (payload.get("status") or "").upper()
+    status = (payload.get("status") or "").upper()      # "OK" | "NOT_OK"
     verifier_name = (payload.get("verifier_name") or "")
     comment = (payload.get("comment") or "").strip() or None
 
@@ -389,7 +411,8 @@ def public_verify(token: str):
         ens = EventNodeStatus(event_id=ev.id, node_id=node.id)
         db.session.add(ens)
 
-    ens.status = EventStatus.OK if status == "OK" else EventStatus.NOT_OK
+    # ✅ stocker la chaîne "OK"/"NOT_OK"
+    ens.status = status
     ens.verifier_name = verifier_name or None
     ens.updated_at = datetime.utcnow()
     ens.comment = comment
@@ -399,7 +422,7 @@ def public_verify(token: str):
         "type": "public_verify",
         "event_id": ev.id,
         "node_id": node.id,
-        "status": ens.status.name,
+        "status": _as_status_name(ens.status),
         "verifier_name": ens.verifier_name,
         "comment": ens.comment,
     })
