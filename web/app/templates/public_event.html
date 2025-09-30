@@ -103,9 +103,12 @@
 </div>
 
 <script>
+// Initialisation robuste de l'état OPEN (jamais vide)
+const OPEN_RAW = "{{ 'OPEN' if is_open else 'CLOSED' }}";
+let IS_OPEN = (OPEN_RAW === "OPEN");
+
 const TOKEN = "{{ token }}";
 let TREE = {{ (tree or [])|tojson }};
-let IS_OPEN = {{ 'true' if is_open else 'false' }}; // booléen fiable
 
 /* ========= State ========= */
 const NODE_MAP = new Map();
@@ -114,7 +117,7 @@ const ITEM_EL  = new Map();
 const ITEM_STATUS_TXT = new Map();
 const ITEM_QTY_TXT = new Map();
 const VEH_LABEL = new Map();
-let CHARGE_TARGET_ID = null;  // ✅ UNE SEULE déclaration
+let CHARGE_TARGET_ID = null;
 
 /* ---------- Utils ---------- */
 function indexTree(nodes){
@@ -210,18 +213,18 @@ function renderItem(n){
   const s = normStatus(n.last_status);
   const statusLbl = s==="OK" ? "✅ OK" : (s==="NOT_OK" ? "❌ Non conforme" : "⏳ En attente");
   const by = n.last_by ? ` (${n.last_by})` : "";
-  const actionsEnabled = IS_OPEN;
+
+  // ✅ toujours cliquable; le blocage se fait côté handler (IS_OPEN + nom)
+  const right = el("div", {class:"row"},
+    el("button", {class:"btn success", onclick:()=>verify(n.id,"OK")}, "OK"),
+    el("button", {class:"btn ghost", onclick:()=>verify(n.id,"NOT_OK")}, "Non conforme"),
+  );
 
   const qtySpan = el("span", {class:"qty", id:`qty-${n.id}`}, `Qté: ${n.quantity ?? 1}`);
   ITEM_QTY_TXT.set(n.id, qtySpan);
 
   const statusDiv = el("div", {class:"muted", id:`status-${n.id}`}, `Dernier statut: ${statusLbl}${by}`);
   ITEM_STATUS_TXT.set(n.id, statusDiv);
-
-  const right = el("div", {class:"row"},
-    el("button", {class:"btn success", disabled:!actionsEnabled, onclick:()=>verify(n.id,"OK")}, "OK"),
-    el("button", {class:"btn ghost", disabled:!actionsEnabled, onclick:()=>verify(n.id,"NOT_OK")}, "Non conforme"),
-  );
 
   const wrap = el("div", {class:"item "+itemStateClass(n), id:`item-${n.id}`},
     el("div", null,
@@ -247,11 +250,10 @@ function renderGroup(n){
 
   const header = el("div", {class:"header"}, left);
 
-  // Bouton “Charger…” — racines uniquement
+  // Bouton “Charger…” — racines uniquement; cliquable (contrôle dans openChargeModal)
   if(n.is_event_root){
     const chargeBtn = el("button", {
       class:"btn primary",
-      disabled: !IS_OPEN,
       onclick: ()=> openChargeModal(n.id, n.name)
     }, "Charger…");
     header.append(el("div", {style:"margin-left:auto"}, chargeBtn));
@@ -411,7 +413,7 @@ function requireOperatorName(){
   return null;
 }
 function verify(nodeId, status){
-  if(!IS_OPEN){ alert("Événement fermé."); return; }
+  if(!IS_OPEN){ alert("Événement fermé — les vérifications sont verrouillées."); return; }
   const name = requireOperatorName();
   if(!name) return;
   const payload = { node_id: nodeId, status, verifier_name: name };
@@ -426,7 +428,7 @@ function verify(nodeId, status){
 
 /* ---------- Charger (RACINES uniquement) ---------- */
 function openChargeModal(nodeId, nodeName){
-  if(!IS_OPEN){ alert("Événement fermé."); return; }
+  if(!IS_OPEN){ alert("Événement fermé — chargement impossible."); return; }
   const name = requireOperatorName();
   if(!name) return;
   const node = NODE_MAP.get(nodeId);
@@ -474,6 +476,7 @@ document.getElementById("chargeBtn").addEventListener("click", async ()=>{
   buildUIOnce();
   setInterval(refreshTree, 2000);
 
+  // Identité : si pas mémorisée, ouvrir le modal dès l’arrivée
   const saved = getSavedName();
   if(saved){
     setSavedName(saved);
