@@ -1,99 +1,85 @@
 # app/__init__.py
 from __future__ import annotations
-
-import os
-from flask import Flask
+from datetime import datetime
+import logging
+from flask import Flask, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager
+from flask_socketio import SocketIO
+from .config import get_config
 
-# Flask-SocketIO est optionnel ; on l'initialise SANS Redis par défaut
-try:
-    from flask_socketio import SocketIO  # type: ignore
-except Exception:  # pragma: no cover
-    SocketIO = None  # type: ignore
-
-# --- singletons ---
+# Extensions
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
+login_manager.login_view = "pages.login"
+# Protection de session optionnelle
+login_manager.session_protection = "strong"
 
-# On crée l'instance SocketIO maintenant pour que "from app import socketio" fonctionne
-socketio = SocketIO(logger=False, engineio_logger=False, cors_allowed_origins="*") if SocketIO else None
+# Socket.IO (par défaut sans Redis, un seul worker/process)
+socketio = SocketIO(
+    async_mode="eventlet",
+    cors_allowed_origins="*",
+    message_queue=None,
+)
 
-
-def _bool_env(name: str, default: bool = False) -> bool:
-    val = os.getenv(name, "").strip().lower()
-    if not val:
-        return default
-    return val in ("1", "true", "yes", "on", "y")
-
-
-def create_app(config_object: str | None = None) -> Flask:
-    """
-    Fabrique l'app Flask.
-    - Redis est **désactivé par défaut** (message_queue=None).
-    - Pour l'activer explicitement : définir SOCKETIO_MESSAGE_QUEUE=redis://host:6379/0
-    - Pour désactiver totalement SocketIO : DISABLE_SOCKETS=1
-    """
+def create_app():
     app = Flask(__name__)
+    cfg = get_config()
+    app.config.from_object(cfg)
 
-    # ---- configuration ----
-    if config_object:
-        app.config.from_object(config_object)
-
-    # Valeurs par défaut si non définies ailleurs
-    app.config.setdefault("SECRET_KEY", os.getenv("SECRET_KEY", "change-me"))
-    app.config.setdefault("SQLALCHEMY_DATABASE_URI", os.getenv("DATABASE_URL", "sqlite:///app.db"))
-    app.config.setdefault("SQLALCHEMY_TRACK_MODIFICATIONS", False)
-
-    # ---- init extensions ----
+    # Init extensions
     db.init_app(app)
     migrate.init_app(app, db)
     login_manager.init_app(app)
-    # (pas de login_view ici pour éviter de casser si ton endpoint est différent)
 
-    # ---- SocketIO (sans Redis par défaut) ----
-    global socketio
-    if SocketIO:
-        disable_sockets = _bool_env("DISABLE_SOCKETS", False)
-        mq_raw = (os.getenv("SOCKETIO_MESSAGE_QUEUE") or "").strip()
-        # On n'utilise Redis QUE si tu l'as demandé ET pas désactivé
-        use_queue = (not disable_sockets) and mq_raw and mq_raw.lower() not in ("none", "disabled", "off", "0")
-        async_mode = os.getenv("SOCKETIO_ASYNC_MODE", "eventlet")  # compatible avec ton worker gunicorn eventlet
+    # Blueprints
+    from .pages.views import bp as pages_bp
+    app.register_blueprint(pages_bp)
 
-        socketio.init_app(
-            app,
-            cors_allowed_origins="*",
-            async_mode=async_mode,
-            message_queue=(mq_raw if use_queue else None),  # <- pas de Redis si non demandé
-        )
-    else:
-        socketio = None  # si le paquet n'est pas installé
+    from .auth.views import bp as auth_bp
+    app.register_blueprint(auth_bp)
 
-    # ---- blueprints ----
-    # Import tardif pour éviter les boucles d'import
+    from .events.views import bp_events, bp_public
+    app.register_blueprint(bp_events)
+    app.register_blueprint(bp_public)
+
+    # Filtres Jinja utiles
+    @app.template_filter("ts_human")
+    def ts_human(ts):
+        try:
+            if not ts:
+                return "—"
+            if isinstance(ts, (int, float)):
+                return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+            return ts.strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            return str(ts)
+
+    # Healthcheck simple
+    @app.get("/healthz")
+    def healthz():
+        try:
+            db.session.execute("SELECT 1")
+            db_ok = True
+        except Exception:
+            db_ok = False
+        return {"status": "healthy" if db_ok else "degraded"}
+
+    # >>> IMPORTANT : pas de reconfiguration Redis <<<
+    # Même si REDIS_URL existe dans l'env, on NE re-crée PAS un SocketIO avec message_queue.
+    # On reste strictement en message_queue=None (in-process).
+
+    # Socket handlers (join_event, etc.)
+    from .sockets import register_socketio_handlers
+    register_socketio_handlers(socketio)
+
+    # CLI (seed templates) — optionnel
     try:
-        from .events.views import bp_events, bp_public  # type: ignore
-        app.register_blueprint(bp_events)
-        app.register_blueprint(bp_public)
+        from .seeds_templates import register_cli as register_seed_cli
+        register_seed_cli(app)
     except Exception:
         pass
 
-    # Enregistre tes autres blueprints si présents, sans casser si absents
-    for modpath, attr in (
-        (".auth.views", "bp"),
-        (".verify.views", "bp"),
-        (".ui.views", "bp"),
-    ):
-        try:
-            module = __import__(f"{__name__}{modpath}", fromlist=[attr])
-            app.register_blueprint(getattr(module, attr))
-        except Exception:
-            continue
-
     return app
-
-
-# Crée une app globale pour que "gunicorn app:app" fonctionne
-app = create_app()
