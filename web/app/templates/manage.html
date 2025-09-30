@@ -9,6 +9,17 @@
         <a class="btn" href="{{ url_for('pages.dashboard') }}">← Menu principal</a>
         <a class="btn ghost" href="{{ url_for('pages.logout') }}">Déconnexion</a>
       </div>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+        <a class="btn" href="/stock/export.json" download>⬇ Export JSON</a>
+        <label class="btn">📄 Choisir JSON…
+          <input type="file" id="import-file" accept="application/json" style="display:none">
+        </label>
+        <select id="import-mode">
+          <option value="merge" selected>Fusion (ajout)</option>
+          <option value="replace">Remplacer tout</option>
+        </select>
+        <button class="btn primary" id="btn-import">Importer</button>
+      </div>
     </div>
     <div class="muted">Toutes les actions sont réservées à l’administrateur.</div>
   </div>
@@ -355,6 +366,7 @@
 
     // --- UI bindings ---
     document.getElementById('btn-reload').onclick = reloadTree;
+    document.getElementById('btn-import').onclick = doImport;
 
     document.getElementById('root-select').onchange = loadTree;
 
@@ -403,6 +415,31 @@
       await createNode({name:nm, type:'ITEM', parent_id: SELECTED_ID, quantity: isNaN(q)?0:q});
       await reloadTree();
     };
+
+    
+    // --- Import JSON ---
+    async function doImport(){
+      const f = document.getElementById('import-file').files[0];
+      if(!f){ alert("Sélectionne un fichier JSON d'export de stock."); return; }
+      const mode = document.getElementById('import-mode').value || 'merge';
+      const fd = new FormData();
+      fd.append('file', f, f.name);
+      fd.append('mode', mode);
+      try{
+        const r = await fetch('/stock/import', {method:'POST', body: fd, credentials:'include'});
+        if(!r.ok){
+          const msg = await r.text().catch(()=>'');
+          throw new Error(msg || ('HTTP '+r.status));
+        }
+        alert('Import effectué ('+mode+').');
+        // reset input
+        document.getElementById('import-file').value = '';
+        await loadRoots();
+        await loadTree();
+      }catch(e){
+        alert('Échec import: '+(e.message||e));
+      }
+    }
 
     // Init
     (async function init(){
