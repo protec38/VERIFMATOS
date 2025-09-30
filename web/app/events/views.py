@@ -22,20 +22,25 @@ from ..models import (
 )
 from ..tree_query import build_event_tree
 
-# SocketIO optionnel (protégé)
+# SocketIO optionnel : on ne fait rien si absent
 try:
     from .. import socketio  # type: ignore
 except Exception:
     socketio = None
 
-bp = Blueprint("events_api", __name__)
+# ======================
+# Blueprints STABLES
+# ======================
+bp_events = Blueprint("events_api", __name__, url_prefix="/events")
+bp_public = Blueprint("public_api", __name__, url_prefix="/public")
+
+# Pour compat avec anciens imports (create_app qui fait: from .events.views import bp)
+bp = bp_events
+
 
 # -----------------------------
 # Helpers
 # -----------------------------
-def _is_admin() -> bool:
-    return current_user.is_authenticated and current_user.role == Role.ADMIN
-
 def _is_manager() -> bool:
     return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF)
 
@@ -92,11 +97,11 @@ def _find_node(tree: List[Dict[str, Any]], node_id: int) -> Dict[str, Any] | Non
     return None
 
 
-# -----------------------------------
-# ÉVÉNEMENT (INTERNE — nécessite login)
-# -----------------------------------
+# ============================================
+# ÉVÉNEMENT (INTERNE — nécessite authentifié)
+# ============================================
 
-@bp.get("/events/<int:event_id>/tree")
+@bp_events.get("/<int:event_id>/tree")
 @login_required
 def event_tree(event_id: int):
     if not _can_view():
@@ -105,7 +110,7 @@ def event_tree(event_id: int):
     tree = build_event_tree(ev.id)
     return jsonify(tree)
 
-@bp.post("/events/<int:event_id>/verify")
+@bp_events.post("/<int:event_id>/verify")
 @login_required
 def event_verify(event_id: int):
     if not _is_manager():
@@ -146,7 +151,7 @@ def event_verify(event_id: int):
     })
     return jsonify({"ok": True, "record_id": rec.id})
 
-@bp.post("/events/<int:event_id>/parent-status")
+@bp_events.post("/<int:event_id>/parent-status")
 @login_required
 def event_parent_status(event_id: int):
     if not _is_manager():
@@ -178,19 +183,19 @@ def event_parent_status(event_id: int):
     db.session.add(ens)
     db.session.commit()
 
-    payload_out = {
+    out = {
         "type": "parent_charged",
         "event_id": ev.id,
         "node_id": node.id,
         "charged": charged_vehicle,
     }
     if hasattr(ens, "charged_vehicle_name"):
-        payload_out["vehicle_name"] = ens.charged_vehicle_name
-    _emit("event_update", payload_out)
+        out["vehicle_name"] = ens.charged_vehicle_name
+    _emit("event_update", out)
 
     return jsonify({"ok": True})
 
-@bp.patch("/events/<int:event_id>/status")
+@bp_events.patch("/<int:event_id>/status")
 @login_required
 def event_set_status(event_id: int):
     if not _is_manager():
@@ -206,7 +211,7 @@ def event_set_status(event_id: int):
     db.session.commit()
     return jsonify({"ok": True, "status": status_raw})
 
-@bp.post("/events/<int:event_id>/share-link")
+@bp_events.post("/<int:event_id>/share-link")
 @login_required
 def event_share_link(event_id: int):
     if not _is_manager():
@@ -223,18 +228,35 @@ def event_share_link(event_id: int):
     url = f"/public/event/{link.token}"
     return jsonify({"ok": True, "token": link.token, "url": url})
 
+@bp_events.post("/<int:event_id>/delete")
+@login_required
+def event_delete(event_id: int):
+    """Suppression d’un événement (managers seulement)."""
+    if not _is_manager():
+        abort(403)
+    ev = _event_or_404(event_id)
 
-# -----------------------------------
+    # Supprimer les liaisons et enregistrements liés (selon config de tes modèles)
+    VerificationRecord.query.filter_by(event_id=ev.id).delete()
+    EventNodeStatus.query.filter_by(event_id=ev.id).delete()
+    db.session.execute(event_stock.delete().where(event_stock.c.event_id == ev.id))
+    EventShareLink.query.filter_by(event_id=ev.id).delete()
+    db.session.delete(ev)
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+# ============================================
 # PUBLIC (Secouristes via lien partagé)
-# -----------------------------------
+# ============================================
 
-@bp.get("/public/event/<token>/tree")
+@bp_public.get("/event/<token>/tree")
 def public_event_tree(token: str):
     ev = _event_from_token_or_404(token)
     tree = build_event_tree(ev.id)
     return jsonify(tree)
 
-@bp.post("/public/event/<token>/verify")
+@bp_public.post("/event/<token>/verify")
 def public_verify(token: str):
     ev = _event_from_token_or_404(token)
     if not _status_is_open(ev):
@@ -272,7 +294,7 @@ def public_verify(token: str):
     })
     return jsonify({"ok": True, "record_id": rec.id})
 
-@bp.post("/public/event/<token>/charge")
+@bp_public.post("/event/<token>/charge")
 def public_charge(token: str):
     ev = _event_from_token_or_404(token)
     if not _status_is_open(ev):
@@ -307,7 +329,6 @@ def public_charge(token: str):
         if sub is not None and not _all_items_ok(sub):
             abort(400, description="Impossible de charger : tous les sous-éléments doivent être OK.")
     except Exception:
-        # fail-soft: on laisse l'UI cliente déjà faire ce contrôle
         pass
 
     ens = (
@@ -320,14 +341,14 @@ def public_charge(token: str):
     db.session.add(ens)
     db.session.commit()
 
-    payload_out = {
+    out = {
         "type": "parent_charged",
         "event_id": ev.id,
         "node_id": node.id,
         "charged": True,
     }
     if hasattr(ens, "charged_vehicle_name"):
-        payload_out["vehicle_name"] = ens.charged_vehicle_name
-    _emit("event_update", payload_out)
+        out["vehicle_name"] = ens.charged_vehicle_name
+    _emit("event_update", out)
 
     return jsonify({"ok": True, "node_id": node.id, "vehicle": vehicle_name, "by": operator_name})
