@@ -1,8 +1,8 @@
-# app/events/views.py
 from __future__ import annotations
 
 import secrets
 from typing import Any, Dict, List
+from datetime import datetime
 
 from flask import Blueprint, request, jsonify, abort
 from flask_login import login_required, current_user
@@ -34,7 +34,7 @@ except Exception:
 bp_events = Blueprint("events_api", __name__, url_prefix="/events")
 bp_public = Blueprint("public_api", __name__, url_prefix="/public")
 
-# Pour compat avec anciens imports (create_app qui fait: from .events.views import bp)
+# Pour compat avec anciens imports
 bp = bp_events
 
 
@@ -100,6 +100,77 @@ def _find_node(tree: List[Dict[str, Any]], node_id: int) -> Dict[str, Any] | Non
 # ============================================
 # ÉVÉNEMENT (INTERNE — nécessite authentifié)
 # ============================================
+
+@bp_events.post("/")
+@login_required
+def create_event():
+    """Créer un événement + attacher les parents racines (GROUP)."""
+    if not _is_manager():
+        abort(403)
+
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    date_str = (data.get("date") or "").strip() or None
+    root_ids = data.get("root_ids") or data.get("root_node_ids") or []
+
+    if not name or not isinstance(root_ids, list) or not root_ids:
+        abort(400, description="name et root_ids (liste non vide) requis.")
+
+    # date optionnelle (YYYY-MM-DD)
+    try:
+        dt = datetime.fromisoformat(date_str).date() if date_str else None
+    except Exception:
+        abort(400, description="date invalide (YYYY-MM-DD).")
+
+    # Création
+    ev = Event(
+        name=name,
+        date=dt,
+        status=EventStatus.OPEN,
+        created_by_id=current_user.id,
+    )
+    db.session.add(ev)
+    db.session.flush()  # pour obtenir ev.id
+
+    # Attacher les racines
+    seen = set()
+    for nid in root_ids:
+        try:
+            nid = int(nid)
+        except Exception:
+            abort(400, description=f"root_id invalide: {nid}")
+        if nid in seen:
+            continue
+        seen.add(nid)
+
+        node = db.session.get(StockNode, nid)
+        if not node:
+            abort(400, description=f"StockNode {nid} introuvable.")
+        if node.type != NodeType.GROUP:
+            abort(400, description=f"StockNode {nid} doit être de type GROUP.")
+        db.session.execute(event_stock.insert().values(event_id=ev.id, node_id=nid))
+
+    db.session.commit()
+    return jsonify({"ok": True, "id": ev.id, "url": f"/events/{ev.id}"}), 201
+
+
+@bp_events.get("/list")
+@login_required
+def list_events():
+    """Lister tous les événements (dashboard)."""
+    if not _can_view():
+        abort(403)
+    evs = Event.query.order_by(Event.created_at.desc()).all()
+    return jsonify([
+        {
+            "id": e.id,
+            "name": e.name,
+            "status": getattr(e.status, "name", str(e.status)).upper(),
+            "date": str(e.date) if e.date else None,
+        }
+        for e in evs
+    ])
+
 
 @bp_events.get("/<int:event_id>/tree")
 @login_required
@@ -236,7 +307,6 @@ def event_delete(event_id: int):
         abort(403)
     ev = _event_or_404(event_id)
 
-    # Supprimer les liaisons et enregistrements liés (selon config de tes modèles)
     VerificationRecord.query.filter_by(event_id=ev.id).delete()
     EventNodeStatus.query.filter_by(event_id=ev.id).delete()
     db.session.execute(event_stock.delete().where(event_stock.c.event_id == ev.id))
@@ -312,7 +382,6 @@ def public_charge(token: str):
     if not node or node.type != NodeType.GROUP:
         abort(400, description="Le chargement est réservé aux parents (GROUP).")
 
-    # Le parent doit être une RACINE de l'événement
     present = db.session.execute(
         select(event_stock.c.node_id).where(
             event_stock.c.event_id == ev.id,
@@ -322,7 +391,6 @@ def public_charge(token: str):
     if not present:
         abort(400, description="Seules les racines de l’événement peuvent être chargées.")
 
-    # Tous les items descendants doivent être OK
     try:
         tree = build_event_tree(ev.id)
         sub = _find_node(tree, node.id)
