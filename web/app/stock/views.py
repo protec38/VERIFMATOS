@@ -27,7 +27,6 @@ bp = Blueprint("stock", __name__)
 def _has_stock_rights() -> bool:
     """
     Autorise l'accès aux rôles: ADMIN et CHEF.
-    (VIEWER/Secouriste = pas de gestion du stock via ces routes.)
     """
     return (
         current_user.is_authenticated
@@ -63,7 +62,7 @@ def get_roots():
     ])
 
 # -------------------------------------------------
-# TREE (par racine)
+# TREE (accepte id racine OU enfant, remonte à la racine)
 # -------------------------------------------------
 @bp.get("/stock/tree")
 @login_required
@@ -71,13 +70,19 @@ def get_tree():
     if not _has_stock_rights():
         return _bad_request("Forbidden", 403)
     try:
-        root_id = int(request.args.get("root_id") or 0)
+        node_id = int(request.args.get("root_id") or 0)
     except Exception:
         return _bad_request("root_id invalid")
-    root = db.session.get(StockNode, root_id)
-    if not root or root.parent_id is not None:
+
+    node = db.session.get(StockNode, node_id)
+    if not node:
         return _bad_request("Root not found", 404)
-    return jsonify(serialize_tree(root))
+
+    # Si l'id n'est pas une racine, on remonte jusqu'à la vraie racine
+    while node.parent_id is not None:
+        node = node.parent
+
+    return jsonify(serialize_tree(node))
 
 # -------------------------------------------------
 # CREATE (root ou enfant)
@@ -148,7 +153,6 @@ def update_node_api(node_id: int):
         else:
             qty = None if node.type != NodeType.ITEM else node.quantity
 
-        # ✅ appel correct (pas de '*')
         update_node(node_id=node_id, name=name, parent_id=parent_id, quantity=qty)
 
         # expiry_date (ITEM uniquement)
@@ -310,38 +314,3 @@ def import_stock():
     except Exception as e:
         db.session.rollback()
         return _bad_request(str(e))
-
-# -------------------------------------------------
-# Stats pour badge péremptions (header)
-# -------------------------------------------------
-@bp.get("/stats/stock/expiry/counts")
-@login_required
-def expiry_counts():
-    """
-    Retourne: {"expired": <int>, "j30": <int>}
-    Comptage sur tous les ITEMS avec date de péremption.
-    """
-    if not _has_stock_rights():
-        # Pour l'icône header, on peut renvoyer 0 si pas les droits
-        return jsonify({"expired": 0, "j30": 0})
-
-    items = db.session.query(StockNode).filter(
-        StockNode.type == NodeType.ITEM,
-        StockNode.expiry_date.isnot(None)
-    ).all()
-
-    from datetime import date as _date
-    today = _date.today()
-    expired = 0
-    j30 = 0
-    for it in items:
-        ex = getattr(it, "expiry_date", None)
-        if not ex:
-            continue
-        delta = (ex - today).days
-        if delta < 0:
-            expired += 1
-        elif delta <= 30:
-            j30 += 1
-
-    return jsonify({"expired": expired, "j30": j30})
