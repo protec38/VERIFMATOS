@@ -80,8 +80,11 @@ def create_app() -> Flask:
     from .admin.views import bp as admin_api_bp
     app.register_blueprint(admin_api_bp)
 
-    from .events.views import bp as events_api_bp
-    app.register_blueprint(events_api_bp)
+    from .events.views import bp_events as events_api_bp, bp_public as public_api_bp
+# ...
+    app.register_blueprint(events_api_bp)         # -> /events/...
+    app.register_blueprint(public_api_bp)         # -> /public/event/...
+
 
     from .stock.views import bp as stock_api_bp
     app.register_blueprint(stock_api_bp)
