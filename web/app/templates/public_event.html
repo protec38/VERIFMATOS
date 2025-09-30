@@ -105,7 +105,7 @@
 <script>
 const TOKEN = "{{ token }}";
 let TREE = {{ (tree or [])|tojson }};
-let IS_OPEN = {{ 'true' if is_open else 'false' }}; // ✅ booléen fiable
+let IS_OPEN = {{ 'true' if is_open else 'false' }}; // booléen fiable
 
 /* ========= State ========= */
 const NODE_MAP = new Map();
@@ -114,7 +114,7 @@ const ITEM_EL  = new Map();
 const ITEM_STATUS_TXT = new Map();
 const ITEM_QTY_TXT = new Map();
 const VEH_LABEL = new Map();
-let CHARGE_TARGET_ID = null;
+let CHARGE_TARGET_ID = null;  // ✅ UNE SEULE déclaration
 
 /* ---------- Utils ---------- */
 function indexTree(nodes){
@@ -398,7 +398,7 @@ document.getElementById("btn-change-op").addEventListener("click", ()=>{
 /* ---------- API (public) ---------- */
 async function refreshTree(){
   try{
-    const r = await fetch(`/public/event/{{ token }}/tree`);
+    const r = await fetch(`/public/event/${TOKEN}/tree`);
     if(!r.ok) return;
     const latest = await r.json();
     syncTreeIncoming(latest);
@@ -415,7 +415,7 @@ function verify(nodeId, status){
   const name = requireOperatorName();
   if(!name) return;
   const payload = { node_id: nodeId, status, verifier_name: name };
-  fetch(`/public/event/{{ token }}/verify`, {
+  fetch(`/public/event/${TOKEN}/verify`, {
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body: JSON.stringify(payload)
@@ -425,7 +425,6 @@ function verify(nodeId, status){
 }
 
 /* ---------- Charger (RACINES uniquement) ---------- */
-let CHARGE_TARGET_ID = null;
 function openChargeModal(nodeId, nodeName){
   if(!IS_OPEN){ alert("Événement fermé."); return; }
   const name = requireOperatorName();
@@ -454,7 +453,7 @@ document.getElementById("chargeBtn").addEventListener("click", async ()=>{
   const op = getSavedName();
   if(!vehicle) return;
   try{
-    const r = await fetch(`/public/event/{{ token }}/charge`, {
+    const r = await fetch(`/public/event/${TOKEN}/charge`, {
       method:"POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ node_id: nodeId, vehicle_name: vehicle, operator_name: op })
@@ -475,7 +474,6 @@ document.getElementById("chargeBtn").addEventListener("click", async ()=>{
   buildUIOnce();
   setInterval(refreshTree, 2000);
 
-  // Identité : si pas mémorisée, ouvrir le modal dès l’arrivée
   const saved = getSavedName();
   if(saved){
     setSavedName(saved);
