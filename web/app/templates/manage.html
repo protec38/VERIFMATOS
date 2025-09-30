@@ -18,7 +18,12 @@
   .modal label{display:block;margin-top:8px;font-size:14px;opacity:.85}
   .modal input, .modal select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#0f1e2f;color:var(--text)}
   .modal .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+
+  /* Dropdown Ops '⋯' */
+  .dd-ops{position:relative;display:inline-block}
+  .dd-ops .dd-menu{right:0;left:auto}
 </style>
+
 
   <div class="card">
     <div class="row">
@@ -245,34 +250,34 @@
         }
         head.append(name);
 
-        const actions = h('div', {class:'row'});
-        const btnG = h('a', {class:'btn', on: 'click'}, '+Sous-parent');
-        btnG.onclick = async (e)=>{
-          e.preventDefault();
-          const nm = prompt("Nom du sous-parent (GROUP) ?");
-          if(!nm) return;
-          await createNode({name:nm, type:'GROUP', parent_id: n.id});
-          await reloadTree();
-        };
-        const btnI = h('a', {class:'btn', on:'click'}, '+Item');
-        btnI.onclick = async (e)=>{
-          e.preventDefault();
-          const nm = prompt("Nom de l'item ?");
-          if(!nm) return;
-          const q = parseInt(prompt("Quantité ? (entier >=0)", "1")||"0", 10);
-          await createNode({name:nm, type:'ITEM', parent_id: n.id, quantity: isNaN(q)?0:q});
-          await reloadTree();
-        };
-        const btnDel = h('a', {class:'btn ghost', on:'click'}, 'Supprimer');
-        btnDel.onclick = async (e)=>{
-          e.preventDefault();
-          if(!confirm(`Supprimer "${n.name}" et tout son sous-arbre ?`)) return;
-          await api('/stock/'+n.id, {method:'DELETE'});
-          if(SELECTED_ID === n.id) SELECTED_ID = null;
-          await reloadTree();
-        };
-        actions.append(btnG, btnI, btnDel);
-        head.append(actions);
+        
+        const right = h('div', {style:'margin-left:auto; display:flex; gap:6px; align-items:center'});
+
+        // Dropdown Ajouter
+        const ddAdd = h('div', {class:'dd'});
+        const btnAdd = h('button', {class:'btn', onclick: (e)=>{ e.stopPropagation(); ddAdd.classList.toggle('show'); }}, 'Ajouter ▾');
+        const menuAdd = h('div', {class:'dd-menu'});
+        menuAdd.append(
+          h('button', {onclick: ()=>{ ddAdd.classList.remove('show'); openAddModal(n.id, 'GROUP'); }}, '➕ Sous-parent'),
+          h('button', {onclick: ()=>{ ddAdd.classList.remove('show'); openAddModal(n.id, 'ITEM'); }}, '➕ Item')
+        );
+        ddAdd.append(btnAdd, menuAdd);
+        right.append(ddAdd);
+
+        // Dropdown Ops ⋯
+        const ddOps = h('div', {class:'dd dd-ops'});
+        const btnOps = h('button', {class:'btn', onclick: (e)=>{ e.stopPropagation(); ddOps.classList.toggle('show'); }}, '⋯');
+        const menuOps = h('div', {class:'dd-menu'});
+        menuOps.append(
+          h('button', {onclick: ()=>{ ddOps.classList.remove('show'); openDupModal(n.id); }}, 'Dupliquer…'),
+          h('button', {onclick: ()=>{ ddOps.classList.remove('show'); openMoveModal(n.id); }}, 'Déplacer…'),
+          h('button', {onclick: ()=>{ ddOps.classList.remove('show'); confirmDelete(n.id); }}, 'Supprimer…')
+        );
+        ddOps.append(btnOps, menuOps);
+        right.append(ddOps);
+
+        head.append(right);
+
 
         box.append(head);
         const childs = h('div', {class:'childs'});
@@ -558,6 +563,133 @@ document.addEventListener('click', (e)=>{
   document.querySelectorAll('.dd.show').forEach(dd => {
     if(!dd.contains(e.target)){ dd.classList.remove('show'); }
   });
+});
+
+
+// ------- Parents helpers -------
+function getDescendantIds(n){
+  const out = new Set([n.id]);
+  (function rec(x){
+    (x.children||[]).forEach(c=>{ out.add(c.id); rec(c); });
+  })(n);
+  return out;
+}
+function buildParentSelect(selectEl, currentNode, preselectId){
+  // Root option
+  selectEl.innerHTML = '';
+  const optRoot = document.createElement('option');
+  optRoot.value = '';
+  optRoot.textContent = '— Racine —';
+  selectEl.appendChild(optRoot);
+  const forbid = getDescendantIds(currentNode); // cannot choose itself nor descendants
+  (ALL_NODES||[]).forEach(n=>{
+    if(n.type !== 'GROUP') return;
+    if(forbid.has(n.id)) return;
+    const o = document.createElement('option');
+    o.value = String(n.id);
+    o.textContent = '• ' + '  '.repeat(n.level) + n.name;
+    if(preselectId && String(preselectId) === String(n.id)) o.selected = true;
+    selectEl.appendChild(o);
+  });
+}
+
+
+// ------- Move -------
+let MOVE_NODE_ID = null;
+function openMoveModal(nodeId){
+  const n = findNode(nodeId);
+  if(!n){ alert('Nœud introuvable'); return; }
+  MOVE_NODE_ID = nodeId;
+  document.getElementById('moveTitle').textContent = n.name + ' (id '+n.id+')';
+  const sel = document.getElementById('move-parent');
+  // preselect current parent
+  const parentId = (function findParent(id, n=TREE, parent=null){
+    if(!n) return null;
+    if(n.id === id) return parent ? parent.id : null;
+    for(const c of (n.children||[])){
+      const r = findParent(id, c, n);
+      if(r !== undefined) return r;
+    }
+    return undefined;
+  })(nodeId);
+  buildParentSelect(sel, n, parentId || '');
+  document.getElementById('moveModal').classList.add('show');
+}
+function closeMoveModal(){ document.getElementById('moveModal').classList.remove('show'); MOVE_NODE_ID = null; }
+async function confirmMove(){
+  const nodeId = MOVE_NODE_ID;
+  if(!nodeId) return closeMoveModal();
+  const v = document.getElementById('move-parent').value;
+  const parent_id = v ? parseInt(v,10) : null;
+  try{
+    await api('/stock/'+nodeId, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({parent_id})});
+    closeMoveModal();
+    await loadRoots();
+    await loadTree();
+  }catch(e){ alert('Échec déplacement: '+(e.message||e)); }
+}
+
+// ------- Duplicate -------
+let DUP_NODE_ID = null;
+function openDupModal(nodeId){
+  const n = findNode(nodeId);
+  if(!n){ alert('Nœud introuvable'); return; }
+  DUP_NODE_ID = nodeId;
+  document.getElementById('dupTitle').textContent = n.name + ' (id '+n.id+')';
+  const inp = document.getElementById('dup-name');
+  inp.value = n.name + ' (copie)';
+  const sel = document.getElementById('dup-parent');
+  // preselect current parent
+  const parentId = (function findParent(id, n=TREE, parent=null){
+    if(!n) return null;
+    if(n.id === id) return parent ? parent.id : null;
+    for(const c of (n.children||[])){
+      const r = findParent(id, c, n);
+      if(r !== undefined) return r;
+    }
+    return undefined;
+  })(nodeId);
+  buildParentSelect(sel, n, parentId || '');
+  document.getElementById('dupModal').classList.add('show');
+}
+function closeDupModal(){ document.getElementById('dupModal').classList.remove('show'); DUP_NODE_ID = null; }
+async function confirmDup(){
+  const nodeId = DUP_NODE_ID;
+  if(!nodeId) return closeDupModal();
+  const new_name = (document.getElementById('dup-name').value || '').trim();
+  if(!new_name){ alert('Nom requis'); return; }
+  const v = document.getElementById('dup-parent').value;
+  const new_parent_id = v ? parseInt(v,10) : null;
+  try{
+    await api('/stock/'+nodeId+'/duplicate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({new_name, new_parent_id})});
+    closeDupModal();
+    await loadRoots();
+    await loadTree();
+  }catch(e){ alert('Échec duplication: '+(e.message||e)); }
+}
+
+// ------- Delete (confirm) -------
+async function confirmDelete(nodeId){
+  const n = findNode(nodeId);
+  if(!n) return;
+  if(!confirm(`Supprimer "${n.name}" et tout son sous-arbre ?`)) return;
+  try{
+    await api('/stock/'+nodeId, {method:'DELETE'});
+    if(SELECTED_ID === nodeId) SELECTED_ID = null;
+    await loadRoots();
+    await loadTree();
+  }catch(e){ alert('Échec suppression: '+(e.message||e)); }
+}
+
+
+// Validation live pour le modal 'Ajouter'
+document.addEventListener('input', (e)=>{
+  if(e.target && (e.target.id === 'add-name' || e.target.id === 'add-qty' || e.target.id === 'add-expiry')){
+    const nameEl = document.getElementById('add-name');
+    nameEl.style.borderColor = nameEl.value.trim() ? '' : '#a33';
+    const qtyEl = document.getElementById('add-qty');
+    if(qtyEl){ const v = parseInt(qtyEl.value||'0',10); qtyEl.style.borderColor = (isNaN(v)||v<0)?'#a33':''; }
+  }
 });
 
 // Init
