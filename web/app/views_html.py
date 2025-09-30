@@ -95,7 +95,8 @@ def dashboard():
         added = 0
         for rid in sorted(set(root_ids)):
             root = db.session.get(StockNode, rid)
-            if not root or root.type != NodeType.GROUP or root.level != 0:
+            # ✅ racine = parent_id is None (et de type GROUP)
+            if not root or root.type != NodeType.GROUP or root.parent_id is not None:
                 continue
             db.session.execute(event_stock.insert().values(event_id=ev.id, node_id=root.id))
             added += 1
@@ -115,9 +116,10 @@ def dashboard():
         abort(403)
 
     events = Event.query.order_by(Event.created_at.desc()).all()
+    # ✅ lister les parents racine à partir de parent_id==None (et GROUP)
     roots = (
         StockNode.query
-        .filter(StockNode.level == 0, StockNode.type == NodeType.GROUP)
+        .filter(StockNode.parent_id.is_(None), StockNode.type == NodeType.GROUP)
         .order_by(StockNode.name.asc())
         .all()
     )
@@ -249,4 +251,3 @@ def peremption_page():
     if not can_view():
         abort(403)
     return render_template("peremption.html")
-
