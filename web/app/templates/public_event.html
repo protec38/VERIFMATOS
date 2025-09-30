@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% set title = "Événement (public)" %}
+{% set title = "Événement (secouristes)" %}
 {% block content %}
 
 <style>
@@ -49,12 +49,16 @@
   .vehicle.on{background:#0e2a24; color:#bff3e7; border-color:#1d6e5d}
   .vehicle.off{background:#101c2e; color:#b7c7dc; border-color:#24344f}
 
-  /* Modal charger */
+  .op-badge{font-size:12px; padding:4px 8px; border-radius:999px; border:1px solid var(--border); background:#0f1e2f}
+
+  /* Modals */
   .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.6);z-index:50}
   .modal.show{display:flex}
-  .modal .box{background:#0f1a2a;border:1px solid var(--border);border-radius:12px;padding:18px;max-width:460px;width:92%}
+  .modal .box{background:#0f1a2a;border:1px solid var(--border);border-radius:12px;padding:18px;max-width:480px;width:92%}
   .modal .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
   .modal input[type=text]{width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:#0f1e2f;color:var(--text)}
+  .muted-small{font-size:12px;color:#9ab}
+  .btn[disabled]{opacity:.6;cursor:not-allowed}
 </style>
 
 <div class="grid cols-2">
@@ -64,13 +68,11 @@
         <div class="title">{{ event.name }}</div>
         <div class="muted">Date : {{ event.date or "—" }}</div>
       </div>
-      <span class="badge" id="status-badge">Statut : {{ event.status }}</span>
-    </div>
-
-    <!-- Saisie du nom opérateur (persistée localement) -->
-    <div class="row wrap" style="margin-top:10px; gap:8px;">
-      <input id="operatorName" placeholder="Votre nom (ex : Dupont A.)" style="min-width:240px">
-      <button class="btn" id="btn-save-op">Mémoriser le nom</button>
+      <div class="row" style="gap:8px;align-items:center">
+        <span id="op-badge" class="op-badge" title="Secouriste">Secouriste : —</span>
+        <button class="btn" id="btn-change-op">Changer de nom</button>
+        <span class="badge" id="status-badge">Statut : {{ event.status }}</span>
+      </div>
     </div>
   </div>
 
@@ -99,18 +101,32 @@
   <div id="tree" class="tree" style="margin-top:10px;"></div>
 </div>
 
-<!-- Modal Charger (racine seulement) -->
+<!-- Modal Identité (affiché à l’arrivée si pas de nom mémorisé) -->
+<div id="idModal" class="modal" aria-hidden="true">
+  <div class="box">
+    <h3 style="margin-top:0">Votre identité</h3>
+    <p class="muted-small">Merci d’indiquer votre <b>Nom</b> et <b>Prénom</b>. Ces informations seront affichées à côté de vos vérifications.</p>
+    <div class="row" style="gap:8px; margin-top:8px;">
+      <input type="text" id="opLast" placeholder="Nom (ex : DUPONT)" />
+      <input type="text" id="opFirst" placeholder="Prénom (ex : Alice)" />
+    </div>
+    <div class="actions">
+      <button class="btn" onclick="closeIdModal()">Annuler</button>
+      <button class="btn primary" id="idConfirmBtn" disabled>Valider</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Charger (RACINES uniquement) -->
 <div id="chargeModal" class="modal" aria-hidden="true">
   <div class="box">
     <h3 style="margin-top:0">Charger ce parent</h3>
-    <p class="muted" id="chargeTarget">—</p>
+    <p class="muted-small" id="chargeTarget">—</p>
     <label>Nom du véhicule</label>
     <input type="text" id="vehicleInput" placeholder="Ex : VPSP 1 / VL 2" />
-    <label style="margin-top:8px">Votre nom</label>
-    <input type="text" id="opInput" placeholder="Ex : Dupont A." />
     <div class="actions">
       <button class="btn" onclick="closeChargeModal()">Annuler</button>
-      <button class="btn primary" onclick="confirmCharge()">Valider</button>
+      <button class="btn primary" id="chargeBtn" disabled>Valider</button>
     </div>
   </div>
 </div>
@@ -128,7 +144,6 @@ const ITEM_EL  = new Map();
 const ITEM_STATUS_TXT = new Map();
 const ITEM_QTY_TXT = new Map();
 const VEH_LABEL = new Map();
-
 let CHARGE_TARGET_ID = null;
 
 /* ---------- Utils ---------- */
@@ -250,7 +265,7 @@ function renderItem(n){
 }
 
 function renderGroup(n){
-  // Badge véhicule (seulement racines)
+  // Badge véhicule (RACINES)
   const veh = el("span", {class:"vehicle "+(n.charged_vehicle?'on':'off')},
     n.charged_vehicle ? `Chargé sur : ${n.charged_vehicle_name || "—"}` : "Non chargé"
   );
@@ -263,7 +278,7 @@ function renderGroup(n){
 
   const header = el("div", {class:"header"}, left);
 
-  // Bouton “Charger” — uniquement pour les RACINES et si ouvert
+  // “Charger…” — uniquement RACINES & évènement ouvert
   if(n.is_event_root){
     const chargeBtn = el("button", {
       class:"btn primary",
@@ -375,6 +390,50 @@ function scrollToParent(id){
   setTimeout(()=>{ window.scrollBy({top:-70, left:0, behavior:"instant"}); }, 300);
 }
 
+/* ---------- Identité secouriste ---------- */
+function getSavedName(){
+  return localStorage.getItem("pcprep_operator_name") || "";
+}
+function setSavedName(full){
+  localStorage.setItem("pcprep_operator_name", full);
+  document.getElementById("op-badge").textContent = "Secouriste : " + full;
+}
+function openIdModal(){
+  document.getElementById("idModal").classList.add("show");
+  document.getElementById("opLast").focus();
+}
+function closeIdModal(){
+  document.getElementById("idModal").classList.remove("show");
+}
+function validateIdInputs(){
+  const last = (document.getElementById("opLast").value || "").trim();
+  const first = (document.getElementById("opFirst").value || "").trim();
+  document.getElementById("idConfirmBtn").disabled = !(last && first);
+}
+document.getElementById("opLast").addEventListener("input", validateIdInputs);
+document.getElementById("opFirst").addEventListener("input", validateIdInputs);
+document.getElementById("idConfirmBtn").addEventListener("click", ()=>{
+  const last = (document.getElementById("opLast").value || "").trim();
+  const first = (document.getElementById("opFirst").value || "").trim();
+  if(!(last && first)) return;
+  const full = `${first} ${last}`; // Format "Prénom NOM"
+  setSavedName(full);
+  closeIdModal();
+});
+document.getElementById("btn-change-op").addEventListener("click", ()=>{
+  // Pré-remplir depuis le badge si possible
+  const saved = getSavedName().split(" ");
+  if(saved.length >= 2){
+    document.getElementById("opFirst").value = saved[0] || "";
+    document.getElementById("opLast").value = saved.slice(1).join(" ");
+  } else {
+    document.getElementById("opFirst").value = "";
+    document.getElementById("opLast").value = "";
+  }
+  validateIdInputs();
+  openIdModal();
+});
+
 /* ---------- API (public) ---------- */
 async function refreshTree(){
   try{
@@ -385,23 +444,18 @@ async function refreshTree(){
   }catch(_){}
 }
 
-function getOperatorName(){
-  const inp = document.getElementById("operatorName");
-  const v = (inp.value || "").trim();
-  return v || localStorage.getItem("pcprep_operator_name") || "";
-}
-function saveOperatorName(){
-  const v = getOperatorName();
-  if(v){ localStorage.setItem("pcprep_operator_name", v); }
+function requireOperatorName(){
+  const full = getSavedName();
+  if(full) return full;
+  // Ouvre le modal et bloque l’action
+  openIdModal();
+  return null;
 }
 
 function verify(nodeId, status){
   if(!IS_OPEN){ alert("Événement fermé."); return; }
-  const name = getOperatorName();
-  if(!name){
-    alert("Renseigne ton nom (champ au-dessus).");
-    return;
-  }
+  const name = requireOperatorName();
+  if(!name) return; // l'utilisateur doit valider le modal
   const payload = { node_id: nodeId, status, verifier_name: name };
   fetch(`/public/event/${TOKEN}/verify`, {
     method:"POST",
@@ -412,15 +466,16 @@ function verify(nodeId, status){
   .catch(()=>{});
 }
 
-/* ---------- Charger (racines seulement) ---------- */
+/* ---------- Charger (RACINES uniquement) ---------- */
 function openChargeModal(nodeId, nodeName){
   if(!IS_OPEN){ alert("Événement fermé."); return; }
+  const name = requireOperatorName();
+  if(!name) return;
   const node = NODE_MAP.get(nodeId);
   if(!node || !node.is_event_root){
     alert("Le chargement n'est autorisé que sur les parents racines.");
     return;
   }
-  // tous les descendants doivent être OK
   if(!groupAllOk(node)){
     alert("Impossible de charger : tous les sous-éléments doivent être OK.");
     return;
@@ -428,27 +483,28 @@ function openChargeModal(nodeId, nodeName){
   CHARGE_TARGET_ID = nodeId;
   document.getElementById("chargeTarget").textContent = nodeName + " (id "+nodeId+")";
   const vinp = document.getElementById("vehicleInput");
-  const oinp = document.getElementById("opInput");
   vinp.value = "";
-  oinp.value = getOperatorName();
   document.getElementById("chargeModal").classList.add("show");
   vinp.focus();
+  validateCharge();
 }
 function closeChargeModal(){
   document.getElementById("chargeModal").classList.remove("show");
   CHARGE_TARGET_ID = null;
 }
-async function confirmCharge(){
+function validateCharge(){
+  const v = (document.getElementById("vehicleInput").value || "").trim();
+  document.getElementById("chargeBtn").disabled = !v;
+}
+document.getElementById("vehicleInput").addEventListener("input", validateCharge);
+
+document.getElementById("chargeBtn").addEventListener("click", async ()=>{
   const nodeId = CHARGE_TARGET_ID;
   if(!nodeId) return;
   const vehicle = (document.getElementById("vehicleInput").value || "").trim();
-  const op = (document.getElementById("opInput").value || "").trim();
-  if(!vehicle){ alert("Merci d'indiquer le nom du véhicule."); return; }
-  if(!op){ alert("Merci d'indiquer votre nom."); return; }
-  localStorage.setItem("pcprep_operator_name", op);
-
+  const op = getSavedName();
+  if(!vehicle){ return; }
   try{
-    // Appel public: enregistre le véhicule + verrou chargé
     const r = await fetch(`/public/event/${TOKEN}/charge`, {
       method:"POST",
       headers: {"Content-Type":"application/json"},
@@ -463,19 +519,21 @@ async function confirmCharge(){
   }catch(e){
     alert(e.message || "Erreur réseau");
   }
-}
+});
 
 /* ---------- Init ---------- */
-document.getElementById("btn-save-op").addEventListener("click", ()=>{
-  saveOperatorName();
-  alert("Nom mémorisé !");
-});
 (function init(){
-  // préremplir le nom si mémorisé
-  const saved = localStorage.getItem("pcprep_operator_name");
-  if(saved){ document.getElementById("operatorName").value = saved; }
   buildUIOnce();
   setInterval(refreshTree, 2000);
+
+  // Identité : si pas mémorisée, ouvrir le modal dès l’arrivée
+  const saved = getSavedName();
+  if(saved){
+    setSavedName(saved);
+  }else{
+    validateIdInputs();
+    openIdModal();
+  }
 })();
 </script>
 {% endblock %}
