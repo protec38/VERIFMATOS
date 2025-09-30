@@ -2,6 +2,24 @@
 {% from "base.html" import icon %}
 {% set title = "Administration / Stock" %}
 {% block content %}
+<style>
+  /* Dropdown 'Ajouter' */
+  .dd{position:relative;display:inline-block}
+  .dd-menu{position:absolute;right:0;top:calc(100% + 6px);background:#0f1e2f;border:1px solid var(--border);border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.35);display:none;min-width:180px;z-index:15}
+  .dd.show .dd-menu{display:block}
+  .dd-menu button{display:block;width:100%;text-align:left;padding:10px 12px;border:0;background:transparent;color:var(--text);cursor:pointer}
+  .dd-menu button:hover{background:#11263a}
+
+  /* Modal Add Child */
+  .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);z-index:50}
+  .modal.show{display:flex}
+  .modal .box{background:#0f1a2a;border:1px solid var(--border);border-radius:12px;padding:18px;max-width:520px;width:95%}
+  .modal .row{display:flex;gap:10px;align-items:center}
+  .modal label{display:block;margin-top:8px;font-size:14px;opacity:.85}
+  .modal input, .modal select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#0f1e2f;color:var(--text)}
+  .modal .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+</style>
+
   <div class="card">
     <div class="row">
       <div class="title">Gestion des stocks</div>
@@ -10,7 +28,7 @@
         <a class="btn ghost" href="{{ url_for('pages.logout') }}">Déconnexion</a>
       </div>
       <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
-        <a class="btn" href="/stock/export.json" download>⬇ Export JSON</a>
+        <button class="btn primary" id="btn-root-add">➕ Parent racine</button>  <a class="btn" href="/stock/export.json" download>⬇ Export JSON</a>
         <label class="btn">📄 Choisir JSON…
           <input type="file" id="import-file" accept="application/json" style="display:none">
         </label>
@@ -170,41 +188,7 @@
       if(cat==='j60')     return ['≤60j',   'background:#2a270f;border-color:#b3a100;color:#ffe566'];
       if(cat==='later')   return ['>60j',   'background:#0f2a22;border-color:#17614f;color:#bff3e7'];
       return ['—',        'opacity:.7'];
-    }}
-
-    // --- Création enfant (GROUP/ITEM) ---
-    async function addChild(parentId, type){
-      const name = prompt(type === 'ITEM' ? "Nom de l'item :" : "Nom du sous-parent :");
-      if(!name) return;
-      let payload = { name, type, parent_id: parentId };
-      if(type === 'ITEM'){
-        // demander quantité
-        let q = prompt("Quantité cible (nombre) :", "1");
-        if(q === null) return;
-        q = parseInt(q, 10);
-        if(isNaN(q) || q < 0){ alert("Quantité invalide"); return; }
-        payload.quantity = q;
-        // demander date de péremption optionnelle
-        const ex = prompt("Date de péremption (YYYY-MM-DD) — optionnel :", "");
-        if(ex && !/^\d{4}-\d{2}-\d{2}$/.test(ex)){ alert("Format de date invalide"); return; }
-        if(ex) payload.expiry_date = ex;
-      }
-      try{
-        const r = await fetch('/stock', {
-          method:'POST', credentials:'include',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify(payload)
-        });
-        if(!r.ok){
-          const msg = await r.text().catch(()=>'');
-          throw new Error(msg || ('HTTP '+r.status));
-        }
-        await loadTree();
-      }catch(e){
-        alert("Échec création: " + (e.message || e));
-      }
     }
-    
 
 
     function flatten(tree){
@@ -260,13 +244,6 @@
           name.append(' ', b);
         }
         head.append(name);
-        if(n.type === 'GROUP'){
-          const btnBox = h('div', {style:'margin-left:auto; display:flex; gap:6px; align-items:center'});
-          const b1 = h('button', {class:'btn', onclick: ()=> addChild(n.id, 'GROUP')}, '➕ Sous-parent');
-          const b2 = h('button', {class:'btn', onclick: ()=> addChild(n.id, 'ITEM')}, '➕ Item');
-          btnBox.append(b1, b2);
-          head.append(btnBox);
-        }
 
         const actions = h('div', {class:'row'});
         const btnG = h('a', {class:'btn', on: 'click'}, '+Sous-parent');
@@ -524,7 +501,66 @@
       }
     }
 
-    // Init
+    
+// ------- Ajout (modal) -------
+let ADD_PARENT_ID = null; // null => racine
+function openAddModal(parentId, defaultType){
+  ADD_PARENT_ID = parentId || null;
+  const typeSel = document.getElementById('add-type');
+  typeSel.value = (defaultType || 'GROUP');
+  document.getElementById('add-name').value = '';
+  document.getElementById('add-qty').value = 1;
+  document.getElementById('add-expiry').value = '';
+  document.getElementById('add-item-fields').style.display = (typeSel.value === 'ITEM') ? '' : 'none';
+  document.getElementById('addModal').classList.add('show');
+  document.getElementById('add-name').focus();
+}
+function closeAddModal(){
+  document.getElementById('addModal').classList.remove('show');
+  ADD_PARENT_ID = null;
+}
+document.addEventListener('change', (e)=>{
+  if(e.target && e.target.id === 'add-type'){
+    document.getElementById('add-item-fields').style.display = (e.target.value === 'ITEM') ? '' : 'none';
+  }
+});
+async function confirmAdd(){
+  const type = document.getElementById('add-type').value;
+  const name = (document.getElementById('add-name').value || '').trim();
+  if(!name){ alert('Nom requis'); return; }
+  const payload = { name, type, parent_id: ADD_PARENT_ID };
+  if(type === 'ITEM'){
+    let q = parseInt(document.getElementById('add-qty').value || '0', 10);
+    if(isNaN(q) || q < 0){ alert('Quantité invalide'); return; }
+    payload.quantity = q;
+    const ex = document.getElementById('add-expiry').value;
+    if(ex) payload.expiry_date = ex;
+  }
+  try{
+    const r = await fetch('/stock', { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    if(!r.ok){ const msg = await r.text().catch(()=> ''); throw new Error(msg || ('HTTP '+r.status)); }
+    closeAddModal();
+    await loadRoots();
+    await loadTree();
+  }catch(e){
+    alert('Échec création: ' + (e.message || e));
+  }
+}
+// Bouton "Parent racine"
+document.addEventListener('DOMContentLoaded', ()=> {
+  const btnRoot = document.getElementById('btn-root-add');
+  if(btnRoot){ btnRoot.onclick = ()=> openAddModal(null, 'GROUP'); }
+});
+
+
+// Fermer les dropdowns au clic extérieur
+document.addEventListener('click', (e)=>{
+  document.querySelectorAll('.dd.show').forEach(dd => {
+    if(!dd.contains(e.target)){ dd.classList.remove('show'); }
+  });
+});
+
+// Init
     (async function init(){
       await loadRoots();
       await loadTree();
