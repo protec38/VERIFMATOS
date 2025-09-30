@@ -8,107 +8,161 @@ from .models import (
     Event,
     StockNode,
     NodeType,
-    VerificationRecord,
-    EventNodeStatus,
-    event_stock,
+    VerificationRecord,   # historise OK / NOT_OK / TODO
+    EventNodeStatus,      # infos “groupe chargé”, commentaires, etc.
+    event_stock,          # table d’association (event_id, node_id)
 )
 
+# --------- helpers ---------
 def _norm_status(s: Optional[str]) -> str:
-    if not s:
-        return "PENDING"
-    s = s.upper()
-    if s in ("NOT_OK", "NOK", "KO", "NOT-OK", "NOTOK"):
-        return "NOT_OK"
-    if s == "OK":
-        return "OK"
-    return "PENDING"
+    if s is None:
+        return "TODO"
+    # Enum -> .name
+    if hasattr(s, "name"):
+        try:
+            return str(s.name).upper()
+        except Exception:
+            pass
+    if isinstance(s, bool):
+        return "OK" if s else "NOT_OK"
+    return str(s).upper()
 
-
-def _latest_verifs_map(event_id: int, node_ids: List[int]) -> Dict[int, Dict[str, str]]:
-    if not node_ids:
+def _latest_verifs_map(event_id: int, item_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+    """
+    Renvoie {node_id: {"status": "OK|NOT_OK|TODO", "by": str, "at": iso, "comment": str,
+                       "issue_code": str, "observed_qty": int|None, "missing_qty": int|None}}
+    """
+    if not item_ids:
         return {}
-    # Dernier enregistrement par node_id (created_at desc, id desc)
     q = (
-        db.session.query(VerificationRecord)
-        .filter(VerificationRecord.event_id == event_id, VerificationRecord.node_id.in_(node_ids))
-        .order_by(desc(VerificationRecord.created_at), desc(VerificationRecord.id))
-        .all()
+        VerificationRecord.query
+        .filter(VerificationRecord.event_id == event_id)
+        .filter(VerificationRecord.node_id.in_(item_ids))
+        .order_by(VerificationRecord.node_id.asc(), VerificationRecord.created_at.desc())
     )
-    seen = set()
-    out: Dict[int, Dict[str, str]] = {}
+    out: Dict[int, Dict[str, Any]] = {}
     for r in q:
-        if r.node_id in seen:
-            continue
-        seen.add(r.node_id)
-        out[r.node_id] = {
-            "status": _norm_status(r.status),
-            "by": r.verifier_name or "",
+        nid = int(r.node_id)
+        if nid in out:
+            continue  # déjà le plus récent
+        out[nid] = {
+            "status": _norm_status(getattr(r, "status", None)),
+            "by": getattr(r, "verifier_name", None),
+            "at": (getattr(r, "updated_at", None) or getattr(r, "created_at", None)),
+            "comment": getattr(r, "comment", None),
+            "issue_code": _norm_status(getattr(r, "issue_code", None)),
+            "observed_qty": getattr(r, "observed_qty", None),
+            "missing_qty": getattr(r, "missing_qty", None),
         }
+        if out[nid]["at"]:
+            out[nid]["at"] = out[nid]["at"].isoformat()
     return out
 
-
 def _ens_map(event_id: int) -> Dict[int, EventNodeStatus]:
-    ens_list = db.session.query(EventNodeStatus).filter_by(event_id=event_id).all()
-    return {e.node_id: e for e in ens_list}
+    rows = EventNodeStatus.query.filter_by(event_id=event_id).all()
+    return {int(r.node_id): r for r in rows}
 
-
-def _serialize(node: StockNode, verifs: Dict[int, Dict[str, str]], is_root: bool, ens_map: Dict[int, EventNodeStatus]) -> Dict[str, Any]:
-    if node.type == NodeType.ITEM:
-        last = verifs.get(node.id)
-        return {
-            "id": node.id,
-            "name": node.name,
-            "type": "ITEM",
-            "quantity": node.quantity,
-            "last_status": _norm_status(last["status"]) if last else "PENDING",
-            "last_by": last["by"] if last else "",
-            "children": [],
-        }
-
-    # GROUP
-    data: Dict[str, Any] = {
+# --------- arbre ---------
+def _serialize(node: StockNode,
+               latest: Dict[int, Dict[str, Any]],
+               is_root: bool,
+               ens_map: Dict[int, EventNodeStatus]) -> Dict[str, Any]:
+    base: Dict[str, Any] = {
         "id": node.id,
         "name": node.name,
-        "type": "GROUP",
-        "children": [],
-        "is_event_root": bool(is_root),
+        "type": node.type.name if hasattr(node.type, "name") else str(node.type),
     }
-    if is_root:
-        ens = ens_map.get(node.id)
-        data["charged_vehicle"] = bool(ens.charged_vehicle) if ens else False
-        data["charged_vehicle_name"] = (ens.vehicle_name or None) if ens else None
 
-    # ordre stable
-    for c in sorted(node.children, key=lambda x: (x.level, x.id)):
-        data["children"].append(_serialize(c, verifs, False, ens_map))
-    return data
+    if node.type == NodeType.ITEM:
+        info = latest.get(int(node.id), {})
+        base.update({
+            "last_status": info.get("status", "TODO"),
+            "last_by": info.get("by"),
+            "last_at": info.get("at"),
+            "comment": info.get("comment"),
+            "issue_code": info.get("issue_code"),
+            "observed_qty": info.get("observed_qty"),
+            "missing_qty": info.get("missing_qty"),
+        })
+        base["children"] = []
+        return base
 
+    # GROUP
+    children = []
+    # relation ORM “children” ou requête fallback
+    if hasattr(node, "children"):
+        for c in node.children:
+            children.append(_serialize(c, latest, False, ens_map))
+    else:
+        childs = StockNode.query.filter_by(parent_id=node.id).all()
+        for c in childs:
+            children.append(_serialize(c, latest, False, ens_map))
+
+    base["children"] = children
+    base["is_event_root"] = bool(is_root)
+
+    ens = ens_map.get(int(node.id))
+    if ens:
+        # ces champs sont optionnels en DB -> getattr safe
+        base["charged_vehicle"] = getattr(ens, "charged_vehicle", None)
+        if hasattr(ens, "charged_vehicle_name"):
+            base["charged_vehicle_name"] = getattr(ens, "charged_vehicle_name", None)
+        if getattr(ens, "comment", None):
+            base["comment"] = ens.comment
+
+    return base
 
 def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
-    ev = db.session.get(Event, event_id)
-    if not ev:
-        return []
+    # Récupère les racines attachées à l’événement
+    rows = db.session.execute(
+        event_stock.select().where(event_stock.c.event_id == event_id)
+    ).fetchall()
+    root_ids = [r.node_id for r in rows]
+    root_nodes: List[StockNode] = []
+    if root_ids:
+        root_nodes = StockNode.query.filter(StockNode.id.in_(root_ids)).all()
 
-    # Racines de l'évènement (parents choisis)
-    root_nodes: List[StockNode] = (
-        db.session.query(StockNode)
-        .join(event_stock, event_stock.c.node_id == StockNode.id)
-        .filter(event_stock.c.event_id == event_id)
-        .order_by(StockNode.id.asc())
-        .all()
-    )
-
-    # Collecter tous les ITEM ids (pour batcher les verifs)
+    # Récupère tous les ITEM ids pour batcher les verifs
     item_ids: List[int] = []
     def collect_items(n: StockNode):
         if n.type == NodeType.ITEM:
-            item_ids.append(n.id)
-        for c in n.children:
-            collect_items(c)
+            item_ids.append(int(n.id))
+        else:
+            # fallback relation enfants
+            if hasattr(n, "children") and n.children:
+                for c in n.children:
+                    collect_items(c)
+            else:
+                for c in StockNode.query.filter_by(parent_id=n.id).all():
+                    collect_items(c)
     for r in root_nodes:
         collect_items(r)
 
-    verifs = _latest_verifs_map(event_id, item_ids)
+    latest = _latest_verifs_map(event_id, item_ids)
     ens_map = _ens_map(event_id)
 
-    return [_serialize(r, verifs, True, ens_map) for r in root_nodes]
+    return [_serialize(r, latest, True, ens_map) for r in root_nodes]
+
+# --------- stats (optionnelles) ----------
+def tree_stats(tree: List[Dict[str, Any]]) -> Dict[str, int]:
+    """Calcule un petit récapitulatif OK / NOT_OK / TODO."""
+    items: List[Dict[str, Any]] = []
+
+    def collect(n: Dict[str, Any]):
+        if (n.get("type") or "").upper() == "ITEM":
+            items.append(n)
+        for c in n.get("children") or []:
+            collect(c)
+
+    for r in tree:
+        collect(r)
+
+    def status_of(n: Dict[str, Any]) -> str:
+        s = (n.get("last_status") or "TODO").upper()
+        return "OK" if s == "OK" else ("NOT_OK" if s == "NOT_OK" else "TODO")
+
+    total = len(items)
+    ok = sum(1 for it in items if status_of(it) == "OK")
+    not_ok = sum(1 for it in items if status_of(it) == "NOT_OK")
+    todo = total - ok - not_ok
+    return {"total": total, "ok": ok, "not_ok": not_ok, "todo": todo}
