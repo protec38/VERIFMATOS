@@ -239,3 +239,14 @@ def admin_page():
 
     users = User.query.order_by(User.username.asc()).all()
     return render_template("admin.html", users=users, Role=Role)
+
+# -------------------------
+# Page Péremptions (nouvelle)
+# -------------------------
+@bp.get("/peremption")
+@login_required
+def peremption_page():
+    if not can_view():
+        abort(403)
+    return render_template("peremption.html")
+
