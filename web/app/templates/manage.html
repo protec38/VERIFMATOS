@@ -170,7 +170,41 @@
       if(cat==='j60')     return ['≤60j',   'background:#2a270f;border-color:#b3a100;color:#ffe566'];
       if(cat==='later')   return ['>60j',   'background:#0f2a22;border-color:#17614f;color:#bff3e7'];
       return ['—',        'opacity:.7'];
+    }}
+
+    // --- Création enfant (GROUP/ITEM) ---
+    async function addChild(parentId, type){
+      const name = prompt(type === 'ITEM' ? "Nom de l'item :" : "Nom du sous-parent :");
+      if(!name) return;
+      let payload = { name, type, parent_id: parentId };
+      if(type === 'ITEM'){
+        // demander quantité
+        let q = prompt("Quantité cible (nombre) :", "1");
+        if(q === null) return;
+        q = parseInt(q, 10);
+        if(isNaN(q) || q < 0){ alert("Quantité invalide"); return; }
+        payload.quantity = q;
+        // demander date de péremption optionnelle
+        const ex = prompt("Date de péremption (YYYY-MM-DD) — optionnel :", "");
+        if(ex && !/^\d{4}-\d{2}-\d{2}$/.test(ex)){ alert("Format de date invalide"); return; }
+        if(ex) payload.expiry_date = ex;
+      }
+      try{
+        const r = await fetch('/stock', {
+          method:'POST', credentials:'include',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(payload)
+        });
+        if(!r.ok){
+          const msg = await r.text().catch(()=>'');
+          throw new Error(msg || ('HTTP '+r.status));
+        }
+        await loadTree();
+      }catch(e){
+        alert("Échec création: " + (e.message || e));
+      }
     }
+    
 
 
     function flatten(tree){
@@ -226,6 +260,13 @@
           name.append(' ', b);
         }
         head.append(name);
+        if(n.type === 'GROUP'){
+          const btnBox = h('div', {style:'margin-left:auto; display:flex; gap:6px; align-items:center'});
+          const b1 = h('button', {class:'btn', onclick: ()=> addChild(n.id, 'GROUP')}, '➕ Sous-parent');
+          const b2 = h('button', {class:'btn', onclick: ()=> addChild(n.id, 'ITEM')}, '➕ Item');
+          btnBox.append(b1, b2);
+          head.append(btnBox);
+        }
 
         const actions = h('div', {class:'row'});
         const btnG = h('a', {class:'btn', on: 'click'}, '+Sous-parent');
