@@ -61,6 +61,8 @@
     </div>
     <div class="row wrap" style="margin-top:10px;">
       <a class="btn" target="_blank" href="/reports/event/{{ event.id }}/pdf">Exporter PDF</a>
+      <!-- ✅ Bouton restauré -->
+      <button class="btn primary" id="btn-share">Lien secouristes</button>
       <button class="btn" id="btn-close">Clôturer l'événement</button>
     </div>
   </div>
@@ -96,7 +98,7 @@ let TREE = {{ (tree or [])|tojson }};
 const CURRENT_USER = "{{ (current_user.username if current_user is defined and current_user.is_authenticated else '')|e }}";
 let IS_OPEN = ("{{ event.status }}".toUpperCase() === "OPEN");
 
-// ❌ Boutons “Charger” désactivés côté CHEF/ADMIN (réservé au lien public)
+// ❌ Pas de “Charger” ici (réservé à la page publique)
 const ALLOW_CHARGE = false;
 
 /* ========= State ========= */
@@ -226,7 +228,7 @@ function renderItem(n){
 }
 
 function renderGroup(n){
-  // Badge véhicule (affiché uniquement sur racines événement)
+  // Badge véhicule (affiché sur racines si présent dans le tree)
   const veh = el("span", {class:"vehicle "+(n.charged_vehicle?'on':'off')},
     n.charged_vehicle ? `Chargé sur : ${n.charged_vehicle_name || "—"}` : "Non chargé"
   );
@@ -239,9 +241,7 @@ function renderGroup(n){
 
   const header = el("div", {class:"header"}, headerLeft);
 
-  // ❌ Pas de bouton “Charger” côté chef
-  // (le chargement se fait via le lien public; et seulement au niveau racine)
-
+  // ❌ Aucun bouton “Charger” ici (réservé à la page publique)
   const children = el("div", {class:"childs"}, ...(n.children||[]).map(renderNode));
   const box = el("div", {class:`node ${groupStateClass(n)}`, id:`node-${n.id}`}, header, children);
   GROUP_EL.set(n.id, box);
@@ -279,7 +279,6 @@ function applyItemDelta(local, incoming){
 }
 
 function applyGroupDelta(local, incoming){
-  // véhicule (seulement racines)
   if(local.is_event_root && (typeof incoming.charged_vehicle !== "undefined")){
     local.charged_vehicle = !!incoming.charged_vehicle;
     local.charged_vehicle_name = incoming.charged_vehicle_name || null;
@@ -365,7 +364,22 @@ function verify(nodeId, status){
   .catch(()=>{});
 }
 
-/* ---------- Actions haut ---------- */
+/* ---------- Boutons haut ---------- */
+document.getElementById("btn-share").addEventListener("click", ()=>{
+  fetch(`/events/${EVENT_ID}/share-link`, {method:"POST", credentials:"include"})
+    .then(r=>r.json())
+    .then(res=>{
+      if(res && res.url){
+        const absolute = location.origin + res.url;
+        navigator.clipboard.writeText(absolute).catch(()=>{});
+        alert("Lien secouristes copié : " + absolute);
+      }else{
+        alert("Impossible de générer le lien.");
+      }
+    })
+    .catch(()=> alert("Erreur réseau"));
+});
+
 document.getElementById("btn-close").addEventListener("click", ()=>{
   fetch(`/events/${EVENT_ID}/status`, {
     method:"PATCH", credentials:"include",
