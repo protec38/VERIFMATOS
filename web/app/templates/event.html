@@ -2,7 +2,6 @@
 {% set title = "Événement" %}
 {% block content %}
 
-<!-- Styles spécifiques à cette page (états visuels) -->
 <style>
   .state-ok{
     border-color: var(--success) !important;
@@ -29,14 +28,9 @@
   .chip.bad{background:#2a0e14;color:#ffd5dc;border-color:#75212f}
   .chip.wait{background:#101c2e;color:#b7c7dc;border-color:#24344f}
 
-  /* pas de clignotement */
-  /* .blink{animation: blink .5s ease 1} */
-  /* @keyframes blink{0%{filter:brightness(1.1)}50%{filter:brightness(1.35)}100%{filter:brightness(1)}} */
-
   .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
   .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
 
-  /* ----- Barre parents (nouveau) ----- */
   .parents-card .title{display:flex;align-items:center;gap:10px}
   .parents-bar{display:flex;gap:8px;overflow:auto;padding:8px 2px}
   .parent-pill{
@@ -51,13 +45,9 @@
   .pill-wait{border-color:#24344f;background:#101c2e;color:#b7c7dc}
   .focus-ring{outline:2px solid var(--pc-orange); outline-offset:2px; transition:outline-color .6s ease}
 
-  /* --- Modal chargement véhicule --- */
-  .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.6);z-index:50}
-  .modal.show{display:flex}
-  .modal .box{background:#0f1a2a;border:1px solid var(--border);border-radius:12px;padding:18px;max-width:420px;width:92%}
-  .modal .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
-  .modal input[type=text]{width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:#0f1e2f;color:var(--text)}
-
+  .vehicle{font-size:12px; opacity:.9; padding:2px 6px; border-radius:6px; border:1px dashed var(--border); margin-left:8px}
+  .vehicle.on{background:#0e2a24; color:#bff3e7; border-color:#1d6e5d}
+  .vehicle.off{background:#101c2e; color:#b7c7dc; border-color:#24344f}
 </style>
 
 <div class="grid cols-2">
@@ -71,7 +61,6 @@
     </div>
     <div class="row wrap" style="margin-top:10px;">
       <a class="btn" target="_blank" href="/reports/event/{{ event.id }}/pdf">Exporter PDF</a>
-      <button class="btn primary" id="btn-share">Générer un lien pour les secouristes</button>
       <button class="btn" id="btn-close">Clôturer l'événement</button>
     </div>
   </div>
@@ -88,7 +77,6 @@
   </div>
 </div>
 
-<!-- NOUVEAU : barre de raccourcis parents -->
 <div class="card parents-card" style="margin-top:12px;">
   <div class="title">Parents à vérifier</div>
   <div id="parents-bar" class="parents-bar"></div>
@@ -100,20 +88,7 @@
     <div class="muted">Vert = tout OK • Rouge = au moins un non conforme • Bleu = en attente</div>
   </div>
   <div id="tree" class="tree" style="margin-top:10px;"></div>
-
-<!-- Modal Charger véhicule -->
-<div id="chargeModal" class="modal" aria-hidden="true">
-  <div class="box">
-    <h3 style="margin-top:0">Charger ce parent</h3>
-    <p>Nom du véhicule :</p>
-    <input type="text" id="vehicleInput" placeholder="Ex : VPSP 1 / VL 2" />
-    <div class="actions">
-      <button class="btn" onclick="closeChargeModal()">Annuler</button>
-      <button class="btn primary" onclick="confirmCharge()">Valider</button>
-    </div>
-  </div>
 </div>
-
 
 <script>
 const EVENT_ID = {{ event.id }};
@@ -121,22 +96,24 @@ let TREE = {{ (tree or [])|tojson }};
 const CURRENT_USER = "{{ (current_user.username if current_user is defined and current_user.is_authenticated else '')|e }}";
 let IS_OPEN = ("{{ event.status }}".toUpperCase() === "OPEN");
 
-/* ========= State & index DOM (pour MAJ incrémentales sans re-render) ========= */
-const NODE_MAP = new Map();     // id -> node (dans notre TREE local)
-const GROUP_EL = new Map();     // id -> box DOM du groupe
-const ITEM_EL  = new Map();     // id -> box DOM de l'item
-const ITEM_STATUS_TXT = new Map(); // id -> <div> statut + by
-const ITEM_QTY_TXT = new Map();    // id -> <span> Qté
-const CHARGED_CB = new Map();      // id -> checkbox "chargé"
+// ❌ Boutons “Charger” désactivés côté CHEF/ADMIN (réservé au lien public)
+const ALLOW_CHARGE = false;
 
+/* ========= State ========= */
+const NODE_MAP = new Map();
+const GROUP_EL = new Map();
+const ITEM_EL  = new Map();
+const ITEM_STATUS_TXT = new Map();
+const ITEM_QTY_TXT = new Map();
+const VEH_LABEL = new Map();
+
+/* ---------- Utils ---------- */
 function indexTree(nodes){
   (nodes||[]).forEach(function rec(n){
     NODE_MAP.set(n.id, n);
     (n.children||[]).forEach(rec);
   });
 }
-
-/* -------------------- Helpers DOM -------------------- */
 function el(tag, attrs={}, ...children){
   const e = document.createElement(tag);
   for(const [k,v] of Object.entries(attrs||{})){
@@ -150,12 +127,18 @@ function el(tag, attrs={}, ...children){
 }
 const isItem = n => (n.type||"").toUpperCase()==="ITEM";
 const isGroup = n => (n.type||"").toUpperCase()==="GROUP";
+function normStatus(s){
+  s = (s||"").toUpperCase();
+  if(s==="OK") return "OK";
+  if(s==="NOT_OK" || s==="NOK" || s==="KO" || s==="NOT-OK" || s==="NOTOK") return "NOT_OK";
+  return "PENDING";
+}
 
-/* -------------------- Statuts descendants -------------------- */
+/* ---------- Statuts ---------- */
 function groupAllOk(n){
   let ok = true, hasItem=false;
   (function rec(x){
-    if(isItem(x)){ hasItem=true; ok = ok && (x.last_status==="OK"); }
+    if(isItem(x)){ hasItem=true; ok = ok && (normStatus(x.last_status)==="OK"); }
     (x.children||[]).forEach(rec);
   })(n);
   return hasItem && ok;
@@ -163,7 +146,7 @@ function groupAllOk(n){
 function groupHasBad(n){
   let bad = false;
   (function rec(x){
-    if(isItem(x) && x.last_status==="NOT_OK") bad = true;
+    if(isItem(x) && normStatus(x.last_status)==="NOT_OK") bad = true;
     (x.children||[]).forEach(rec);
   })(n);
   return bad;
@@ -181,12 +164,12 @@ function flattenItems(nodes){
   return out;
 }
 
-/* -------------------- Comptage + progression -------------------- */
+/* ---------- Stats ---------- */
 function recomputeStats(){
   const items = flattenItems(TREE);
   const total = items.length;
-  const ok = items.filter(i=>i.last_status==="OK").length;
-  const bad = items.filter(i=>i.last_status==="NOT_OK").length;
+  const ok = items.filter(i=>normStatus(i.last_status)==="OK").length;
+  const bad = items.filter(i=>normStatus(i.last_status)==="NOT_OK").length;
   const wait = total - ok - bad;
 
   document.getElementById("stat-ok").textContent = `OK : ${ok}`;
@@ -197,10 +180,11 @@ function recomputeStats(){
   document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
 }
 
-/* -------------------- Rendu nœuds (1 fois) -------------------- */
+/* ---------- Rendu ---------- */
 function itemStateClass(n){
-  if(n.last_status==="OK") return "state-ok";
-  if(n.last_status==="NOT_OK") return "state-bad";
+  const s = normStatus(n.last_status);
+  if(s==="OK") return "state-ok";
+  if(s==="NOT_OK") return "state-bad";
   return "state-wait";
 }
 function groupStateClass(n){
@@ -209,21 +193,13 @@ function groupStateClass(n){
   if(s==="BAD") return "state-bad";
   return "state-wait";
 }
-function stateDot(n, isGroupNode){
-  let cls="dot-wait", label="En attente";
-  if(isGroupNode){
-    const s = groupStatus(n);
-    if(s==="OK") { cls="dot-ok"; label="Tout OK"; }
-    else if(s==="BAD") { cls="dot-bad"; label="Non conformes présents"; }
-  } else {
-    if(n.last_status==="OK"){ cls="dot-ok"; label="OK"; }
-    else if(n.last_status==="NOT_OK"){ cls="dot-bad"; label="Non conforme"; }
-  }
-  return el("span", {class:"status-dot "+cls, title:label});
+function statusDot(isOk, isBad){
+  return el("span", {class:"status-dot "+(isOk?"dot-ok":(isBad?"dot-bad":"dot-wait"))});
 }
 
 function renderItem(n){
-  const statusLbl = n.last_status ? (n.last_status==="OK" ? "✅ OK" : "❌ Non conforme") : "⏳ En attente";
+  const s = normStatus(n.last_status);
+  const statusLbl = s==="OK" ? "✅ OK" : (s==="NOT_OK" ? "❌ Non conforme" : "⏳ En attente");
   const by = n.last_by ? ` (${n.last_by})` : "";
   const actionsEnabled = IS_OPEN;
 
@@ -240,7 +216,7 @@ function renderItem(n){
 
   const wrap = el("div", {class:"item "+itemStateClass(n), id:`item-${n.id}`},
     el("div", null,
-      el("div", {class:"name"}, stateDot(n,false), n.name, " ", qtySpan),
+      el("div", {class:"name"}, statusDot(s==="OK", s==="NOT_OK"), " ", n.name, " ", qtySpan),
       statusDiv
     ),
     right
@@ -250,32 +226,22 @@ function renderItem(n){
 }
 
 function renderGroup(n){
-  const cb = el("input", {
-    type:"checkbox", id:`charged-${n.id}`, disabled:!IS_OPEN,
-    onchange:(e)=>{
-      // si on coche -> ouverture popup pour saisir véhicule
-      if(e.target.checked){
-        e.target.checked = false; // on attend la confirmation
-        openChargeModal(n.id);
-      }else{
-        // décocher = décharger immédiatement
-        setCharged(n.id, false);
-      }
-    }
-  });
-  if(n.charged_vehicle) cb.checked = true;
-  CHARGED_CB.set(n.id, cb);
-
-  const chargeBtn = el("button", {
-    class:"btn primary",
-    disabled: !IS_OPEN,
-    onclick: ()=> openChargeModal(n.id)
-  }, "Charger…");
-
-  const header = el("div", {class:"header"},
-    el("div", {class:"name"}, stateDot(n,true), n.name),
-    el("div", {class:"check"}, cb, el("span", null, "Marqué chargé"), chargeBtn)
+  // Badge véhicule (affiché uniquement sur racines événement)
+  const veh = el("span", {class:"vehicle "+(n.charged_vehicle?'on':'off')},
+    n.charged_vehicle ? `Chargé sur : ${n.charged_vehicle_name || "—"}` : "Non chargé"
   );
+  VEH_LABEL.set(n.id, veh);
+
+  const headerLeft = el("div", {class:"name"},
+    statusDot(groupStatus(n)==="OK", groupStatus(n)==="BAD"), " ", n.name,
+    n.is_event_root ? veh : null
+  );
+
+  const header = el("div", {class:"header"}, headerLeft);
+
+  // ❌ Pas de bouton “Charger” côté chef
+  // (le chargement se fait via le lien public; et seulement au niveau racine)
+
   const children = el("div", {class:"childs"}, ...(n.children||[]).map(renderNode));
   const box = el("div", {class:`node ${groupStateClass(n)}`, id:`node-${n.id}`}, header, children);
   GROUP_EL.set(n.id, box);
@@ -288,13 +254,13 @@ function buildUIOnce(){
   root.innerHTML = "";
   indexTree(TREE);
   (TREE||[]).forEach(n => root.appendChild(renderNode(n)));
-  buildParentsBar();      // <<< nouveau
+  buildParentsBar();
   recomputeStats();
 }
 
-/* -------------------- MAJ incrémentales (sans re-render) -------------------- */
+/* ---------- MAJ incrémentales ---------- */
 function applyItemDelta(local, incoming){
-  local.last_status = (incoming.last_status || "PENDING").toUpperCase();
+  local.last_status = normStatus(incoming.last_status || "PENDING");
   local.last_by = incoming.last_by || "";
   if(incoming.quantity != null) local.quantity = incoming.quantity;
 
@@ -306,87 +272,80 @@ function applyItemDelta(local, incoming){
   box.classList.remove("state-ok","state-bad","state-wait");
   box.classList.add(itemStateClass(local));
 
-  const label = local.last_status==="OK" ? "✅ OK" : (local.last_status==="NOT_OK" ? "❌ Non conforme" : "⏳ En attente");
+  const s = normStatus(local.last_status);
+  const label = s==="OK" ? "✅ OK" : (s==="NOT_OK" ? "❌ Non conforme" : "⏳ En attente");
   if(statusDiv) statusDiv.textContent = `Dernier statut: ${label}${local.last_by ? " ("+local.last_by+")" : ""}`;
   if(qtySpan) qtySpan.textContent = `Qté: ${local.quantity ?? 1}`;
 }
 
-function applyGroupDelta(local){
+function applyGroupDelta(local, incoming){
+  // véhicule (seulement racines)
+  if(local.is_event_root && (typeof incoming.charged_vehicle !== "undefined")){
+    local.charged_vehicle = !!incoming.charged_vehicle;
+    local.charged_vehicle_name = incoming.charged_vehicle_name || null;
+    const lab = VEH_LABEL.get(local.id);
+    if(lab){
+      lab.classList.toggle("on", !!local.charged_vehicle);
+      lab.classList.toggle("off", !local.charged_vehicle);
+      lab.textContent = local.charged_vehicle ? `Chargé sur : ${local.charged_vehicle_name || "—"}` : "Non chargé";
+    }
+  }
   const box = GROUP_EL.get(local.id);
   if(!box) return;
   box.classList.remove("state-ok","state-bad","state-wait");
   box.classList.add(groupStateClass(local));
 }
 
-/* ------- BARRE PARENTS (création/MAJ) ------- */
-function buildParentsBar(){
-  const holder = document.getElementById("parents-bar");
-  if(!holder) return;
-  holder.innerHTML = "";
-
-  const parents = Array.isArray(TREE) ? TREE.filter(n => isGroup(n)) : [];
-  parents.forEach(p => {
-    const s = groupStatus(p);
-    const pillClass = s==="OK" ? "pill-ok" : (s==="BAD" ? "pill-bad" : "pill-wait");
-    const pill = el("div", {class:"parent-pill "+pillClass, onclick:()=>scrollToParent(p.id)},
-      stateDot(p,true),
-      el("span", {class:"strong"}, p.name)
-    );
-    holder.appendChild(pill);
-  });
-}
-function updateParentsBarOnly(){
-  // met à jour simplement les classes des pastilles sans tout reconstruire (optionnel)
-  const parents = Array.isArray(TREE) ? TREE.filter(n => isGroup(n)) : [];
-  const holder = document.getElementById("parents-bar");
-  if(!holder) return;
-  const pills = holder.children;
-  parents.forEach((p, idx) => {
-    const s = groupStatus(p);
-    const cls = s==="OK" ? "pill-ok" : (s==="BAD" ? "pill-bad" : "pill-wait");
-    const elP = pills[idx];
-    if(!elP) return;
-    elP.classList.remove("pill-ok","pill-bad","pill-wait");
-    elP.classList.add(cls);
-    // met à jour la puce de statut (premier child)
-    const dot = elP.querySelector('.status-dot');
-    if(dot){
-      dot.classList.remove('dot-ok','dot-bad','dot-wait');
-      dot.classList.add(s==="OK"?'dot-ok':(s==="BAD"?'dot-bad':'dot-wait'));
-    }
-  });
-}
-function scrollToParent(id){
-  const target = document.getElementById("node-"+id);
-  if(!target) return;
-  target.scrollIntoView({behavior:"smooth", block:"start"});
-  setTimeout(()=>{ window.scrollBy({top:-70, left:0, behavior:"instant"}); }, 300);
-  target.classList.add("focus-ring");
-  setTimeout(()=> target.classList.remove("focus-ring"), 1200);
-}
-
-/* met à jour localement puis rafraîchit barre parents + stats */
-function syncTreeIncoming(incomingNodes){
-  (incomingNodes||[]).forEach(function recInc(nInc){
+function syncTreeIncoming(incomingRoots){
+  (incomingRoots||[]).forEach(function recInc(nInc){
     const nLoc = NODE_MAP.get(nInc.id);
     if(!nLoc) return;
     if(isItem(nLoc)){
       applyItemDelta(nLoc, nInc);
     } else {
-      if(typeof nInc.charged_vehicle !== "undefined"){
+      if(nLoc.is_event_root){
         nLoc.charged_vehicle = !!nInc.charged_vehicle;
-        const cb = CHARGED_CB.get(nLoc.id);
-        if(cb) cb.checked = nLoc.charged_vehicle;
+        nLoc.charged_vehicle_name = nInc.charged_vehicle_name || null;
       }
       (nInc.children||[]).forEach(recInc);
-      applyGroupDelta(nLoc);
+      applyGroupDelta(nLoc, nInc);
     }
   });
   updateParentsBarOnly();
   recomputeStats();
 }
 
-/* -------------------- API calls -------------------- */
+/* ---------- Barre Parents ---------- */
+function buildParentsBar(){
+  const holder = document.getElementById("parents-bar");
+  if(!holder) return;
+  holder.innerHTML = "";
+  const parents = (TREE||[]).filter(n => isGroup(n));
+  parents.forEach(p => {
+    const s = groupStatus(p);
+    const pillClass = s==="OK" ? "pill-ok" : (s==="BAD" ? "pill-bad" : "pill-wait");
+    const pill = el("div", {class:"parent-pill "+pillClass, onclick:()=>scrollToParent(p.id)},
+      statusDot(s==="OK", s==="BAD"),
+      el("span", {class:"strong"}, p.name),
+      p.charged_vehicle ? el("span", {class:"vehicle on"}, p.charged_vehicle_name || "—") : null
+    );
+    holder.appendChild(pill);
+  });
+}
+function updateParentsBarOnly(){
+  const holder = document.getElementById("parents-bar");
+  if(!holder) return;
+  holder.innerHTML = "";
+  buildParentsBar();
+}
+function scrollToParent(id){
+  const target = document.getElementById("node-"+id);
+  if(!target) return;
+  target.scrollIntoView({behavior:"smooth", block:"start"});
+  setTimeout(()=>{ window.scrollBy({top:-70, left:0, behavior:"instant"}); }, 300);
+}
+
+/* ---------- API ---------- */
 async function refreshTree(){
   try{
     const r = await fetch(`/events/${EVENT_ID}/tree`, {credentials:"include"});
@@ -396,34 +355,17 @@ async function refreshTree(){
   }catch(_){}
 }
 function verify(nodeId, status){
-  const payload = { node_id: nodeId, status, verifier_name: CURRENT_USER || undefined };
+  const payload = { node_id: nodeId, status, verifier_name: CURRENT_USER || "op" };
   fetch(`/events/${EVENT_ID}/verify`, {
     method:"POST", credentials:"include",
     headers:{"Content-Type":"application/json"},
     body: JSON.stringify(payload)
   })
-  .then(res=>res.ok?refreshTree():null)
+  .then(res=>res.ok?refreshTree():res.text().then(t=>alert(t)))
   .catch(()=>{});
 }
-function setCharged(nodeId, checked){
-  fetch(`/events/${EVENT_ID}/parent-status`, {
-    method:"POST", credentials:"include",
-    headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({node_id: nodeId, charged_vehicle: checked})
-  }).then(()=> refreshTree());
-}
 
-/* -------------------- Actions haut de page -------------------- */
-document.getElementById("btn-share").addEventListener("click", ()=>{
-  fetch(`/events/${EVENT_ID}/share-link`, {method:"POST", credentials:"include"})
-    .then(r=>r.json()).then(res=>{
-      if(res.url){
-        const absolute = location.origin + res.url;
-        navigator.clipboard.writeText(absolute);
-        alert("Lien copié : " + absolute);
-      }
-    });
-});
+/* ---------- Actions haut ---------- */
 document.getElementById("btn-close").addEventListener("click", ()=>{
   fetch(`/events/${EVENT_ID}/status`, {
     method:"PATCH", credentials:"include",
@@ -438,71 +380,10 @@ document.getElementById("btn-close").addEventListener("click", ()=>{
   });
 });
 
-/* ------- Modal 'Charger' ------- */
-let CHARGE_TARGET_ID = null;
-function openChargeModal(nodeId){
-  if(!IS_OPEN){ alert("Événement fermé."); return; }
-  const node = NODE_MAP.get(nodeId);
-  if(!node){ alert("Parent introuvable"); return; }
-  // Vérifier que tous les descendants sont OK
-  if(!groupAllOk(node)){
-    alert("Impossible de charger : tous les sous-éléments doivent être OK.");
-    return;
-  }
-  CHARGE_TARGET_ID = nodeId;
-  document.getElementById("chargeModal").classList.add("show");
-  const input = document.getElementById("vehicleInput");
-  input.value = "";
-  input.focus();
-}
-function closeChargeModal(){
-  document.getElementById("chargeModal").classList.remove("show");
-  CHARGE_TARGET_ID = null;
-}
-async function confirmCharge(){
-  const input = document.getElementById("vehicleInput");
-  const vehicle = (input.value || "").trim();
-  if(!vehicle){ alert("Merci d'indiquer le nom du véhicule."); return; }
-  const nodeId = CHARGE_TARGET_ID;
-  if(!nodeId){ return; }
-
-  try{
-    // 1) Obtenir (ou créer) un token de lien public
-    const lr = await fetch(`/events/${EVENT_ID}/share-link`, {method:"POST", credentials:"include"});
-    const lj = await lr.json();
-    if(!lj || !lj.token){ throw new Error("Lien public indisponible"); }
-    const token = lj.token;
-
-    // 2) Appel endpoint public pour enregistrer le nom du véhicule + verrou charger
-    const r1 = await fetch(`/public/event/${token}/charge`, {
-      method:"POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ node_id: nodeId, vehicle_name: vehicle, operator_name: CURRENT_USER || "" })
-    });
-    if(!r1.ok){
-      const err = await r1.json().catch(()=>({}));
-      throw new Error(err.error || "Échec du chargement");
-    }
-
-    // 3) Mettre le flag interne (pour broadcast SocketIO et cohérence)
-    await fetch(`/events/${EVENT_ID}/parent-status`, {
-      method:"POST", credentials:"include",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ node_id: nodeId, charged_vehicle: true })
-    });
-
-    const cb = CHARGED_CB.get(nodeId);
-    if(cb) cb.checked = true;
-    closeChargeModal();
-    refreshTree();
-  }catch(e){
-    alert(e.message || "Erreur réseau");
-  }
-}
-
-
-/* -------------------- Premier rendu + polling doux -------------------- */
-buildUIOnce();                     // construit 1 seule fois
-setInterval(refreshTree, 2000);    // met à jour uniquement les éléments modifiés (zéro clignotement)
+/* ---------- Init ---------- */
+(function init(){
+  buildUIOnce();
+  setInterval(refreshTree, 2000);
+})();
 </script>
 {% endblock %}
