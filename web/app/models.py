@@ -1,208 +1,146 @@
-# app/models.py
+# app/models.py — Modèles SQLAlchemy
 from __future__ import annotations
-from datetime import datetime, date
+import enum
+from datetime import datetime
 from typing import Optional
-
+from werkzeug.security import generate_password_hash, check_password_hash
+from sqlalchemy import CheckConstraint, UniqueConstraint, Index
+from sqlalchemy.dialects.postgresql import JSONB
 from flask_login import UserMixin
-from sqlalchemy import (
-    Column, Integer, String, Enum, Boolean, Date, DateTime, ForeignKey, Table,
-    func, Index, UniqueConstraint, Text
-)
-from sqlalchemy.orm import relationship, Mapped, mapped_column
-
 from . import db
 
+# ---- Rôles utilisateurs ----
+class Role(enum.Enum):
+    ADMIN = "admin"
+    CHEF = "chef"
+    VIEWER = "viewer"  # lecture seule
 
-# =========================
-# Enums
-# =========================
-class Role(str, Enum):
-    ADMIN = "ADMIN"
-    CHEF = "CHEF"
-    VIEWER = "VIEWER"
-
-
-class NodeType(str, Enum):
-    GROUP = "GROUP"
-    ITEM = "ITEM"
-
-
-class EventStatus(str, Enum):
-    OPEN = "OPEN"
-    CLOSED = "CLOSED"
-
-
-# Présent pour compat reports/utils & calculs
-class ItemStatus(str, Enum):
-    OK = "OK"
-    NOT_OK = "NOT_OK"
-    PENDING = "PENDING"
-
-
-# =========================
-# User
-# =========================
 class User(UserMixin, db.Model):
     __tablename__ = "users"
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.Enum(Role), nullable=False, default=Role.CHEF)
+    is_active = db.Column(db.Boolean, default=True)
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    username: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, index=True)
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[Role] = mapped_column(Enum(Role), nullable=False, default=Role.ADMIN)
-    # actif ou non (Flask-Login utilisera la property is_active, ci-dessous)
-    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now()
-    )
+    def set_password(self, raw: str):
+        self.password_hash = generate_password_hash(raw)
 
-    # Flask-Login glue
+    def check_password(self, raw: str) -> bool:
+        return check_password_hash(self.password_hash, raw)
+
     @property
-    def is_active(self) -> bool:  # ne pas setter; Flask-Login lit seulement
-        return bool(self.active)
+    def can_manage_users(self) -> bool:
+        return self.role == Role.ADMIN
 
-    def get_id(self) -> str:
-        return str(self.id)
+    @property
+    def can_manage_events(self) -> bool:
+        return self.role in (Role.ADMIN, Role.CHEF)
 
+# ---- Événements ----
+class EventStatus(enum.Enum):
+    OPEN = "open"
+    CLOSED = "closed"
 
-# =========================
-# Arbre de stock
-# =========================
-class StockNode(db.Model):
-    __tablename__ = "stock_nodes"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(String(200), nullable=False)
-    type: Mapped[NodeType] = mapped_column(Enum(NodeType), nullable=False)
-    parent_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("stock_nodes.id"), nullable=True)
-    level: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-
-    parent = relationship("StockNode", remote_side=[id], backref="children", lazy="joined")
-
-
-# =========================
-# Événements
-# =========================
 class Event(db.Model):
     __tablename__ = "events"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    date = db.Column(db.Date, nullable=True)
+    status = db.Column(db.Enum(EventStatus), nullable=False, default=EventStatus.OPEN)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    created_by = db.relationship("User", backref="events")
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(String(200), nullable=False)
-    date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    status: Mapped[EventStatus] = mapped_column(Enum(EventStatus), nullable=False, default=EventStatus.OPEN)
-    created_by_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-
-    created_by = relationship("User", lazy="joined")
-
-
-# Association: évènement ↔ racines à vérifier
-event_stock = Table(
-    "event_stock",
-    db.metadata,
-    Column("event_id", Integer, ForeignKey("events.id", ondelete="CASCADE"), primary_key=True),
-    Column("node_id", Integer, ForeignKey("stock_nodes.id", ondelete="CASCADE"), primary_key=True),
-)
-
-
-# =========================
-# Lien de partage public
-# =========================
+# Lien public de partage pour secouristes (pas de compte requis)
 class EventShareLink(db.Model):
     __tablename__ = "event_share_links"
+    id = db.Column(db.Integer, primary_key=True)
+    token = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    event_id = db.Column(db.Integer, db.ForeignKey("events.id"), nullable=False)
+    active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    event = db.relationship("Event", backref="share_links")
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    event_id: Mapped[int] = mapped_column(Integer, ForeignKey("events.id", ondelete="CASCADE"), nullable=False, index=True)
-    token: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
-    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+# ---- Stock hiérarchique ≤ 5 niveaux ----
+class NodeType(enum.Enum):
+    GROUP = "group"  # parent/sous-parent/sous-sous-...
+    ITEM = "item"    # enfant vérifiable avec quantité
 
-    event = relationship("Event", lazy="joined")
-
-    __table_args__ = (
-        UniqueConstraint("token", name="uq_share_token"),
-    )
-
-
-# =========================
-# État par parent dans l'événement (chargé etc.)
-# =========================
-class EventNodeStatus(db.Model):
-    __tablename__ = "event_node_status"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    event_id: Mapped[int] = mapped_column(Integer, ForeignKey("events.id", ondelete="CASCADE"), nullable=False, index=True)
-    node_id: Mapped[int] = mapped_column(Integer, ForeignKey("stock_nodes.id", ondelete="CASCADE"), nullable=False, index=True)
-
-    # ancien champ présent dans ton code
-    charged_vehicle: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-
-    # >>> Nouveaux champs pour “Chargé dans véhicule”
-    charged_vehicle_name: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)  # ex. VSAV-1
-    charged_by: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)            # qui a cliqué
-    charged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-
-    # Optionnel : note libre / anomalie parent
-    note: Mapped[Optional[Text]] = mapped_column(Text, nullable=True)
-
-    event = relationship("Event", lazy="joined")
-    node = relationship("StockNode", lazy="joined")
+class StockNode(db.Model):
+    __tablename__ = "stock_nodes"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    type = db.Column(db.Enum(NodeType), nullable=False, default=NodeType.GROUP)
+    # 0 = racine (ex: SAC PS BLEU, AMBULANCE 1, TABLE, CHAISE...)
+    level = db.Column(db.Integer, nullable=False, default=0)
+    parent_id = db.Column(db.Integer, db.ForeignKey("stock_nodes.id"), nullable=True)
+    parent = db.relationship("StockNode", remote_side=[id], backref="children")
+    # quantité uniquement pertinente pour ITEM
+    quantity = db.Column(db.Integer, nullable=True)
 
     __table_args__ = (
-        Index("ix_event_node_status_event_id", "event_id"),
-        Index("ix_event_node_status_node_id", "node_id"),
-        UniqueConstraint("event_id", "node_id", name="uq_event_node_status_unique"),
+        CheckConstraint("level >= 0 AND level <= 5", name="ck_level_0_5"),
     )
 
+    def is_leaf(self) -> bool:
+        return self.type == NodeType.ITEM
 
-# =========================
-# Vérifications (historique)
-# =========================
+# Association: sélection des racines de stock pour un événement
+event_stock = db.Table(
+    "event_stock",
+    db.Column("event_id", db.Integer, db.ForeignKey("events.id"), primary_key=True),
+    db.Column("node_id", db.Integer, db.ForeignKey("stock_nodes.id"), primary_key=True),
+)
+
+# ---- Vérifications / temps réel ----
+class ItemStatus(enum.Enum):
+    TODO = "todo"
+    OK = "ok"
+    NOT_OK = "not_ok"  # manquant / non conforme
+
+# Historique des vérifications d'items (enfants)
 class VerificationRecord(db.Model):
     __tablename__ = "verification_records"
+    id = db.Column(db.Integer, primary_key=True)
+    event_id = db.Column(db.Integer, db.ForeignKey("events.id"), nullable=False, index=True)
+    node_id = db.Column(db.Integer, db.ForeignKey("stock_nodes.id"), nullable=False, index=True)  # ITEM uniquement
+    status = db.Column(db.Enum(ItemStatus), nullable=False, default=ItemStatus.OK)
+    verifier_name = db.Column(db.String(120), nullable=False)  # saisi sur la page publique
+    comment = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    event_id: Mapped[int] = mapped_column(Integer, ForeignKey("events.id", ondelete="CASCADE"), nullable=False, index=True)
-    node_id: Mapped[int] = mapped_column(Integer, ForeignKey("stock_nodes.id", ondelete="CASCADE"), nullable=False, index=True)
-    status: Mapped[ItemStatus] = mapped_column(Enum(ItemStatus), nullable=False)
-    verifier_name: Mapped[str] = mapped_column(String(120), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
-    )
-
-    event = relationship("Event", lazy="joined")
-    node = relationship("StockNode", lazy="joined")
+    event = db.relationship("Event", backref="verifications")
+    node = db.relationship("StockNode")
 
     __table_args__ = (
         Index("ix_verif_event_node_time", "event_id", "node_id", "created_at"),
     )
 
+# Statut par parent pour l'événement (ex: 'Chargé dans le véhicule')
+class EventNodeStatus(db.Model):
+    __tablename__ = "event_node_status"
+    id = db.Column(db.Integer, primary_key=True)
+    event_id = db.Column(db.Integer, db.ForeignKey("events.id"), nullable=False, index=True)
+    node_id = db.Column(db.Integer, db.ForeignKey("stock_nodes.id"), nullable=False, index=True)  # GROUP uniquement
+    charged_vehicle = db.Column(db.Boolean, default=False, nullable=False)
+    comment = db.Column(db.Text, nullable=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
-# =========================
-# Audit (optionnel)
-# =========================
-class AuditLog(db.Model):
-    __tablename__ = "audit_logs"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    action: Mapped[str] = mapped_column(String(80), nullable=False)
-    event_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("events.id", ondelete="CASCADE"), nullable=True)
-    node_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("stock_nodes.id", ondelete="CASCADE"), nullable=True)
-    message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_by: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
+    __table_args__ = (
+        UniqueConstraint("event_id", "node_id", name="uq_event_node_unique"),
     )
 
-    event = relationship("Event", lazy="joined")
-    node = relationship("StockNode", lazy="joined")
+    event = db.relationship("Event")
+    node = db.relationship("StockNode")
+
+# ---- Audit minimal (RGPD/export possible) ----
+class AuditLog(db.Model):
+    __tablename__ = "audit_logs"
+    id = db.Column(db.Integer, primary_key=True)
+    ts = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)  # public pages -> null
+    action = db.Column(db.String(120), nullable=False)
+    meta = db.Column(JSONB, nullable=True)
+
+    user = db.relationship("User")
