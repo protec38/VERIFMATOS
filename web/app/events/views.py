@@ -123,7 +123,8 @@ def create_event():
     added = 0
     for rid in sorted(set(root_ids)):
         root = db.session.get(StockNode, rid)
-        if not root or root.type != NodeType.GROUP or root.level != 0:
+        # ✅ racine = parent_id is None (et de type GROUP)
+        if not root or root.type != NodeType.GROUP or root.parent_id is not None:
             continue
         db.session.execute(event_stock.insert().values(event_id=ev.id, node_id=root.id))
         added += 1
