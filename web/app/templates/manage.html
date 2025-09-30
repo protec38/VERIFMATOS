@@ -144,6 +144,35 @@
       return el;
     }
 
+    // --- Péremption helpers ---
+    function daysUntilISO(iso){ // iso: 'YYYY-MM-DD'
+      if(!iso) return null;
+      try{
+        const [y,m,d] = iso.split('-').map(x=>parseInt(x,10));
+        const dt = new Date(Date.UTC(y, m-1, d));
+        const now = new Date();
+        const todayUTC = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+        const diff = (dt.getTime() - todayUTC) / 86400000;
+        return Math.floor(diff);
+      }catch(e){ return null; }
+    }
+    function perempCategory(iso){
+      const k = daysUntilISO(iso);
+      if(k === null) return 'no_date';
+      if(k < 0) return 'expired';
+      if(k <= 30) return 'j30';
+      if(k <= 60) return 'j60';
+      return 'later';
+    }
+    function perempBadge(cat){
+      if(cat==='expired') return ['Périmé', 'background:#2a1111;border-color:#a33;color:#ffdce1'];
+      if(cat==='j30')     return ['≤30j',   'background:#2a1b0f;border-color:#b86b00;color:#ffd8a8'];
+      if(cat==='j60')     return ['≤60j',   'background:#2a270f;border-color:#b3a100;color:#ffe566'];
+      if(cat==='later')   return ['>60j',   'background:#0f2a22;border-color:#17614f;color:#bff3e7'];
+      return ['—',        'opacity:.7'];
+    }
+
+
     function flatten(tree){
       const out = [];
       (function walk(n, path){
@@ -189,6 +218,13 @@
         const name = h('div', {class:'name'}, n.name + `  (lvl ${n.level}, ${n.type})`);
         name.style.cursor = 'pointer';
         name.onclick = () => selectNode(n.id);
+        // Péremption badge pour ITEM
+        if(n.type === 'ITEM'){
+          const cat = perempCategory(n.expiry_date);
+          const [lbl, style] = perempBadge(cat);
+          const b = h('span', {class:'badge', style:'margin-left:8px;'+style}, lbl);
+          name.append(' ', b);
+        }
         head.append(name);
 
         const actions = h('div', {class:'row'});
