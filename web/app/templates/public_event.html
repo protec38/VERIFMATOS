@@ -3,6 +3,28 @@
 {% block content %}
 
 <style>
+  .state-ok{border-color:var(--success)!important;background:radial-gradient(400px 120px at top right, rgba(18,184,134,.07), transparent),var(--bg-2);box-shadow:0 0 0 1px rgba(18,184,134,.35) inset,0 0 18px rgba(18,184,134,.15)}
+  .state-bad{border-color:var(--danger)!important;background:radial-gradient(400px 120px at top right, rgba(255,107,107,.07), transparent),var(--bg-2);box-shadow:0 0 0 1px rgba(255,107,107,.30) inset,0 0 18px rgba(255,107,107,.12)}
+  .state-wait{border-color:var(--border)!important;background:radial-gradient(400px 120px at top left, rgba(45,123,191,.08), transparent),var(--bg-2)}
+  .chip{padding:4px 8px;border-radius:999px;font-weight:800;font-size:12px;border:1px solid var(--border)}
+  .chip.ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
+  .chip.bad{background:#2a0e14;color:#ffd5dc;border-color:#75212f}
+  .chip.wait{background:#101c2e;color:#b7c7dc;border-color:#24344f}
+  .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
+  .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
+  .parents-card .title{display:flex;align-items:center;gap:10px}
+  .parents-bar{display:flex;gap:8px;overflow:auto;padding:8px 2px}
+  .parent-pill{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;border:1px solid var(--border);cursor:pointer}
+  .parent-pill .name{font-weight:700}
+  .parent-pill .vehicle{color:var(--muted);font-size:12px}
+  .parent-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
+  .btn-sm{border:1px solid var(--border);background:var(--bg-3);padding:6px 10px;border-radius:999px;cursor:pointer}
+  .btn-sm:disabled{opacity:.5;cursor:not-allowed}
+  .suggest{display:flex;align-items:center;gap:8px;color:#c1d7f5}
+  .suggest .kbd{border:1px solid #3f5577;padding:2px 6px;border-radius:6px;background:#0c1b30}
+  .legend{display:flex;gap:8px;flex-wrap:wrap}
+  .legend .chip{font-size:11px;font-weight:700}
+  .legend .chip .status-dot{margin-right:6px}
   .wrap{max-width:1100px;margin:20px auto;padding:0 14px}
   .header{display:flex;align-items:center;justify-content:space-between;margin:10px 0 18px}
   .h1{font-size:22px;margin:0}
@@ -17,11 +39,8 @@
   .item{display:flex;justify-content:space-between;gap:8px;border:1px dashed var(--border-2);padding:10px;border-radius:10px}
   .group{border:1px solid var(--border);padding:10px;border-radius:10px}
   .children{display:flex;flex-direction:column;gap:10px;margin-top:8px}
-  .chip{padding:3px 8px;border-radius:999px;border:1px solid var(--border);font-weight:700}
-  .chip.ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
-  .chip.bad{background:#2a0e14;color:#ffd5dc;border-color:#75212f}
-  .chip.todo{background:#101c2e;color:#b7c7dc;border-color:#24344f}
   .small{font-size:12px}
+  .kbd{border:1px solid var(--border);padding:2px 6px;border-radius:6px;background:var(--bg-3)}
   dialog{border:1px solid var(--border);background:var(--bg-2);color:var(--text);border-radius:12px}
   dialog input{background:var(--bg-3);color:var(--text);border:1px solid var(--border);padding:8px;border-radius:10px}
 </style>
@@ -36,6 +55,22 @@
       <span class="muted small">Opérateur</span>
       <input id="opFullName" placeholder="Nom Prénom" />
       <button class="btn" onclick="saveOperator()">OK</button>
+    </div>
+  </div>
+
+  <div class="legend small card">
+    <div class="row">
+      <span class="chip wait"><span class="status-dot dot-wait"></span>À vérifier</span>
+      <span class="chip ok"><span class="status-dot dot-ok"></span>OK</span>
+      <span class="chip bad"><span class="status-dot dot-bad"></span>Non conforme</span>
+      <span class="muted">Astuce : tape "<span class="kbd">/</span>" pour filtrer</span>
+    </div>
+  </div>
+
+  <div id="parents" class="card parents-card">
+    <div class="title">
+      <strong>Parents (racines) inclus dans l'évènement</strong>
+      <div class="parents-bar" id="parentsBar"></div>
     </div>
   </div>
 
@@ -77,10 +112,29 @@
     document.getElementById("idModal").close();
   }
 
+  // ----- API -----
+  async function refreshTree(){
+    try{
+      const r = await fetch(`/public/event/{{ token }}/tree`);
+      if(!r.ok) return;
+      const latest = await r.json();
+      syncTreeIncoming(latest);
+    }catch(_){}
+  }
+
+  function notifyFromResponse(res){
+    if(!res.ok){
+      return res.json().then(j=>{
+        alert(j && (j.error||j.message) ? (j.error||j.message) : "Action impossible.");
+      }).catch(()=>res.text().then(t=>alert(t || "Action impossible.")));
+    }
+    return Promise.resolve();
+  }
+
   // ----- UI -----
   function el(tag, props, ...children){
     const n = document.createElement(tag);
-    if(props) for(const k of Object.keys(props)){ 
+    if(props) for(const k of Object.keys(props)){
       if(k === "class") n.className = props[k];
       else if(k.startsWith("on") && typeof props[k] === "function") n.addEventListener(k.substring(2), props[k]);
       else n.setAttribute(k, props[k]);
@@ -104,12 +158,12 @@
   function renderNode(n, isRoot){
     NODE_MAP.set(n.id, n);
     if((n.type||"").toUpperCase() === "ITEM"){
-      const chip = el("span",{class:"chip " + (n.last_status==="OK"?"ok":(n.last_status==="NOT_OK"?"bad":"todo"))},
-        n.last_status==="OK"?"OK":(n.last_status==="NOT_OK"?"Non conforme":"En attente")
+      const chip = el("span",{class:"chip " + (n.last_status==="OK"?"ok":(n.last_status==="NOT_OK"?"bad":"wait"))},
+        n.last_status==="OK"?"OK":(n.last_status==="NOT_OK"?"Non conforme":"À vérifier")
       );
       const btns = el("div",{class:"row"},
-        el("button",{class:"btn success", onclick:()=>verify(n.id,"ok")}, "OK"),
-        el("button",{class:"btn ghost", onclick:()=>verify(n.id,"not_ok")}, "Non conforme"),
+        el("button",{class:"btn success", onclick:()=>verify(n.id,"OK")}, "OK"),
+        el("button",{class:"btn ghost", onclick:()=>verify(n.id,"NOT_OK")}, "Non conforme"),
       );
       const right = el("div",{}, chip, el("div",{class:"small muted"}, n.last_by?`(${n.last_by})`:""), btns);
       return el("div",{class:"item"}, el("div",{}, n.name), right);
@@ -124,41 +178,58 @@
   }
 
   function syncTreeIncoming(latest){
-    // remplace entièrement (plus simple et sûr)
     TREE = latest || [];
     renderTree();
+    // Render parents bar
+    const bar = document.getElementById("parentsBar");
+    bar.innerHTML = "";
+    (TREE||[]).forEach(root=>{
+      const pill = document.createElement("div");
+      pill.className = "parent-pill";
+      pill.onclick = ()=> openChargeModal(root.id, root.charged_vehicle_name||"");
+      pill.innerHTML = `
+        <span class="status-dot ${root.charged_vehicle ? "dot-ok":"dot-wait"}"></span>
+        <span class="name">${root.name}</span>
+        <span class="vehicle">${root.charged_vehicle_name ? root.charged_vehicle_name : ""}</span>
+        <span class="parent-actions">
+          <button class="btn-sm">${root.charged_vehicle ? "Modifier" : "Marquer chargé"}</button>
+        </span>`;
+      bar.appendChild(pill);
+    });
   }
 
-  // ----- API -----
-  async function refreshTree(){
-    try{
-      const r = await fetch(`/public/event/${TOKEN}/tree`);
-      if(!r.ok) return;
-      const latest = await r.json();
-      syncTreeIncoming(latest);
-    }catch(_){}
-  }
-
-  function notifyFromResponse(res){
-    if(!res.ok){
-      return res.json().then(j=>{
-        alert(j && (j.error||j.message) ? (j.error||j.message) : "Action impossible.");
-      }).catch(()=>res.text().then(t=>alert(t || "Action impossible.")));
-    }
-    return Promise.resolve();
-  }
-
-  function verify(nodeId, statusLower){ // statusLower: "ok" | "not_ok"
+  function verify(nodeId, status){
     const name = requireOperatorName();
     if(!name) return;
-    const payload = { node_id: nodeId, status: statusLower, verifier_name: name };
-    fetch(`/public/event/${TOKEN}/verify`, {
+    const payload = { node_id: nodeId, status, verifier_name: name };
+    fetch(`/public/event/{{ token }}/verify`, {
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body: JSON.stringify(payload)
     })
     .then(res => notifyFromResponse(res).then(()=> res.ok && refreshTree()))
     .catch(()=>{});
+  }
+
+  // charge modal & call
+  let CURRENT_PARENT_ID = null;
+  function openChargeModal(nodeId, vehicle){
+    CURRENT_PARENT_ID = nodeId;
+    const v = prompt("Nom du véhicule (laisser vide pour annuler)", vehicle||"");
+    if(v==null) return;
+    setImmediate(()=> chargeParent(nodeId, v.trim()));
+  }
+  async function chargeParent(nodeId, vehicle){
+    const op = getSavedName();
+    if(!vehicle) return;
+    try{
+      const r = await fetch(`/public/event/{{ token }}/charge`, {
+        method:"POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ node_id: nodeId, vehicle_name: vehicle, operator_name: op||null })
+      });
+      if(r.ok) refreshTree();
+    }catch(_){}
   }
 
   // ----- bootstrap -----
