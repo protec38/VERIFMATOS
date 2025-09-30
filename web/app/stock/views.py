@@ -24,9 +24,15 @@ bp = Blueprint("stock", __name__)
 # -------------------------------------------------
 # Helpers & droits
 # -------------------------------------------------
-def require_admin() -> bool:
-    # Gestion du stock réservée aux ADMIN (cohérent avec le reste du projet)
-    return current_user.is_authenticated and current_user.role == Role.ADMIN
+def _has_stock_rights() -> bool:
+    """
+    Autorise l'accès aux rôles: ADMIN et CHEF.
+    (VIEWER/Secouriste = pas de gestion du stock via ces routes.)
+    """
+    return (
+        current_user.is_authenticated
+        and current_user.role in (Role.ADMIN, Role.CHEF)
+    )
 
 def _bad_request(msg: str, code: int = 400):
     return jsonify(error=msg), code
@@ -48,7 +54,7 @@ def _parse_iso_date(s: Optional[str]) -> Optional[date]:
 @bp.get("/stock/roots")
 @login_required
 def get_roots():
-    if not require_admin():
+    if not _has_stock_rights():
         return _bad_request("Forbidden", 403)
     roots = list_roots()
     return jsonify([
@@ -62,7 +68,7 @@ def get_roots():
 @bp.get("/stock/tree")
 @login_required
 def get_tree():
-    if not require_admin():
+    if not _has_stock_rights():
         return _bad_request("Forbidden", 403)
     try:
         root_id = int(request.args.get("root_id") or 0)
@@ -79,7 +85,7 @@ def get_tree():
 @bp.post("/stock")
 @login_required
 def create_node_api():
-    if not require_admin():
+    if not _has_stock_rights():
         return _bad_request("Forbidden", 403)
 
     data = request.get_json() or {}
@@ -121,7 +127,7 @@ def create_node_api():
 @bp.patch("/stock/<int:node_id>")
 @login_required
 def update_node_api(node_id: int):
-    if not require_admin():
+    if not _has_stock_rights():
         return _bad_request("Forbidden", 403)
 
     data = request.get_json() or {}
@@ -165,7 +171,7 @@ def update_node_api(node_id: int):
 @bp.delete("/stock/<int:node_id>")
 @login_required
 def delete_node_api(node_id: int):
-    if not require_admin():
+    if not _has_stock_rights():
         return _bad_request("Forbidden", 403)
     try:
         delete_node(node_id)
@@ -181,7 +187,7 @@ def delete_node_api(node_id: int):
 @bp.post("/stock/<int:node_id>/duplicate")
 @login_required
 def duplicate_node_api(node_id: int):
-    if not require_admin():
+    if not _has_stock_rights():
         return _bad_request("Forbidden", 403)
 
     data = request.get_json() or {}
@@ -205,7 +211,7 @@ def duplicate_node_api(node_id: int):
 @bp.get("/stock/export.json")
 @login_required
 def export_stock_json():
-    if not require_admin():
+    if not _has_stock_rights():
         return _bad_request("Forbidden", 403)
 
     roots = list_roots()
@@ -239,7 +245,7 @@ def export_stock_json():
 @bp.post("/stock/import")
 @login_required
 def import_stock():
-    if not require_admin():
+    if not _has_stock_rights():
         return _bad_request("Forbidden", 403)
 
     mode = (request.args.get("mode") or request.form.get("mode") or "merge").lower().strip()
@@ -304,3 +310,38 @@ def import_stock():
     except Exception as e:
         db.session.rollback()
         return _bad_request(str(e))
+
+# -------------------------------------------------
+# Stats pour badge péremptions (header)
+# -------------------------------------------------
+@bp.get("/stats/stock/expiry/counts")
+@login_required
+def expiry_counts():
+    """
+    Retourne: {"expired": <int>, "j30": <int>}
+    Comptage sur tous les ITEMS avec date de péremption.
+    """
+    if not _has_stock_rights():
+        # Pour l'icône header, on peut renvoyer 0 si pas les droits
+        return jsonify({"expired": 0, "j30": 0})
+
+    items = db.session.query(StockNode).filter(
+        StockNode.type == NodeType.ITEM,
+        StockNode.expiry_date.isnot(None)
+    ).all()
+
+    from datetime import date as _date
+    today = _date.today()
+    expired = 0
+    j30 = 0
+    for it in items:
+        ex = getattr(it, "expiry_date", None)
+        if not ex:
+            continue
+        delta = (ex - today).days
+        if delta < 0:
+            expired += 1
+        elif delta <= 30:
+            j30 += 1
+
+    return jsonify({"expired": expired, "j30": j30})
