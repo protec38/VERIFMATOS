@@ -25,8 +25,8 @@
   }
   .topbar .title{font-weight:800;font-size:18px}
   .name-edit{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  .name-edit input{min-width:220px;background:#0b1120;border:1px solid var(--border);border-radius:10px;padding:8px 10px;color:var(--text)}
-  .name-edit .btn{padding:8px 12px;border-radius:10px}
+  .name-edit input{min-width:240px;background:#0b1120;border:1px solid var(--border);border-radius:10px;padding:10px 12px;color:var(--text)}
+  .name-edit .btn{padding:10px 12px;border-radius:10px}
 
   .parents-card,.board{
     margin-top:12px;padding:var(--pad-md);border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-2)
@@ -34,7 +34,7 @@
   .parents-card .title{display:flex;align-items:center;gap:10px;margin-bottom:10px}
   .parents-bar{display:flex;gap:10px;overflow:auto;padding:4px 2px}
   .parent-pill{
-    display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;border:1px solid var(--border);
+    display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:999px;border:1px solid var(--border);
     background:#0f1a2a;color:var(--text);white-space:nowrap;cursor:pointer;user-select:none;transition:transform .08s,border-color .08s,background .08s
   }
   .parent-pill:hover{transform:translateY(-1px)}
@@ -58,7 +58,7 @@
   .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
   .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
 
-  .header{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 10px;border-radius:10px}
+  .header{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:10px 12px;border-radius:10px}
   .toggle{cursor:pointer}
   .left{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
   .name{font-weight:800}
@@ -69,31 +69,31 @@
   .veh.off{background:#101c2e;color:#b7c7dc;border-color:#24344f}
 
   .actions{display:flex;gap:8px;flex-wrap:wrap}
-  .btn.xs{padding:6px 10px;border-radius:10px;font-size:13px}
+  .btn.xs{padding:8px 12px;border-radius:10px;font-size:14px}
   .btn.primary{background:var(--pc-orange);color:#000}
 
   .childs{padding:10px 8px 6px 28px}
   .childs.collapsed{display:none}
 
   .item{
-    display:flex;align-items:flex-start;gap:10px;justify-content:space-between;
-    padding:12px;border-radius:10px;margin:10px 0;border:1px solid var(--border);background:var(--bg-card)
+    display:flex;align-items:flex-start;gap:14px;justify-content:space-between;
+    padding:14px;border-radius:12px;margin:12px 0;border:1px solid var(--border);background:var(--bg-card)
   }
-  .item .left{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  .label{font-weight:700}
-  .qty{opacity:.9;font-size:12px;border:1px dashed var(--border);border-radius:8px;padding:1px 6px}
-  .warn{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 6px;border-radius:8px;border:1px solid #7a5d1e;background:#221a07;color:#ffd679}
+  .item .left{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .label{font-weight:800}
+  .qty{opacity:.9;font-size:12px;border:1px dashed var(--border);border-radius:8px;padding:2px 8px}
+  .warn{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 8px;border-radius:8px;border:1px solid #7a5d1e;background:#221a07;color:#ffd679}
 
-  /* Responsive */
+  /* Responsive aéré */
   @media (max-width: 640px){
     .topbar{gap:12px}
-    .item,.header{padding:12px}
+    .item,.header{padding:14px}
     .item .right .btn{width:100%}
     .childs{padding-left:14px}
   }
   @media (min-width: 900px){
     .childs{padding-left:34px}
-    .item{padding:14px 16px}
+    .item{padding:16px 18px}
   }
 </style>
 
@@ -126,9 +126,9 @@
 
 <script>
 /* ====== Contexte ====== */
-const TOKEN = "{{ token }}";        // fourni par la route publique
-let TREE = [];                      // racines
-const NODE_MAP  = new Map();        // id -> node
+const TOKEN = "{{ token }}";
+let TREE = [];
+const NODE_MAP  = new Map();        // id -> node (référence locale)
 const GROUP_EL  = new Map();        // id -> element group
 const ITEM_EL   = new Map();        // id -> element item
 const VEH_LABEL = new Map();        // id -> badge véhicule
@@ -161,7 +161,7 @@ function normStatus(s){
   s = (s||"").toUpperCase();
   if(s==="OK") return "OK";
   if(s==="NOT_OK" || s==="NOK" || s==="KO" || s==="NOT-OK" || s==="NOTOK") return "NOT_OK";
-  return "PENDING";
+  return "PENDING"; // TODO / PENDING -> attente
 }
 function daysUntil(iso){
   if(!iso) return null;
@@ -207,13 +207,13 @@ function itemStateClass(n){ const s=normStatus(n.last_status); if(s==="OK")retur
 
 function renderItem(n){
   const s = normStatus(n.last_status);
-  const dleft = daysUntil(n.expiry_date);
+  const dleft = daysUntil(n.expiry_date); // si non fourni par l'API, restera null et rien ne s'affiche
   const showWarn = (dleft!=null && dleft<=30);
 
   const left = el("div",{class:"left"},
     el("span",{class:"status-dot "+(s==="OK"?"dot-ok":(s==="NOT_OK"?"dot-bad":"dot-wait"))}),
     el("span",{class:"label"}, n.name),
-    el("span",{class:"qty"}, `Qté: ${n.quantity ?? 1}`),
+    (n.quantity!=null ? el("span",{class:"qty"}, `Qté: ${n.quantity}`) : null),
     showWarn ? el("span",{class:"warn", title:`Péremption dans ${dleft} jour(s)`},"⚠️ Péremption") : null
   );
   const right = el("div",{class:"right"},
@@ -226,17 +226,25 @@ function renderItem(n){
   return wrap;
 }
 
+function groupStateClass(n){
+  const s = groupStatus(n);
+  if(s==="OK") return "state-ok";
+  if(s==="BAD") return "state-bad";
+  return "state-wait";
+}
+
 function renderGroup(n){
-  const isRoot = ROOT_IDS.has(n.id);
+  const isRoot = !!n.is_event_root;
 
-  const dot = statusDot(groupStatus(n)==="OK", groupStatus(n)==="BAD");
-  const veh = el("span",{class:"veh "+(n.charged_vehicle?'on':'off')},
-    n.charged_vehicle ? `Chargé : ${n.charged_vehicle_name || "—"}` : "Non chargé"
-  );
-  VEH_LABEL.set(n.id, veh);
-
-  if(!COLLAPSED.has(n.id)) COLLAPSED.set(n.id, true); // tous les groupes pliés par défaut
+  if(!COLLAPSED.has(n.id)) COLLAPSED.set(n.id, true); // tous les groupes pliés au départ
   const chev = el("span",{class:"chev", id:`chev-${n.id}`}, COLLAPSED.get(n.id) ? "▸" : "▾");
+  const dot  = statusDot(groupStatus(n)==="OK", groupStatus(n)==="BAD");
+
+  const veh  = isRoot
+    ? el("span",{class:"veh "+(n.charged_vehicle?'on':'off')},
+        n.charged_vehicle ? `Chargé : ${n.charged_vehicle_name || "—"}` : "Non chargé")
+    : null;
+  if(isRoot) VEH_LABEL.set(n.id, veh);
 
   const headerLeft = el("div",{class:"left"},
     chev, dot, el("span",{class:"name"}, n.name),
@@ -281,28 +289,27 @@ function buildUIOnce(){
 function applyItemDelta(local, incoming){
   local.last_status = normStatus(incoming.last_status || "PENDING");
   local.quantity    = (incoming.quantity!=null)?incoming.quantity:local.quantity;
-  local.expiry_date = incoming.expiry_date || local.expiry_date;
+  local.expiry_date = (incoming.expiry_date!=null)?incoming.expiry_date:local.expiry_date;
 
   const box = ITEM_EL.get(local.id);
   if(!box) return;
 
-  // couleur panneau
   box.classList.remove("state-ok","state-bad","state-wait");
   box.classList.add(itemStateClass(local));
 
-  // dot
   const dot = box.querySelector(".status-dot");
   if(dot){
     dot.classList.remove("dot-ok","dot-bad","dot-wait");
     const s = normStatus(local.last_status);
     dot.classList.add(s==="OK" ? "dot-ok" : (s==="NOT_OK" ? "dot-bad" : "dot-wait"));
   }
-  // quantité
-  const qty = box.querySelector(".qty");
-  if(qty) qty.textContent = `Qté: ${local.quantity ?? 1}`;
 
-  // péremption
-  const oldW = box.querySelector(".warn"); if(oldW) oldW.remove();
+  if(local.quantity!=null){
+    const q = box.querySelector(".qty");
+    if(q) q.textContent = `Qté: ${local.quantity}`;
+  }
+
+  const oldWarn = box.querySelector(".warn"); if(oldWarn) oldWarn.remove();
   const dl = daysUntil(local.expiry_date);
   if(dl!=null && dl<=30){
     const left = box.querySelector(".left");
@@ -310,8 +317,8 @@ function applyItemDelta(local, incoming){
   }
 }
 function applyGroupDelta(local, incoming){
-  // Mise à jour badge véhicule sur racines si présent
-  if(ROOT_IDS.has(local.id) && (typeof incoming.charged_vehicle !== "undefined")){
+  // champs véhicule pour les racines
+  if(local.is_event_root && (typeof incoming.charged_vehicle !== "undefined")){
     local.charged_vehicle = !!incoming.charged_vehicle;
     local.charged_vehicle_name = incoming.charged_vehicle_name || null;
     const lab = VEH_LABEL.get(local.id);
@@ -321,6 +328,7 @@ function applyGroupDelta(local, incoming){
       lab.textContent = local.charged_vehicle ? `Chargé : ${local.charged_vehicle_name || "—"}` : "Non chargé";
     }
   }
+
   const box = GROUP_EL.get(local.id);
   if(!box) return;
 
@@ -333,7 +341,8 @@ function applyGroupDelta(local, incoming){
     const gs = groupStatus(local);
     dot.classList.add(gs==="OK" ? "dot-ok" : (gs==="BAD" ? "dot-bad" : "dot-wait"));
   }
-  if(ROOT_IDS.has(local.id)) updateChargeButtonState(local.id);
+
+  if(local.is_event_root) updateChargeButtonState(local.id);
 }
 function syncTreeIncoming(incomingRoots){
   (incomingRoots||[]).forEach(function recInc(nInc){
@@ -342,6 +351,7 @@ function syncTreeIncoming(incomingRoots){
     if(isItem(nLoc)){
       applyItemDelta(nLoc, nInc);
     }else{
+      // maj recursive
       (nInc.children||[]).forEach(recInc);
       applyGroupDelta(nLoc, nInc);
     }
@@ -390,11 +400,11 @@ function verify(nodeId, status){
 /* ====== Charger (parents racines) ====== */
 let CHARGE_TARGET = null;
 function openChargeModal(parentId){
-  if(!ROOT_IDS.has(parentId)) return;
   const node = NODE_MAP.get(parentId);
-  if(!node) return;
+  if(!node || !node.is_event_root) return;            // racines seulement
   if(!canChargeGroup(node)){ alert("Impossible : tous les éléments doivent être OK."); return; }
   CHARGE_TARGET = parentId;
+
   const old = document.getElementById("charge-modal"); if(old) old.remove();
   const modal = el("div",{id:"charge-modal",style:"position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:50;"},
     el("div",{style:"width:min(520px,92%);background:#0f1726;border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:var(--shadow)"},
@@ -426,10 +436,9 @@ function confirmCharge(){
   }).catch(()=>{});
 }
 function updateChargeButtonState(parentId){
-  if(!ROOT_IDS.has(parentId)) return;
   const n = NODE_MAP.get(parentId);
   const box = GROUP_EL.get(parentId);
-  if(!n || !box) return;
+  if(!n || !box || !n.is_event_root) return;
   const btn = box.querySelector(".actions .btn.primary");
   if(!btn) return;
   const enable = canChargeGroup(n);
@@ -437,7 +446,7 @@ function updateChargeButtonState(parentId){
   btn.title = enable ? "" : "Tous les éléments doivent être OK";
 }
 
-/* ====== Pliage / dépliage (pour TOUS les groupes) ====== */
+/* ====== Pliage / dépliage ====== */
 function toggleCollapse(id){
   const now = !COLLAPSED.get(id);
   COLLAPSED.set(id, now);
