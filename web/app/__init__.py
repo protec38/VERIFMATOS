@@ -15,15 +15,13 @@ from .config import get_config
 # -----------------
 db = SQLAlchemy()
 migrate = Migrate()
-
-# IMPORTANT: ne pas passer login_view au constructeur
-login_manager = LoginManager()
+login_manager = LoginManager()  # ne pas passer d'arguments au ctor
 
 # Socket.IO en local (AUCUN Redis)
 socketio = SocketIO(
     async_mode="eventlet",
     cors_allowed_origins="*",
-    message_queue=None,  # <= Redis désactivé
+    message_queue=None,  # Redis désactivé
 )
 
 
@@ -37,63 +35,58 @@ def create_app():
     migrate.init_app(app, db)
     login_manager.init_app(app)
 
-    # Définir les propriétés APRÈS init_app
+    # Propriétés LoginManager APRES init_app
     login_manager.login_view = "auth.login"
     try:
-        login_manager.session_protection = "strong"  # rétro-compat
+        login_manager.session_protection = "strong"
     except Exception:
         pass
 
     # -----------------
-    # Blueprints API
+    # Blueprints API — enregistrés explicitement (PAS de try/except silencieux)
     # -----------------
+    # Auth
+    from .auth.views import bp as auth_api_bp
+    app.register_blueprint(auth_api_bp)
+
+    # Admin
+    from .admin.views import bp as admin_api_bp
+    app.register_blueprint(admin_api_bp)
+
+    # Stock
+    from .stock.views import bp as stock_api_bp
+    app.register_blueprint(stock_api_bp)
+
+    # Verify (contient aussi les routes publiques /public/event/<token>/...)
+    from .verify.views import bp as verify_api_bp
+    app.register_blueprint(verify_api_bp)
+
+    # Events API (POST /events, GET /events/<id>/tree, etc.)
+    from .events.views import bp as events_api_bp
+    app.register_blueprint(events_api_bp)
+
+    # Modules optionnels (si absents, commenter ces 3 lignes par module)
     try:
-        from .auth.views import bp as auth_api_bp
-        app.register_blueprint(auth_api_bp)
+        from .reports.views import bp as reports_api_bp
+        app.register_blueprint(reports_api_bp)
     except Exception:
         pass
-
     try:
-        from .admin.views import bp as admin_api_bp
-        app.register_blueprint(admin_api_bp)
+        from .stats.views import bp as stats_api_bp
+        app.register_blueprint(stats_api_bp)
     except Exception:
         pass
-
     try:
-        from .stock.views import bp as stock_api_bp
-        app.register_blueprint(stock_api_bp)
+        from .pwa.views import bp as pwa_bp
+        app.register_blueprint(pwa_bp)
     except Exception:
         pass
-
-    try:
-        from .verify.views import bp as verify_api_bp
-        app.register_blueprint(verify_api_bp)
-    except Exception:
-        pass
-
-    try:
-        # IMPORTANT: on enregistre aussi l'API événements (tree/verify/parent-status…)
-        from .events.views import bp as events_api_bp
-        app.register_blueprint(events_api_bp)
-    except Exception:
-        pass
-
-    # Modules optionnels
-    for mod in ("reports", "stats", "pwa"):
-        try:
-            module = __import__(f"{__name__}.{mod}.views", fromlist=["bp"])
-            app.register_blueprint(getattr(module, "bp"))
-        except Exception:
-            pass
 
     # -----------------
     # Pages HTML (public + dashboard)
     # -----------------
-    try:
-        from .views_html import bp as pages_bp
-        app.register_blueprint(pages_bp)
-    except Exception:
-        pass
+    from .views_html import bp as pages_bp
+    app.register_blueprint(pages_bp)
 
     # -----------------
     # Root → redirige vers dashboard
@@ -129,7 +122,7 @@ def create_app():
 # Instance globale pour wsgi/gunicorn (wsgi:app)
 app = create_app()
 
-# Flask-Login user loader (si ton models.User existe)
+# Flask-Login user loader
 try:
     from .models import User  # type: ignore
 
