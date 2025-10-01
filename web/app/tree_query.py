@@ -1,7 +1,6 @@
 # app/tree_query.py — construction du TREE pour une page évènement
 from __future__ import annotations
 from typing import Dict, Any, List, Optional
-from sqlalchemy import desc
 
 from . import db
 from .models import (
@@ -83,6 +82,9 @@ def _serialize(node: StockNode,
             "issue_code": info.get("issue_code"),
             "observed_qty": info.get("observed_qty"),
             "missing_qty": info.get("missing_qty"),
+            # >>> Champs attendus par le front (ajouts) <<<
+            "expiry_date": node.expiry_date.isoformat() if getattr(node, "expiry_date", None) else None,
+            "quantity": getattr(node, "quantity", None),
         })
         base["children"] = []
         return base
@@ -90,7 +92,7 @@ def _serialize(node: StockNode,
     # GROUP
     children = []
     # relation ORM “children” ou requête fallback
-    if hasattr(node, "children"):
+    if hasattr(node, "children") and node.children is not None:
         for c in node.children:
             children.append(_serialize(c, latest, False, ens_map))
     else:
@@ -103,7 +105,7 @@ def _serialize(node: StockNode,
 
     ens = ens_map.get(int(node.id))
     if ens:
-        # ces champs sont optionnels en DB -> getattr safe
+        # champs optionnels en DB -> getattr safe
         base["charged_vehicle"] = getattr(ens, "charged_vehicle", None)
         if hasattr(ens, "charged_vehicle_name"):
             base["charged_vehicle_name"] = getattr(ens, "charged_vehicle_name", None)
