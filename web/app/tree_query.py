@@ -97,6 +97,13 @@ def _serialize(node: StockNode,
 
     if node.type == NodeType.ITEM:
         info = latest.get(int(node.id), {})
+        # Ajouts front utiles : expiry_date + quantity
+        expiry = None
+        try:
+            expiry = node.expiry_date.isoformat() if getattr(node, "expiry_date", None) else None
+        except Exception:
+            expiry = None
+
         base.update({
             "last_status": info.get("status", "TODO"),
             "last_by": info.get("by"),
@@ -105,6 +112,8 @@ def _serialize(node: StockNode,
             "issue_code": info.get("issue_code"),
             "observed_qty": info.get("observed_qty"),
             "missing_qty": info.get("missing_qty"),
+            "quantity": getattr(node, "quantity", None),
+            "expiry_date": expiry,
         })
         base["children"] = []
         return base
