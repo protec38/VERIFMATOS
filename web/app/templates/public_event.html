@@ -8,9 +8,13 @@
     --text:#e6eefb; --muted:#9fb3cc;
     --border:#2a3a53; --border2:#334968;
     --ok:#12b886; --bad:#ff6b6b; --wait:#376099; --warn:#f0b429;
+    --ok-ghost:rgba(18,184,134,.12);
+    --bad-ghost:rgba(255,107,107,.09);
+    --wait-ghost:rgba(55,96,153,.12);
     --wait-border:#274a78;
     --shadow:0 8px 30px rgba(0,0,0,.25);
   }
+
   .wrap{max-width:1100px;margin:16px auto;padding:0 14px}
   .header{display:flex;align-items:center;justify-content:space-between;margin:6px 0 14px}
   .title{display:flex;flex-direction:column}
@@ -19,6 +23,7 @@
   .small{font-size:12px}
 
   .card{border:1px solid var(--border);background:var(--bg2);border-radius:14px;box-shadow:var(--shadow);padding:12px}
+
   .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .btn{border:1px solid var(--border);background:var(--bg3);padding:8px 12px;border-radius:10px;cursor:pointer}
   .btn.success{background:#0e2a24;border-color:#1d6e5d}
@@ -39,33 +44,38 @@
   .warn-ic svg{width:16px;height:16px}
   .warn-ic path{fill:var(--warn)}
 
+  /* ===== Progress "cheffe" ===== */
+  .chef-progress{display:flex;align-items:center;gap:12px}
+  .chef-progress .label{font-weight:700}
+  .chef-progress .right{margin-left:auto;font-variant-numeric:tabular-nums}
+  .chef-bar{position:relative;width:100%;height:12px;border-radius:999px;overflow:hidden;border:1px solid var(--border);background:var(--bg3)}
+  .chef-seg{height:100%;display:inline-block}
+  .chef-seg.ok{background:var(--ok)}
+  .chef-seg.todo{background:var(--wait)}
+  .chef-seg.bad{background:var(--bad)}
+
+  /* Parents */
   .parents{margin-top:10px}
   .parents-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
   .parents-bar{display:flex;gap:10px;overflow:auto;padding:4px 2px}
-  .parent{display:flex;align-items:center;gap:10px;border:1px solid var(--border);padding:8px 10px;border-radius:12px;background:var(--bg3)}
+  .parent{display:flex;align-items:center;gap:10px;border:1px solid var(--border);padding:8px 10px;border-radius:12px;background:var(--bg3);min-width:340px}
   .parent .name{font-weight:700}
   .parent .veh{font-size:12px;color:var(--muted)}
   .parent .state{display:flex;align-items:center;gap:6px;margin-left:auto}
+  .parent .mini{flex:1;min-width:130px;max-width:220px}
 
+  /* Tree */
   .grid{display:grid;grid-template-columns:1fr;gap:12px;margin-top:12px}
   .group{border:1px solid var(--border);padding:12px;border-radius:12px;background:var(--bg2)}
-  .group.ok{border-color:#1d6e5d;background:radial-gradient(600px 200px at top left, rgba(18,184,134,.12), transparent), var(--bg2); box-shadow:0 0 0 1px rgba(18,184,134,.35) inset, 0 0 18px rgba(18,184,134,.12)}
-  .group.bad{border-color:#75212f;background:radial-gradient(600px 200px at top left, rgba(255,107,107,.09), transparent), var(--bg2)}
-  .group.wait{border-color:var(--wait-border);background:radial-gradient(600px 200px at top left, rgba(55,96,153,.12), transparent), var(--bg2)}
-  .group>.head{display:flex;align-items:center;gap:10px;margin-bottom:8px;justify-content:space-between}
-
-  /* Progress bars (global + par groupe) */
-  .pbar{width:100%;height:10px;border-radius:999px;overflow:hidden;border:1px solid var(--border);background:var(--bg3)}
-  .pseg{height:100%;display:inline-block}
-  .pseg.ok{background:var(--ok)}
-  .pseg.todo{background:var(--wait)}
-  .pseg.bad{background:var(--bad)}
-  .ptext{font-size:12px;color:var(--muted)}
+  .group.ok{border-color:#1d6e5d;background:radial-gradient(600px 200px at top left, var(--ok-ghost), transparent), var(--bg2); box-shadow:0 0 0 1px rgba(18,184,134,.35) inset, 0 0 18px var(--ok-ghost)}
+  .group.bad{border-color:#75212f;background:radial-gradient(600px 200px at top left, var(--bad-ghost), transparent), var(--bg2)}
+  .group.wait{border-color:var(--wait-border);background:radial-gradient(600px 200px at top left, var(--wait-ghost), transparent), var(--bg2)}
+  .group>.head{display:flex;align-items:center;gap:14px;margin-bottom:10px;flex-wrap:wrap}
 
   .item{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px dashed var(--border2);padding:10px;border-radius:10px;background:var(--bg3)}
-  .item.ok{border-color:#1d6e5d;background:radial-gradient(500px 180px at top left, rgba(18,184,134,.10), transparent), var(--bg3)}
-  .item.bad{border-color:#75212f;background:radial-gradient(500px 180px at top left, rgba(255,107,107,.08), transparent), var(--bg3)}
-  .item.wait{border-color:var(--wait-border);background:radial-gradient(500px 180px at top left, rgba(55,96,153,.10), transparent), var(--bg3)}
+  .item.ok{border-color:#1d6e5d;background:radial-gradient(500px 180px at top left, var(--ok-ghost), transparent), var(--bg3)}
+  .item.bad{border-color:#75212f;background:radial-gradient(500px 180px at top left, var(--bad-ghost), transparent), var(--bg3)}
+  .item.wait{border-color:var(--wait-border);background:radial-gradient(500px 180px at top left, var(--wait-ghost), transparent), var(--bg3)}
   .item .name-area{display:flex;align-items:center;gap:8px}
   .item .right{display:flex;align-items:center;gap:8px}
 
@@ -91,13 +101,16 @@
     </div>
   </div>
 
-  <!-- Progression globale -->
-  <div class="card" id="globalProgressCard" style="display:none">
-    <div class="ptext" id="globalProgressText">Progression</div>
-    <div class="pbar">
-      <span class="pseg ok" id="g_ok" style="width:0%"></span>
-      <span class="pseg todo" id="g_todo" style="width:0%"></span>
-      <span class="pseg bad" id="g_bad" style="width:0%"></span>
+  <!-- ===== Progression globale (même logique/visuel que “cheffe”) ===== -->
+  <div class="card">
+    <div class="chef-progress">
+      <div class="label">Avancement</div>
+      <div class="chef-bar" aria-label="Barre de progression globale" title="OK / À vérifier / Non conforme">
+        <span id="g_ok" class="chef-seg ok" style="width:0%"></span>
+        <span id="g_todo" class="chef-seg todo" style="width:0%"></span>
+        <span id="g_bad" class="chef-seg bad" style="width:0%"></span>
+      </div>
+      <div id="g_txt" class="right">0%</div>
     </div>
   </div>
 
@@ -227,7 +240,7 @@
     return res;
   }
 
-  // ---------- peremption (lecture `expiry_date` & co) ----------
+  // ---------- peremption ----------
   function parseMaybeDate(v){
     if(!v) return null;
     if(typeof v === "number"){
@@ -291,6 +304,25 @@
   }
 
   // ---------- render ----------
+  function updateGlobalProgress(roots){
+    let g_ok=0,g_todo=0,g_bad=0,g_total=0;
+    for(const r of (roots||[])){
+      const st = r.stats || {ok:0, todo:0, not_ok:0, total:0};
+      g_ok += Number(st.ok||0);
+      g_todo += Number(st.todo||0);
+      g_bad += Number(st.not_ok||0);
+      g_total += Number(st.total||0);
+    }
+    const okW   = g_total>0 ? (100*(g_ok/g_total))   : 0;
+    const todoW = g_total>0 ? (100*(g_todo/g_total)) : 0;
+    const badW  = g_total>0 ? (100*(g_bad/g_total))  : 0;
+    document.getElementById("g_ok").style.width = okW+"%";
+    document.getElementById("g_todo").style.width = todoW+"%";
+    document.getElementById("g_bad").style.width = badW+"%";
+    const pct = g_total>0 ? Math.round((g_ok/g_total)*100) : 0;
+    document.getElementById("g_txt").textContent = `${pct}%`;
+  }
+
   function statusChip(st){
     const map = {
       "OK":["chip ok","OK"],
@@ -309,23 +341,24 @@
     (roots||[]).forEach(r=>{
       const canCharge = (r.can_charge !== undefined) ? !!r.can_charge : subtreeAllOK(r);
 
-      // mini barre dans le pill
       const st = r.stats || {ok:0, todo:0, not_ok:0, total:0};
       const total = Math.max(1, Number(st.total||0));
       const wOk = (100 * (Number(st.ok||0) / total)).toFixed(2) + "%";
       const wTodo = (100 * (Number(st.todo||0) / total)).toFixed(2) + "%";
       const wBad = (100 * (Number(st.not_ok||0) / total)).toFixed(2) + "%";
+      const pct = total>1 ? Math.round((Number(st.ok||0)/total)*100) : (st.ok?100:0);
 
       const pill = el("div",{class:"parent"},
         el("span",{class:"dot " + (r.charged_vehicle ? "ok" : "wait")}),
         el("span",{class:"name"}, r.name),
-        el("div",{style:"min-width:130px;width:180px;margin:0 6px"},
-          el("div",{class:"pbar", title:`OK ${st.ok||0} / ${st.total||0}`},
-            el("span",{class:"pseg ok", style:`width:${wOk}`}),
-            el("span",{class:"pseg todo", style:`width:${wTodo}`}),
-            el("span",{class:"pseg bad", style:`width:${wBad}`}),
+        el("div",{class:"mini"},
+          el("div",{class:"chef-bar", title:`OK ${st.ok||0} / ${st.total||0}`},
+            el("span",{class:"chef-seg ok", style:`width:${wOk}`}),
+            el("span",{class:"chef-seg todo", style:`width:${wTodo}`}),
+            el("span",{class:"chef-seg bad", style:`width:${wBad}`}),
           )
         ),
+        el("span",{class:"muted small"}, `${pct}%`),
         el("span",{class:"veh"},
           r.charged_vehicle_name ? "• " + r.charged_vehicle_name : "",
           r.charged_vehicle_by ? " – chargé par " + r.charged_vehicle_by : ""
@@ -347,32 +380,8 @@
     NODE_MAP.clear();
     const cont = document.getElementById("tree");
     cont.innerHTML = "";
-    let g_ok=0,g_todo=0,g_bad=0,g_total=0;
-
     for(const r of TREE){
-      // cumul global
-      const st = r.stats || {ok:0, todo:0, not_ok:0, total:0};
-      g_ok += Number(st.ok||0);
-      g_todo += Number(st.todo||0);
-      g_bad += Number(st.not_ok||0);
-      g_total += Number(st.total||0);
-
       cont.appendChild(renderNode(r, true));
-    }
-
-    // progress global
-    const card = document.getElementById("globalProgressCard");
-    if(g_total > 0){
-      const wOk = (100 * (g_ok/g_total));
-      const wTodo = (100 * (g_todo/g_total));
-      const wBad = (100 * (g_bad/g_total));
-      document.getElementById("g_ok").style.width = wOk + "%";
-      document.getElementById("g_todo").style.width = wTodo + "%";
-      document.getElementById("g_bad").style.width = wBad + "%";
-      document.getElementById("globalProgressText").textContent = `Progression globale : ${g_ok}/${g_total} OK`;
-      card.style.display = "";
-    }else{
-      card.style.display = "none";
     }
   }
 
@@ -410,21 +419,18 @@
       const wOk = (100 * (Number(st.ok||0) / total)).toFixed(2) + "%";
       const wTodo = (100 * (Number(st.todo||0) / total)).toFixed(2) + "%";
       const wBad = (100 * (Number(st.not_ok||0) / total)).toFixed(2) + "%";
+      const pct = total>1 ? Math.round((Number(st.ok||0)/total)*100) : (st.ok?100:0);
 
       const children = (n.children||[]).map(c=>renderNode(c,false));
       return el("div",{class:classes.join(" ")},
-        el("div",{class:"head"},
-          el("div",{},
-            el("strong",{}, n.name),
-            el("div",{class:"ptext"}, `${st.ok||0}/${st.total||0} OK`)
+        el("div",{class:"head", title:`${st.ok||0}/${st.total||0} OK`},
+          el("strong",{}, n.name),
+          el("div",{class:"chef-bar", style:"min-width:220px;max-width:380px;flex:1"},
+            el("span",{class:"chef-seg ok", style:`width:${wOk}`}),
+            el("span",{class:"chef-seg todo", style:`width:${wTodo}`}),
+            el("span",{class:"chef-seg bad", style:`width:${wBad}`})
           ),
-          el("div",{style:"min-width:180px;max-width:300px;flex:1;margin-left:14px"},
-            el("div",{class:"pbar"},
-              el("span",{class:"pseg ok", style:`width:${wOk}`}),
-              el("span",{class:"pseg todo", style:`width:${wTodo}`}),
-              el("span",{class:"pseg bad", style:`width:${wBad}`}),
-            )
-          ),
+          el("div",{class:"muted small"}, `${pct}%`),
           isRoot && n.charged_vehicle ? el("span",{class:"chip ok"}, el("span",{class:"dot ok"}),"Chargé", n.charged_vehicle_by ? " par "+n.charged_vehicle_by : "") : null
         ),
         el("div",{}, children)
@@ -434,8 +440,9 @@
 
   function syncTree(latest){
     TREE = latest || [];
-    renderTree();
+    updateGlobalProgress(TREE);
     renderParents(TREE);
+    renderTree();
   }
 
   // ---------- actions ----------
@@ -466,7 +473,7 @@
     if(!vehicle){ alert("Nom du véhicule requis"); return; }
     const parent = NODE_MAP.get(CURRENT_PARENT_ID);
 
-    // Sécurité client + serveur : si parent pas chargé -> exiger tout OK
+    // Sécurité client : si parent pas encore chargé -> tout doit être OK
     const canCharge = (parent && parent.can_charge !== undefined) ? !!parent.can_charge : subtreeAllOK(parent);
     if(!parent.charged_vehicle && !canCharge){
       alert("Vous ne pouvez charger que lorsque tous les éléments du parent sont OK.");
