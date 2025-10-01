@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import secrets
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 
-from flask import Blueprint, request, jsonify, abort
+from flask import Blueprint, request, jsonify, abort, render_template
 from flask_login import login_required, current_user
 from sqlalchemy import select
 
@@ -52,16 +52,16 @@ def _event_from_token_or_404(token: str) -> Event:
     return link.event
 
 def _emit(event_name: str, payload: Dict[str, Any]):
-    # Emission locale (pas de Redis nécessaire)
     try:
         if socketio:
             socketio.emit(event_name, payload, namespace="/events")
     except Exception:
+        # ne jamais casser l’API
         pass
 
 
 # -------------------------------------------------
-# Outils arbre & stats
+# Arbre + stats
 # -------------------------------------------------
 def _collect_children(parent_id: int) -> List[StockNode]:
     return StockNode.query.filter_by(parent_id=parent_id).all()
@@ -80,7 +80,7 @@ def _walk_items(root: StockNode) -> List[StockNode]:
 def _last_verif_map(event_id: int, item_ids: List[int]) -> Dict[int, Dict[str, Any]]:
     """
     Pour chaque item_id => {status, by, at, comment} basé sur la DERNIÈRE vérif.
-    Compatible Enum (ItemStatus) OU chaine brute ("OK"/"NOT_OK"/"TODO").
+    Compatible Enum OU chaîne ("OK"/"NOT_OK"/"TODO").
     """
     if not item_ids:
         return {}
@@ -93,7 +93,7 @@ def _last_verif_map(event_id: int, item_ids: List[int]) -> Dict[int, Dict[str, A
     out: Dict[int, Dict[str, Any]] = {}
     for r in q:
         nid = int(r.node_id)
-        if nid in out:  # on ne garde que la dernière
+        if nid in out:
             continue
         raw = getattr(r, "status", None)
         status = raw.name if hasattr(raw, "name") else (str(raw).upper() if raw else "TODO")
@@ -106,23 +106,16 @@ def _last_verif_map(event_id: int, item_ids: List[int]) -> Dict[int, Dict[str, A
         }
     return out
 
-def _item_status_from_last(last: Dict[int, Dict[str, Any]], item: StockNode) -> str:
-    s = (last.get(int(item.id), {}).get("status") or "TODO").upper()
-    if s not in ("OK", "NOT_OK", "TODO"):
-        return "TODO"
-    return s
-
 def _group_stats(event_id: int, group: StockNode, last: Dict[int, Dict[str, Any]]) -> Dict[str, Any]:
     """
-    Calcule les stats d'un GROUP :
-      - total, ok, not_ok, todo, percent_ok
-      - can_charge: True si TOUT est OK (ou aucun item)
+    Stats d'un GROUP :
+      total, ok, not_ok, todo, percent_ok, can_charge
     """
     items = _walk_items(group)
     total = len(items)
     ok = not_ok = todo = 0
     for it in items:
-        st = _item_status_from_last(last, it)
+        st = (last.get(int(it.id), {}).get("status") or "TODO").upper()
         if st == "OK":
             ok += 1
         elif st == "NOT_OK":
@@ -131,19 +124,12 @@ def _group_stats(event_id: int, group: StockNode, last: Dict[int, Dict[str, Any]
             todo += 1
     percent_ok = 100 if total == 0 else int(round((ok / total) * 100))
     can_charge = (total == 0) or (ok == total)
-    return {
-        "total": total,
-        "ok": ok,
-        "not_ok": not_ok,
-        "todo": todo,
-        "percent_ok": percent_ok,
-        "can_charge": can_charge,
-    }
+    return {"total": total, "ok": ok, "not_ok": not_ok, "todo": todo, "percent_ok": percent_ok, "can_charge": can_charge}
 
 def _extract_expiry(n: StockNode) -> Optional[str]:
     """
-    Extrait date de péremption si dispo (y compris `expiry_date = db.Date`).
-    Renvoie une ISO date (YYYY-MM-DD) utilisable côté front.
+    Extrait date de péremption si dispo (ex: expiry_date = db.Date).
+    Renvoie une ISO date (YYYY-MM-DD).
     """
     for attr in ("expiry_date", "expiry", "expires_at", "peremption", "peremption_date", "valid_until"):
         v = getattr(n, attr, None)
@@ -158,11 +144,10 @@ def _extract_expiry(n: StockNode) -> Optional[str]:
 
 def _build_event_tree(event_id: int) -> List[Dict[str, Any]]:
     """
-    Arbre pour le front public & privé :
-      - GROUP: children, stats{total,ok,not_ok,todo,percent_ok,can_charge}, charged_vehicle, charged_vehicle_name, charged_vehicle_by
-      - ITEM: last_* + expiry & expiry_date
+    Arbre JSON unique pour public/privé :
+      - GROUP: children, stats{...}, can_charge, charged_vehicle*, charged_vehicle_by*
+      - ITEM : last_* + expiry/expiry_date
     """
-    # Racines déclarées dans l'évènement
     rows = db.session.execute(
         select(StockNode).join(
             event_stock, StockNode.id == event_stock.c.node_id
@@ -170,7 +155,6 @@ def _build_event_tree(event_id: int) -> List[Dict[str, Any]]:
     ).scalars().all()
     roots = [n for n in rows if n.type == NodeType.GROUP]
 
-    # Map des dernières vérifs (pour TOUTES les feuilles sous les racines)
     all_items: List[StockNode] = []
     for r in roots:
         all_items.extend(_walk_items(r))
@@ -243,12 +227,11 @@ def create_event():
         except Exception:
             abort(400, description="date invalide (YYYY-MM-DD).")
 
-    # created_by_id (évite le set d’une relation entière par erreur)
     ev = Event(
         name=name,
         date=dt,
         status=EventStatus.OPEN,
-        created_by_id=current_user.id
+        created_by_id=current_user.id  # évite d’assigner une relation par erreur
     )
     db.session.add(ev)
     db.session.flush()
@@ -325,7 +308,7 @@ def event_verify(event_id: int):
     rec = VerificationRecord(
         event_id=ev.id,
         node_id=node.id,
-        status=status,  # string OU Enum accepté (modèle tolérant)
+        status=status,  # tolère Enum/str dans le modèle
         verifier_name=verifier_name or None,
         comment=comment,
     )
@@ -348,7 +331,7 @@ def event_verify(event_id: int):
 def event_parent_charged(event_id: int):
     """
     Marque un parent (GROUP) comme 'chargé'.
-    Autorisé uniquement si TOUT le sous-arbre est OK (contrôle serveur).
+    Autorisé uniquement si TOUT le sous-arbre est OK (serveur).
     """
     if not _is_manager():
         abort(403)
@@ -368,7 +351,7 @@ def event_parent_charged(event_id: int):
     if not node or node.type != NodeType.GROUP:
         abort(404, description="Parent introuvable ou non GROUP.")
 
-    # recalcul dernière minute : tout OK ?
+    # recalcul tout-OK
     items = _walk_items(node)
     last = _last_verif_map(ev.id, [i.id for i in items])
     can = _group_stats(ev.id, node, last)["can_charge"]
@@ -456,12 +439,16 @@ def delete_event(event_id: int):
 # -------------------------------------------------
 # Public (secouristes)
 # -------------------------------------------------
+@bp_public.get("/event/<token>")
+def public_event_page(token: str):
+    ev = _event_from_token_or_404(token)
+    return render_template("public_event.html", event=ev, token=token)
+
 @bp_public.get("/event/<token>/tree")
 def public_event_tree(token: str):
     ev = _event_from_token_or_404(token)
     tree = _build_event_tree(ev.id)
     return jsonify(tree)
-
 
 @bp_public.post("/event/<token>/verify")
 def public_verify(token: str):
@@ -471,7 +458,7 @@ def public_verify(token: str):
 
     payload = request.get_json(silent=True) or {}
     node_id = int(payload.get("node_id") or 0)
-    status = (payload.get("status") or "").upper()  # "OK" | "NOT_OK" | "TODO"
+    status = (payload.get("status") or "").upper()
     verifier_name = (payload.get("verifier_name") or "").strip()
     comment = (payload.get("comment") or "").strip() or None
 
@@ -485,7 +472,7 @@ def public_verify(token: str):
     rec = VerificationRecord(
         event_id=ev.id,
         node_id=node.id,
-        status=status,  # tolère string ou Enum côté modèle
+        status=status,
         verifier_name=verifier_name or None,
         comment=comment,
     )
@@ -502,11 +489,10 @@ def public_verify(token: str):
     })
     return jsonify({"ok": True})
 
-
 @bp_public.post("/event/<token>/charge")
 def public_parent_charge(token: str):
     """
-    Marque un parent (GROUP) comme 'chargé' côté public.
+    Marque un parent comme 'chargé' (public).
     Autorisé uniquement si tout le sous-arbre est OK (contrôle serveur).
     """
     ev = _event_from_token_or_404(token)
@@ -525,7 +511,6 @@ def public_parent_charge(token: str):
     if not node or node.type != NodeType.GROUP:
         abort(404, description="Parent introuvable ou non GROUP.")
 
-    # contrôle serveur
     items = _walk_items(node)
     last = _last_verif_map(ev.id, [i.id for i in items])
     can = _group_stats(ev.id, node, last)["can_charge"]
