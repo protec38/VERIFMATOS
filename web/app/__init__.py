@@ -1,7 +1,7 @@
 # app/__init__.py
 from __future__ import annotations
-from datetime import datetime
 
+import importlib
 from flask import Flask, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
@@ -15,7 +15,7 @@ from .config import get_config
 # -----------------
 db = SQLAlchemy()
 migrate = Migrate()
-login_manager = LoginManager()  # ne pas passer d'arguments au ctor
+login_manager = LoginManager()  # ne rien passer au ctor
 
 # Socket.IO en local (AUCUN Redis)
 socketio = SocketIO(
@@ -23,6 +23,24 @@ socketio = SocketIO(
     cors_allowed_origins="*",
     message_queue=None,  # Redis désactivé
 )
+
+
+def _register_bp_if_any(app: Flask, dotted_module: str, candidates: tuple[str, ...] = ("bp", "bp_events", "bp_public")) -> bool:
+    """
+    Importe un module et enregistre le premier Blueprint trouvé parmi `candidates`.
+    Retourne True si un blueprint a été enregistré, False sinon.
+    """
+    try:
+        mod = importlib.import_module(dotted_module)
+    except Exception:
+        return False
+
+    for name in candidates:
+        bp = getattr(mod, name, None)
+        if bp is not None:
+            app.register_blueprint(bp)
+            return True
+    return False
 
 
 def create_app():
@@ -35,7 +53,7 @@ def create_app():
     migrate.init_app(app, db)
     login_manager.init_app(app)
 
-    # Propriétés LoginManager APRES init_app
+    # Propriétés LoginManager APRÈS init_app
     login_manager.login_view = "auth.login"
     try:
         login_manager.session_protection = "strong"
@@ -43,61 +61,33 @@ def create_app():
         pass
 
     # -----------------
-    # Blueprints API — enregistrés explicitement (PAS de try/except silencieux)
+    # Blueprints API (robuste : on tolère les absents, et plusieurs noms d'attribut)
     # -----------------
-    # Auth
-    from .auth.views import bp as auth_api_bp
-    app.register_blueprint(auth_api_bp)
+    _register_bp_if_any(app, "app.auth.views")
+    _register_bp_if_any(app, "app.admin.views")
+    _register_bp_if_any(app, "app.stock.views")
 
-    # Admin
-    from .admin.views import bp as admin_api_bp
-    app.register_blueprint(admin_api_bp)
-
-    # Stock
-    from .stock.views import bp as stock_api_bp
-    app.register_blueprint(stock_api_bp)
-
-    # Verify (contient aussi les routes publiques /public/event/<token>/...)
-    from .verify.views import bp as verify_api_bp
-    app.register_blueprint(verify_api_bp)
+    # Verify contient aussi les routes publiques /public/event/<token>/...
+    _register_bp_if_any(app, "app.verify.views")
 
     # Events API (POST /events, GET /events/<id>/tree, etc.)
-    from .events.views import bp as events_api_bp
-    app.register_blueprint(events_api_bp)
+    # ⇒ si le blueprint ne s'appelle pas 'bp', on couvre 'bp_events'
+    _register_bp_if_any(app, "app.events.views", candidates=("bp", "bp_events"))
 
-    # Modules optionnels (si absents, commenter ces 3 lignes par module)
-    try:
-        from .reports.views import bp as reports_api_bp
-        app.register_blueprint(reports_api_bp)
-    except Exception:
-        pass
-    try:
-        from .stats.views import bp as stats_api_bp
-        app.register_blueprint(stats_api_bp)
-    except Exception:
-        pass
-    try:
-        from .pwa.views import bp as pwa_bp
-        app.register_blueprint(pwa_bp)
-    except Exception:
-        pass
+    # Optionnels
+    _register_bp_if_any(app, "app.reports.views")
+    _register_bp_if_any(app, "app.stats.views")
+    _register_bp_if_any(app, "app.pwa.views")
 
-    # -----------------
     # Pages HTML (public + dashboard)
-    # -----------------
-    from .views_html import bp as pages_bp
-    app.register_blueprint(pages_bp)
+    _register_bp_if_any(app, "app.views_html")
 
-    # -----------------
-    # Root → redirige vers dashboard
-    # -----------------
+    # Root → redirige vers dashboard (évite la page blanche)
     @app.get("/")
     def _root_redirect():
         return redirect(url_for("pages.dashboard"))
 
-    # -----------------
-    # Healthcheck simple
-    # -----------------
+    # Healthcheck
     @app.get("/healthz")
     def healthz():
         try:
@@ -107,9 +97,7 @@ def create_app():
             db_ok = False
         return {"status": "healthy" if db_ok else "degraded"}
 
-    # -----------------
-    # Socket.IO handlers (optionnel)
-    # -----------------
+    # Socket.IO handlers (si présents)
     try:
         from .sockets import register_socketio_handlers
         register_socketio_handlers(socketio)
