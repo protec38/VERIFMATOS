@@ -8,6 +8,7 @@
     --text:#e6eefb; --muted:#9fb3cc;
     --border:#2a3a53; --border2:#334968;
     --ok:#12b886; --bad:#ff6b6b; --wait:#376099; --warn:#f0b429;
+    --wait-border:#274a78;
     --shadow:0 8px 30px rgba(0,0,0,.25);
   }
   .wrap{max-width:1100px;margin:16px auto;padding:0 14px}
@@ -29,10 +30,14 @@
   .chip{padding:4px 8px;border-radius:999px;font-weight:800;font-size:12px;border:1px solid var(--border);display:inline-flex;align-items:center;gap:6px}
   .chip.ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
   .chip.bad{background:#2a0e14;color:#ffd5dc;border-color:#75212f}
-  .chip.wait{background:#101c2e;color:#b7c7dc;border-color:#24344f}
+  .chip.wait{background:#0c1b30;color:#cfe2ff;border-color:var(--wait-border)}
   .chip.warn{background:#2a210c;color:#ffe9b8;border-color:#7a5a1d}
   .dot{width:10px;height:10px;border-radius:50%}
   .dot.ok{background:var(--ok)} .dot.bad{background:var(--bad)} .dot.wait{background:var(--wait)} .dot.warn{background:var(--warn)}
+
+  .warn-ic{width:16px;height:16px;display:inline-block;vertical-align:middle}
+  .warn-ic svg{width:16px;height:16px}
+  .warn-ic path{fill:var(--warn)}
 
   .parents{margin-top:10px}
   .parents-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
@@ -46,11 +51,14 @@
   .group{border:1px solid var(--border);padding:12px;border-radius:12px;background:var(--bg2)}
   .group.ok{border-color:#1d6e5d;background:radial-gradient(600px 200px at top left, rgba(18,184,134,.12), transparent), var(--bg2); box-shadow:0 0 0 1px rgba(18,184,134,.35) inset, 0 0 18px rgba(18,184,134,.12)}
   .group.bad{border-color:#75212f;background:radial-gradient(600px 200px at top left, rgba(255,107,107,.09), transparent), var(--bg2)}
+  .group.wait{border-color:var(--wait-border);background:radial-gradient(600px 200px at top left, rgba(55,96,153,.12), transparent), var(--bg2)}
   .group>.head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
 
   .item{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px dashed var(--border2);padding:10px;border-radius:10px;background:var(--bg3)}
   .item.ok{border-color:#1d6e5d;background:radial-gradient(500px 180px at top left, rgba(18,184,134,.10), transparent), var(--bg3)}
   .item.bad{border-color:#75212f;background:radial-gradient(500px 180px at top left, rgba(255,107,107,.08), transparent), var(--bg3)}
+  .item.wait{border-color:var(--wait-border);background:radial-gradient(500px 180px at top left, rgba(55,96,153,.10), transparent), var(--bg3)}
+  .item .name-area{display:flex;align-items:center;gap:8px}
   .item .right{display:flex;align-items:center;gap:8px}
 
   dialog{border:1px solid var(--border);background:var(--bg2);color:var(--text);border-radius:12px;max-width:460px}
@@ -155,22 +163,31 @@
   }
 
   // ---------- helpers ----------
+  function itemStatus(n){
+    const st = (n.last_status || "").toUpperCase();
+    if(st === "OK") return "OK";
+    if(st === "NOT_OK") return "NOT_OK";
+    return "TODO"; // non vérifié => BLEU
+  }
   function statusOf(node){
-    // item: last_status; group: OK si tous ses enfants OK
-    if((node.type||"").toUpperCase()==="ITEM") return node.last_status || null;
-    const ch = node.children || [];
-    if(!ch.length) return null;
-    for(const c of ch){
-      if(statusOf(c) !== "OK") return "NOT_OK";
+    if((node.type||"").toUpperCase()==="ITEM"){
+      return itemStatus(node);
     }
-    return "OK";
+    const ch = node.children || [];
+    if(!ch.length) return "TODO";
+    let hasTodo = false;
+    for(const c of ch){
+      const s = statusOf(c);
+      if(s === "NOT_OK") return "NOT_OK";
+      if(s === "TODO") hasTodo = true;
+    }
+    return hasTodo ? "TODO" : "OK";
   }
   function subtreeAllOK(node){
-    if((node.children||[]).length===0) return statusOf(node)==="OK";
-    for(const c of node.children||[]){
+    if((node.type||"").toUpperCase()==="ITEM") return itemStatus(node)==="OK";
+    for(const c of (node.children||[])){
       if(!subtreeAllOK(c)) return false;
     }
-    // si le parent lui-même n'est pas un ITEM, OK si tous enfants OK
     return true;
   }
   function el(tag, props, ...children){
@@ -195,18 +212,15 @@
   // ---------- peremption ----------
   function parseMaybeDate(v){
     if(!v) return null;
-    // timestamp (seconds or ms)
     if(typeof v === "number"){
-      if(v > 10_000_000_000) return new Date(v);       // ms
-      return new Date(v*1000);                         // seconds
+      if(v > 10_000_000_000) return new Date(v);
+      return new Date(v*1000);
     }
-    // iso / yyyy-mm-dd
     const d = new Date(v);
     if(!isNaN(d.getTime())) return d;
     return null;
   }
   function expiryDate(node){
-    // essaie plusieurs clés possibles
     const cand = node.expiry || node.expiry_date || node.expires_at || node.peremption || node.peremption_date || node.valid_until || null;
     return parseMaybeDate(cand);
   }
@@ -216,6 +230,13 @@
     const now = new Date();
     const diff = (d - now) / (1000*60*60*24);
     return diff <= PEREMPTION_DAYS;
+  }
+  function warnIcon(titleText){
+    const wrap = document.createElement("span");
+    wrap.className = "warn-ic";
+    wrap.title = titleText || "Péremption proche";
+    wrap.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1,21H23L12,2L1,21ZM13,18H11V16H13V18ZM13,14H11V10H13V14Z"/></svg>';
+    return wrap;
   }
 
   // ---------- API ----------
@@ -230,8 +251,14 @@
 
   // ---------- render ----------
   function statusChip(st){
-    const map = { "OK":["chip ok","OK"], "NOT_OK":["chip bad","Non conforme"], null:["chip wait","À vérifier"], undefined:["chip wait","À vérifier"] };
-    const [klass,label] = map[st] || map[undefined];
+    const map = {
+      "OK":["chip ok","OK"],
+      "NOT_OK":["chip bad","Non conforme"],
+      "TODO":["chip wait","À vérifier"],
+      null:["chip wait","À vérifier"],
+      undefined:["chip wait","À vérifier"]
+    };
+    const [klass,label] = map[st] || map["TODO"];
     return el("span",{class:klass}, el("span",{class:"dot " + (st==="OK"?"ok":st==="NOT_OK"?"bad":"wait")}), label);
   }
 
@@ -271,24 +298,35 @@
 
   function renderNode(n, isRoot){
     NODE_MAP.set(n.id, n);
-    const nStatus = statusOf(n);
+    const nStatus = statusOf(n); // "OK" | "NOT_OK" | "TODO"
     if((n.type||"").toUpperCase()==="ITEM"){
       const classes = ["item"];
-      if(nStatus==="OK") classes.push("ok"); else if(nStatus==="NOT_OK") classes.push("bad");
-      const rightBits = [
-        statusChip(n.last_status),
-        n.last_by ? el("span",{class:"small muted"},"(", n.last_by ,")") : null,
-        expirySoon(n) ? el("span",{class:"chip warn"}, el("span",{class:"dot warn"}),"Péremption < "+PEREMPTION_DAYS+"j") : null,
-        el("button",{class:"btn success", onclick:()=>verify(n.id,"OK")}, "OK"),
-        el("button",{class:"btn d a nger".replace(/\s/g,'') , onclick:()=>verify(n.id,"NOT_OK")}, "Non conforme"),
-      ].filter(Boolean);
+      if(nStatus==="OK") classes.push("ok");
+      else if(nStatus==="NOT_OK") classes.push("bad");
+      else classes.push("wait"); // TODO -> bleu
+
+      const nameAreaChildren = [ document.createTextNode(n.name) ];
+      if(expirySoon(n)){
+        const d = expiryDate(n);
+        const label = d ? ("Péremption proche : " + d.toLocaleDateString()) : "Péremption proche";
+        nameAreaChildren.push(warnIcon(label));
+      }
+
       return el("div",{class:classes.join(" ")},
-        el("div",{}, n.name),
-        el("div",{class:"right"}, rightBits)
+        el("div",{class:"name-area"}, nameAreaChildren),
+        el("div",{class:"right"},
+          statusChip(nStatus),
+          n.last_by ? el("span",{class:"small muted"},"(", n.last_by ,")") : null,
+          el("button",{class:"btn success", onclick:()=>verify(n.id,"OK")}, "OK"),
+          el("button",{class:"btn danger", onclick:()=>verify(n.id,"NOT_OK")}, "Non conforme")
+        )
       );
     }else{
       const classes = ["group"];
-      if(nStatus==="OK") classes.push("ok"); else if(nStatus==="NOT_OK") classes.push("bad");
+      if(nStatus==="OK") classes.push("ok");
+      else if(nStatus==="NOT_OK") classes.push("bad");
+      else classes.push("wait"); // TODO -> bleu pour groupe aussi
+
       const children = (n.children||[]).map(c=>renderNode(c,false));
       return el("div",{class:classes.join(" ")},
         el("div",{class:"head"},
@@ -333,7 +371,6 @@
     ev.preventDefault();
     const vehicle = (document.getElementById("vehInput").value || "").trim();
     if(!vehicle){ alert("Nom du véhicule requis"); return; }
-    // sécurité côté UI : re-check que le parent est 100% OK
     const parent = NODE_MAP.get(CURRENT_PARENT_ID);
     if(!subtreeAllOK(parent)){
       alert("Vous ne pouvez charger que lorsque tous les éléments du parent sont OK.");
