@@ -19,12 +19,12 @@ from ..models import (
     EventNodeStatus,
     event_stock,
     Role,
+    ItemStatus,  # ⬅️ important : on utilise l’Enum pour sauvegarder les statuts
 )
 
-# Deux blueprints, comme dans ton projet
+# Blueprints
 bp_events = Blueprint("events_api", __name__, url_prefix="/events")
 bp_public = Blueprint("public_api", __name__, url_prefix="/public")
-
 
 # -------------------------------------------------
 # Helpers droits
@@ -34,7 +34,6 @@ def _is_manager() -> bool:
 
 def _can_view() -> bool:
     return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF, Role.VIEWER)
-
 
 # -------------------------------------------------
 # Helpers communs
@@ -52,14 +51,12 @@ def _event_from_token_or_404(token: str) -> Event:
     return link.event
 
 def _emit(event_name: str, payload: Dict[str, Any]):
-    # S'il y a SocketIO, on émet localement (pas de Redis si non configuré)
     try:
         if socketio:
             socketio.emit(event_name, payload, namespace="/events")
     except Exception:
-        # Ne jamais faire planter l'API pour un emit
+        # on ne casse jamais l’API pour un emit
         pass
-
 
 # -------------------------------------------------
 # Utils vérif + arbre
@@ -82,8 +79,9 @@ def _last_verif_map(event_id: int, item_ids: List[int]) -> Dict[int, Dict[str, A
         if nid in out:
             continue
         status_val = getattr(r, "status", None)
+        # ItemStatus -> .name : "OK"/"NOT_OK"/"TODO"
         status = status_val.name if hasattr(status_val, "name") else (str(status_val).upper() if status_val else "TODO")
-        ts = getattr(r, "updated_at", None) or getattr(r, "created_at", None)
+        ts = getattr(r, "created_at", None)
         out[nid] = {
             "status": status,
             "by": getattr(r, "verifier_name", None),
@@ -92,23 +90,16 @@ def _last_verif_map(event_id: int, item_ids: List[int]) -> Dict[int, Dict[str, A
         }
     return out
 
-
 def _collect_desc_item_ids(root: StockNode) -> List[int]:
-    """
-    Renvoie tous les IDs d'ITEM sous ce noeud (récursif).
-    """
     ids: List[int] = []
-
     def walk(n: StockNode):
         if n.type == NodeType.ITEM:
             ids.append(int(n.id))
             return
         for c in StockNode.query.filter_by(parent_id=n.id).all():
             walk(c)
-
     walk(root)
     return ids
-
 
 def _all_descendants_ok(event_id: int, group_node: StockNode) -> bool:
     """
@@ -118,7 +109,6 @@ def _all_descendants_ok(event_id: int, group_node: StockNode) -> bool:
         return False
     item_ids = _collect_desc_item_ids(group_node)
     if not item_ids:
-        # pas d'items => on autorise (considéré OK)
         return True
     last = _last_verif_map(event_id, item_ids)
     for iid in item_ids:
@@ -126,12 +116,10 @@ def _all_descendants_ok(event_id: int, group_node: StockNode) -> bool:
             return False
     return True
 
-
 def _extract_expiry(n: StockNode) -> Optional[str]:
     """
     Extrait une date de péremption si disponible sur StockNode.
-    On normalise en ISO string (YYYY-MM-DD).
-    Couvre notamment: expiry_date = db.Date.
+    Normalise en ISO string (YYYY-MM-DD).
     """
     candidates = (
         "expiry",
@@ -145,21 +133,18 @@ def _extract_expiry(n: StockNode) -> Optional[str]:
         v = getattr(n, attr, None)
         if v:
             try:
-                # datetime.date/datetime
                 if hasattr(v, "isoformat"):
-                    return v.isoformat()  # type: ignore[no-any-return]
-                # str: renvoyer tel quel
+                    return v.isoformat()  # date/datetime
                 return str(v)
             except Exception:
                 return str(v)
     return None
 
-
 def _build_event_tree(event_id: int) -> List[Dict[str, Any]]:
     """
-    Construit l'arbre demandé par le front (parents inclus dans l'évènement + enfants).
-    Pour les ITEMs, ajoute last_status/last_by/last_at/comment et 'expiry' + 'expiry_date'.
-    Pour les GROUPs, ajoute charged_vehicle / charged_vehicle_name / charged_vehicle_by.
+    Arbre attendu par le front :
+      - Pour ITEMs : last_status/last_by/last_at/comment + expiry/expiry_date
+      - Pour GROUPs : children + charged_vehicle (+ nom/vehicule si dispo) + can_charge (serveur)
     """
     # Racines liées à l’évènement (GROUP)
     rows = db.session.execute(
@@ -171,17 +156,14 @@ def _build_event_tree(event_id: int) -> List[Dict[str, Any]]:
 
     # Collecte items pour map des dernières vérifs
     all_items: List[StockNode] = []
-
     def collect_items(n: StockNode):
         if n.type == NodeType.ITEM:
             all_items.append(n)
         else:
             for c in StockNode.query.filter_by(parent_id=n.id).all():
                 collect_items(c)
-
     for r in roots:
         collect_items(r)
-
     last = _last_verif_map(event_id, [i.id for i in all_items])
 
     def ser(n: StockNode) -> Dict[str, Any]:
@@ -198,9 +180,8 @@ def _build_event_tree(event_id: int) -> List[Dict[str, Any]]:
                 "last_by": info.get("by"),
                 "last_at": info.get("at"),
                 "comment": info.get("comment"),
-                # ---> on expose les deux clés :
-                "expiry": exp_iso,
-                "expiry_date": exp_iso,
+                "expiry": exp_iso,       # ⬅️ pour le front
+                "expiry_date": exp_iso,  # ⬅️ pour le front (compat)
                 "children": [],
             })
             return base
@@ -208,21 +189,28 @@ def _build_event_tree(event_id: int) -> List[Dict[str, Any]]:
         # GROUP
         ch = [ser(c) for c in StockNode.query.filter_by(parent_id=n.id).all()]
         base["children"] = ch
+
+        # Serveur calcule aussi can_charge (sécurité + commodité côté UI)
+        try:
+            base["can_charge"] = _all_descendants_ok(event_id, n)
+        except Exception:
+            base["can_charge"] = False
+
         ens = EventNodeStatus.query.filter_by(event_id=event_id, node_id=n.id).first()
         if ens:
-            base["charged_vehicle"] = getattr(ens, "charged_vehicle", None)
+            base["charged_vehicle"] = getattr(ens, "charged_vehicle", False)
+            # Si tu avais ajouté des colonnes optionnelles, on les expose.
             if hasattr(ens, "charged_vehicle_name"):
                 base["charged_vehicle_name"] = getattr(ens, "charged_vehicle_name", None)
-            # Nom affiché côté UI : "chargé par ..."
-            base["charged_vehicle_by"] = getattr(ens, "verifier_name", None)
+            if hasattr(ens, "verifier_name"):
+                base["charged_vehicle_by"] = getattr(ens, "verifier_name", None)
         else:
-            base["charged_vehicle"] = None
+            base["charged_vehicle"] = False
             base["charged_vehicle_name"] = None
             base["charged_vehicle_by"] = None
         return base
 
     return [ser(r) for r in roots]
-
 
 # -------------------------------------------------
 # Routes internes (manager/chef)
@@ -250,12 +238,11 @@ def create_event():
         except Exception:
             abort(400, description="date invalide (YYYY-MM-DD).")
 
-    # created_by : utiliser *_id si la FK s'appelle comme ça (évite l’erreur ORM)
     ev = Event(
         name=name,
         date=dt,
         status=EventStatus.OPEN,
-        created_by_id=current_user.id  # <--- important
+        created_by_id=current_user.id  # ⬅️ important si la FK s’appelle created_by_id
     )
     db.session.add(ev)
     db.session.flush()
@@ -279,7 +266,6 @@ def create_event():
     db.session.commit()
     return jsonify({"ok": True, "id": ev.id, "url": f"/events/{ev.id}"}), 201
 
-
 @bp_events.get("/list")
 @login_required
 def list_events():
@@ -296,7 +282,6 @@ def list_events():
         for e in evs
     ])
 
-
 @bp_events.get("/<int:event_id>/tree")
 @login_required
 def event_tree(event_id: int):
@@ -305,7 +290,6 @@ def event_tree(event_id: int):
     ev = _event_or_404(event_id)
     tree = _build_event_tree(ev.id)
     return jsonify(tree)
-
 
 @bp_events.post("/<int:event_id>/verify")
 @login_required
@@ -319,10 +303,11 @@ def event_verify(event_id: int):
     payload = request.get_json(silent=True) or {}
     node_id = int(payload.get("node_id") or 0)
     status = (payload.get("status") or "").upper()  # "OK" | "NOT_OK" | "TODO"
+    status_enum = {"OK": ItemStatus.OK, "NOT_OK": ItemStatus.NOT_OK, "TODO": ItemStatus.TODO}.get(status, ItemStatus.TODO)
     verifier_name = (payload.get("verifier_name") or current_user.username or "").strip()
     comment = (payload.get("comment") or "").strip() or None
 
-    if not node_id or status not in ("OK", "NOT_OK", "TODO"):
+    if not node_id or status_enum not in (ItemStatus.OK, ItemStatus.NOT_OK, ItemStatus.TODO):
         abort(400, description="Paramètres invalides (node_id, status).")
 
     node = db.session.get(StockNode, node_id)
@@ -332,7 +317,7 @@ def event_verify(event_id: int):
     rec = VerificationRecord(
         event_id=ev.id,
         node_id=node.id,
-        status=status,
+        status=status_enum,   # ⬅️ enum correct
         verifier_name=verifier_name or None,
         comment=comment,
     )
@@ -343,20 +328,18 @@ def event_verify(event_id: int):
         "type": "item_verified",
         "event_id": ev.id,
         "node_id": node.id,
-        "status": status,
+        "status": status_enum.name,  # "OK"/"NOT_OK"/"TODO"
         "verifier_name": verifier_name or None,
         "comment": comment,
     })
-
     return jsonify({"ok": True})
-
 
 @bp_events.post("/<int:event_id>/parent-status")
 @login_required
 def event_parent_charged(event_id: int):
     """
     Marque un parent (GROUP) comme 'chargé'.
-    Autorisé uniquement si TOUT le sous-arbre est OK (blocage côté serveur).
+    Autorisé uniquement si TOUT le sous-arbre est OK (côté serveur).
     """
     if not _is_manager():
         abort(403)
@@ -376,20 +359,17 @@ def event_parent_charged(event_id: int):
     if not node or node.type != NodeType.GROUP:
         abort(404, description="Parent introuvable ou non GROUP.")
 
-    # Blocage serveur si tout n'est pas OK
     if charged_vehicle and not _all_descendants_ok(ev.id, node):
         abort(400, description="Impossible de charger : tous les éléments ne sont pas OK.")
 
     ens = EventNodeStatus.query.filter_by(event_id=ev.id, node_id=node.id).first() \
         or EventNodeStatus(event_id=ev.id, node_id=node.id)
     ens.charged_vehicle = charged_vehicle
+    # optionnel : si tu as ces colonnes en DB
     if hasattr(ens, "charged_vehicle_name"):
         ens.charged_vehicle_name = vehicle_name if charged_vehicle else None
-    # On stocke le nom (côté UI : 'Chargé par ...')
-    try:
+    if hasattr(ens, "verifier_name"):
         ens.verifier_name = operator_name or None
-    except Exception:
-        pass
     ens.updated_at = datetime.utcnow()
 
     db.session.add(ens)
@@ -399,14 +379,12 @@ def event_parent_charged(event_id: int):
         "type": "parent_charged",
         "event_id": ev.id,
         "node_id": node.id,
-        "charged": charged_vehicle,
+        "charged": ens.charged_vehicle,
         "vehicle_name": getattr(ens, "charged_vehicle_name", None),
         "by": getattr(ens, "verifier_name", None),
     }
     _emit("event_update", out)
-
     return jsonify({"ok": True, **out})
-
 
 @bp_events.patch("/<int:event_id>/status")
 @login_required
@@ -427,7 +405,6 @@ def event_set_status(event_id: int):
     _emit("event_update", {"type": "status", "event_id": ev.id, "status": ev.status.name})
     return jsonify({"ok": True, "status": ev.status.name})
 
-
 @bp_events.post("/<int:event_id>/share-link")
 @login_required
 def create_public_share_link(event_id: int):
@@ -443,7 +420,6 @@ def create_public_share_link(event_id: int):
     db.session.commit()
 
     return jsonify({"ok": True, "token": token, "url": f"/public/event/{token}"})
-
 
 @bp_events.post("/<int:event_id>/delete")
 @login_required
@@ -461,16 +437,14 @@ def delete_event(event_id: int):
 
     return jsonify({"ok": True})
 
-
 # -------------------------------------------------
-# Public routes (secouristes)
+# Public (secouristes)
 # -------------------------------------------------
 @bp_public.get("/event/<token>/tree")
 def public_event_tree(token: str):
     ev = _event_from_token_or_404(token)
     tree = _build_event_tree(ev.id)
     return jsonify(tree)
-
 
 @bp_public.post("/event/<token>/verify")
 def public_verify(token: str):
@@ -480,11 +454,12 @@ def public_verify(token: str):
 
     payload = request.get_json(silent=True) or {}
     node_id = int(payload.get("node_id") or 0)
-    status = (payload.get("status") or "").upper()  # "OK" | "NOT_OK" | "TODO"
+    status = (payload.get("status") or "").upper()
+    status_enum = {"OK": ItemStatus.OK, "NOT_OK": ItemStatus.NOT_OK, "TODO": ItemStatus.TODO}.get(status, ItemStatus.TODO)
     verifier_name = (payload.get("verifier_name") or "").strip()
     comment = (payload.get("comment") or "").strip() or None
 
-    if not node_id or status not in ("OK", "NOT_OK", "TODO"):
+    if not node_id or status_enum not in (ItemStatus.OK, ItemStatus.NOT_OK, ItemStatus.TODO):
         abort(400, description="Paramètres invalides (node_id, status).")
 
     node = db.session.get(StockNode, node_id)
@@ -494,7 +469,7 @@ def public_verify(token: str):
     rec = VerificationRecord(
         event_id=ev.id,
         node_id=node.id,
-        status=status,
+        status=status_enum,  # ⬅️ enum correct
         verifier_name=verifier_name or None,
         comment=comment,
     )
@@ -505,12 +480,11 @@ def public_verify(token: str):
         "type": "public_verify",
         "event_id": ev.id,
         "node_id": node.id,
-        "status": status,
+        "status": status_enum.name,
         "verifier_name": verifier_name or None,
         "comment": comment,
     })
     return jsonify({"ok": True})
-
 
 @bp_public.post("/event/<token>/charge")
 def public_parent_charge(token: str):
@@ -534,7 +508,6 @@ def public_parent_charge(token: str):
     if not node or node.type != NodeType.GROUP:
         abort(404, description="Parent introuvable ou non GROUP.")
 
-    # Blocage serveur si tout n'est pas OK
     if charged_vehicle and not _all_descendants_ok(ev.id, node):
         abort(400, description="Impossible de charger : tous les éléments ne sont pas OK.")
 
@@ -543,11 +516,8 @@ def public_parent_charge(token: str):
     ens.charged_vehicle = charged_vehicle
     if hasattr(ens, "charged_vehicle_name"):
         ens.charged_vehicle_name = vehicle_name if charged_vehicle else None
-    # on stocke le nom du secouriste qui a chargé
-    try:
+    if hasattr(ens, "verifier_name"):
         ens.verifier_name = operator_name or None
-    except Exception:
-        pass
     ens.updated_at = datetime.utcnow()
 
     db.session.add(ens)
@@ -557,10 +527,9 @@ def public_parent_charge(token: str):
         "type": "parent_charged",
         "event_id": ev.id,
         "node_id": node.id,
-        "charged": charged_vehicle,
+        "charged": ens.charged_vehicle,
         "vehicle_name": getattr(ens, "charged_vehicle_name", None),
         "by": getattr(ens, "verifier_name", None),
     }
     _emit("event_update", out)
-
     return jsonify({"ok": True, **out})
