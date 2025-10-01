@@ -1,7 +1,7 @@
 # app/tree_query.py — construction du TREE pour une page évènement
 from __future__ import annotations
-from typing import Dict, Any, List, Optional
-from sqlalchemy import desc
+from typing import Dict, Any, List, Optional, Tuple
+import json, re
 
 from . import db
 from .models import (
@@ -45,22 +45,44 @@ def _latest_verifs_map(event_id: int, item_ids: List[int]) -> Dict[int, Dict[str
         nid = int(r.node_id)
         if nid in out:
             continue  # déjà le plus récent
+        ts = getattr(r, "created_at", None)
         out[nid] = {
             "status": _norm_status(getattr(r, "status", None)),
             "by": getattr(r, "verifier_name", None),
-            "at": (getattr(r, "updated_at", None) or getattr(r, "created_at", None)),
+            "at": ts.isoformat() if ts else None,
             "comment": getattr(r, "comment", None),
             "issue_code": _norm_status(getattr(r, "issue_code", None)),
             "observed_qty": getattr(r, "observed_qty", None),
             "missing_qty": getattr(r, "missing_qty", None),
         }
-        if out[nid]["at"]:
-            out[nid]["at"] = out[nid]["at"].isoformat()
     return out
 
 def _ens_map(event_id: int) -> Dict[int, EventNodeStatus]:
     rows = EventNodeStatus.query.filter_by(event_id=event_id).all()
     return {int(r.node_id): r for r in rows}
+
+def _extract_vehicle_from_comment(raw: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+    """Fallback sans migration : on lit vehicle_name / operator_name depuis comment (JSON texte)."""
+    if not raw:
+        return None, None
+    raw = str(raw).strip()
+
+    # (1) JSON {"vehicle_name": "...", "operator_name": "..."}
+    if raw.startswith("{") and raw.endswith("}"):
+        try:
+            data = json.loads(raw)
+            veh = data.get("vehicle_name") or data.get("veh") or data.get("vehicle")
+            by = data.get("operator_name") or data.get("by") or data.get("operator")
+            return (veh or None), (by or None)
+        except Exception:
+            pass
+
+    # (2) Heuristique texte: "Véhicule: XXX; Op: YYY"
+    m = re.search(r'(?:vehicule|véhicule)\s*[:=]\s*(.+?)(?:\s*[;,\n]|$)', raw, flags=re.I)
+    veh = m.group(1).strip() if m else None
+    m2 = re.search(r'(?:op(?:érateur)?|by|par)\s*[:=]\s*(.+?)(?:\s*[;,\n]|$)', raw, flags=re.I)
+    by = m2.group(1).strip() if m2 else None
+    return veh, by
 
 # --------- arbre ---------
 def _serialize(node: StockNode,
@@ -75,22 +97,6 @@ def _serialize(node: StockNode,
 
     if node.type == NodeType.ITEM:
         info = latest.get(int(node.id), {})
-        # expiry_date + quantity exposés au front
-        expiry_date = None
-        try:
-            ed = getattr(node, "expiry_date", None)
-            if ed:
-                expiry_date = ed.isoformat()
-        except Exception:
-            expiry_date = None
-
-        qty_val = None
-        try:
-            qv = getattr(node, "quantity", None)
-            qty_val = qv if qv is not None else 1  # défaut à 1 si non renseigné
-        except Exception:
-            qty_val = 1
-
         base.update({
             "last_status": info.get("status", "TODO"),
             "last_by": info.get("by"),
@@ -99,8 +105,6 @@ def _serialize(node: StockNode,
             "issue_code": info.get("issue_code"),
             "observed_qty": info.get("observed_qty"),
             "missing_qty": info.get("missing_qty"),
-            "expiry_date": expiry_date,
-            "quantity": qty_val,
         })
         base["children"] = []
         return base
@@ -108,7 +112,7 @@ def _serialize(node: StockNode,
     # GROUP
     children = []
     # relation ORM “children” ou requête fallback
-    if hasattr(node, "children") and node.children:
+    if hasattr(node, "children") and node.children is not None:
         for c in node.children:
             children.append(_serialize(c, latest, False, ens_map))
     else:
@@ -121,11 +125,25 @@ def _serialize(node: StockNode,
 
     ens = ens_map.get(int(node.id))
     if ens:
-        # ces champs sont optionnels en DB -> getattr safe
         base["charged_vehicle"] = getattr(ens, "charged_vehicle", None)
-        if hasattr(ens, "charged_vehicle_name"):
-            base["charged_vehicle_name"] = getattr(ens, "charged_vehicle_name", None)
-        if getattr(ens, "comment", None):
+
+        # 1) Si un jour tu ajoutes des colonnes, on les utilise automatiquement
+        veh_name = getattr(ens, "charged_vehicle_name", None) if hasattr(ens, "charged_vehicle_name") else None
+        charged_by = getattr(ens, "verifier_name", None) if hasattr(ens, "verifier_name") else None
+
+        # 2) Fallback actuel (sans migration) : on lit dans comment(JSON)
+        if veh_name is None or charged_by is None:
+            from_comment_veh, from_comment_by = _extract_vehicle_from_comment(getattr(ens, "comment", None))
+            veh_name = veh_name or from_comment_veh
+            charged_by = charged_by or from_comment_by
+
+        if veh_name is not None:
+            base["charged_vehicle_name"] = veh_name
+        if charged_by is not None:
+            base["charged_by"] = charged_by
+
+        # on laisse comment pour compat descendante si présent
+        if getattr(ens, "comment", None) and ("charged_vehicle_name" not in base):
             base["comment"] = ens.comment
 
     return base
