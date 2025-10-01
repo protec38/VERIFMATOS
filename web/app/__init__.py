@@ -12,12 +12,12 @@ from .config import get_config
 # Extensions
 db = SQLAlchemy()
 migrate = Migrate()
-login_manager = LoginManager()
-login_manager.login_view = "pages.login"
-# Protection de session optionnelle
-login_manager.session_protection = "strong"
+login_manager = LoginManager(
+    login_view="auth.login",
+    session_protection="strong"
+)
 
-# Socket.IO (par défaut sans Redis, un seul worker/process)
+# Socket.IO in-process (pas de Redis ici)
 socketio = SocketIO(
     async_mode="eventlet",
     cors_allowed_origins="*",
@@ -34,28 +34,41 @@ def create_app():
     migrate.init_app(app, db)
     login_manager.init_app(app)
 
-    # Blueprints
-    from .pages.views import bp as pages_bp
+    # Blueprints API
+    from .auth.views import bp as auth_api_bp
+    app.register_blueprint(auth_api_bp)
+
+    from .admin.views import bp as admin_api_bp
+    app.register_blueprint(admin_api_bp)
+
+    from .stock.views import bp as stock_api_bp
+    app.register_blueprint(stock_api_bp)
+
+    from .verify.views import bp as verify_api_bp
+    app.register_blueprint(verify_api_bp)
+
+    # Reports / Stats / PWA si présents
+    try:
+        from .reports.views import bp as reports_api_bp
+        app.register_blueprint(reports_api_bp)
+    except Exception:
+        pass
+
+    try:
+        from .stats.views import bp as stats_api_bp
+        app.register_blueprint(stats_api_bp)
+    except Exception:
+        pass
+
+    try:
+        from .pwa.views import bp as pwa_bp
+        app.register_blueprint(pwa_bp)
+    except Exception:
+        pass
+
+    # Pages HTML (public + dashboard)
+    from .views_html import bp as pages_bp
     app.register_blueprint(pages_bp)
-
-    from .auth.views import bp as auth_bp
-    app.register_blueprint(auth_bp)
-
-    from .events.views import bp_events, bp_public
-    app.register_blueprint(bp_events)
-    app.register_blueprint(bp_public)
-
-    # Filtres Jinja utiles
-    @app.template_filter("ts_human")
-    def ts_human(ts):
-        try:
-            if not ts:
-                return "—"
-            if isinstance(ts, (int, float)):
-                return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
-            return ts.strftime("%Y-%m-%d %H:%M")
-        except Exception:
-            return str(ts)
 
     # Healthcheck simple
     @app.get("/healthz")
@@ -67,19 +80,14 @@ def create_app():
             db_ok = False
         return {"status": "healthy" if db_ok else "degraded"}
 
-    # >>> IMPORTANT : pas de reconfiguration Redis <<<
-    # Même si REDIS_URL existe dans l'env, on NE re-crée PAS un SocketIO avec message_queue.
-    # On reste strictement en message_queue=None (in-process).
-
-    # Socket handlers (join_event, etc.)
-    from .sockets import register_socketio_handlers
-    register_socketio_handlers(socketio)
-
-    # CLI (seed templates) — optionnel
+    # Handlers Socket.IO
     try:
-        from .seeds_templates import register_cli as register_seed_cli
-        register_seed_cli(app)
+        from .sockets import register_socketio_handlers
+        register_socketio_handlers(socketio)
     except Exception:
         pass
 
     return app
+
+# Instance pour wsgi
+app = create_app()
