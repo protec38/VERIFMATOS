@@ -92,6 +92,9 @@
   <div id="tree" class="tree" style="margin-top:10px;"></div>
 </div>
 
+<!-- Socket.IO client -->
+<script src="/socket.io/socket.io.js"></script>
+
 <script>
 const EVENT_ID = {{ event.id }};
 let TREE = {{ (tree or [])|tojson }};
@@ -324,11 +327,9 @@ function buildParentsBar(){
     const s = groupStatus(p);
     const pillClass = s==="OK" ? "pill-ok" : (s==="BAD" ? "pill-bad" : "pill-wait");
     const pill = el("div", {class:"parent-pill "+pillClass, onclick:()=>scrollToParent(p.id)},
-      statusDot(s==="OK", s==="BAD"),
-      el("span", {class:"strong"}, p.name),
-      p.charged_vehicle ? el("span", {class:"vehicle on"}, p.charged_vehicle_name || "—") : null
-    );
-    holder.appendChild(pill);
+      statusDot(s==="OK", s==="BAD")),
+      holder.appendChild(pill.appendChild(el("span", {class:"strong"}, p.name))),
+      p.charged_vehicle ? holder.appendChild(el("span", {class:"vehicle on"}, p.charged_vehicle_name || "—")) : null
   });
 }
 function updateParentsBarOnly(){
@@ -394,10 +395,25 @@ document.getElementById("btn-close").addEventListener("click", ()=>{
   });
 });
 
-/* ---------- Init ---------- */
+/* ---------- Init + live socket ---------- */
 (function init(){
   buildUIOnce();
-  setInterval(refreshTree, 2000);
+
+  // Live via Socket.IO (mêmes événements que la page publique/serveur)
+  try{
+    const socket = io("/events");
+    socket.on("connect", ()=>{/* ok */});
+    socket.on("event_update", (msg)=>{
+      // si l’évènement est précisé, on filtre, sinon on rafraîchit quand même
+      if(msg && typeof msg === "object" && "event_id" in msg && msg.event_id !== EVENT_ID) return;
+      refreshTree();
+    });
+  }catch(e){
+    // pas de socket => on ne casse rien
+  }
+
+  // Fallback polling doux (au cas où)
+  setInterval(refreshTree, 5000);
 })();
 </script>
 {% endblock %}
