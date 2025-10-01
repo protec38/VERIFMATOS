@@ -15,6 +15,7 @@
     --shadow:0 8px 30px rgba(0,0,0,.25);
   }
 
+  body{background:var(--bg);color:var(--text)}
   .wrap{max-width:1100px;margin:16px auto;padding:0 14px}
   .header{display:flex;align-items:center;justify-content:space-between;margin:6px 0 14px}
   .title{display:flex;flex-direction:column}
@@ -44,7 +45,7 @@
   .warn-ic svg{width:16px;height:16px}
   .warn-ic path{fill:var(--warn)}
 
-  /* ===== Progress "cheffe" ===== */
+  /* ===== Progress "cheffe" GLOBAL UNIQUEMENT ===== */
   .chef-progress{display:flex;align-items:center;gap:12px}
   .chef-progress .label{font-weight:700}
   .chef-progress .right{margin-left:auto;font-variant-numeric:tabular-nums}
@@ -54,17 +55,16 @@
   .chef-seg.todo{background:var(--wait)}
   .chef-seg.bad{background:var(--bad)}
 
-  /* Parents */
+  /* Parents strip (SANS barre) */
   .parents{margin-top:10px}
   .parents-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
   .parents-bar{display:flex;gap:10px;overflow:auto;padding:4px 2px}
-  .parent{display:flex;align-items:center;gap:10px;border:1px solid var(--border);padding:8px 10px;border-radius:12px;background:var(--bg3);min-width:340px}
+  .parent{display:flex;align-items:center;gap:10px;border:1px solid var(--border);padding:8px 10px;border-radius:12px;background:var(--bg3);}
   .parent .name{font-weight:700}
   .parent .veh{font-size:12px;color:var(--muted)}
   .parent .state{display:flex;align-items:center;gap:6px;margin-left:auto}
-  .parent .mini{flex:1;min-width:130px;max-width:220px}
 
-  /* Tree */
+  /* Tree (SANS barre de groupe) */
   .grid{display:grid;grid-template-columns:1fr;gap:12px;margin-top:12px}
   .group{border:1px solid var(--border);padding:12px;border-radius:12px;background:var(--bg2)}
   .group.ok{border-color:#1d6e5d;background:radial-gradient(600px 200px at top left, var(--ok-ghost), transparent), var(--bg2); box-shadow:0 0 0 1px rgba(18,184,134,.35) inset, 0 0 18px var(--ok-ghost)}
@@ -101,7 +101,7 @@
     </div>
   </div>
 
-  <!-- ===== Progression globale (même logique/visuel que “cheffe”) ===== -->
+  <!-- ===== Barre de progression GLOBALE (style cheffe) ===== -->
   <div class="card">
     <div class="chef-progress">
       <div class="label">Avancement</div>
@@ -263,8 +263,7 @@
       "expiry","expiry_date","expires_at",
       "peremption","peremption_date",
       "valid_until","expiration","expiration_date",
-      "dlc","dlc_date","dlu","dluo",
-      "best_before","best_before_date"
+      "dlc","dlc_date","dlu","dluo","best_before","best_before_date"
     ];
     for(const k of keys){
       let v = node[k];
@@ -303,15 +302,33 @@
     }catch(e){}
   }
 
-  // ---------- render ----------
+  // ---------- GLOBAL progress (seule barre) ----------
   function updateGlobalProgress(roots){
+    // si backend donne stats par racine, on agrège; sinon fallback en parcourant l'arbre
     let g_ok=0,g_todo=0,g_bad=0,g_total=0;
-    for(const r of (roots||[])){
-      const st = r.stats || {ok:0, todo:0, not_ok:0, total:0};
-      g_ok += Number(st.ok||0);
-      g_todo += Number(st.todo||0);
-      g_bad += Number(st.not_ok||0);
-      g_total += Number(st.total||0);
+    const useStats = !!(roots && roots.length && roots[0].stats);
+    if(useStats){
+      for(const r of (roots||[])){
+        const st = r.stats || {ok:0, todo:0, not_ok:0, total:0};
+        g_ok += Number(st.ok||0);
+        g_todo += Number(st.todo||0);
+        g_bad += Number(st.not_ok||0);
+        g_total += Number(st.total||0);
+      }
+    }else{
+      // fallback : compte tous les items
+      function walk(n){
+        if((n.type||"").toUpperCase()==="ITEM"){
+          const st = (String(n.last_status||"").toUpperCase() || "TODO");
+          g_total += 1;
+          if(st==="OK") g_ok += 1;
+          else if(st==="NOT_OK") g_bad += 1;
+          else g_todo += 1;
+        }else{
+          (n.children||[]).forEach(walk);
+        }
+      }
+      (roots||[]).forEach(walk);
     }
     const okW   = g_total>0 ? (100*(g_ok/g_total))   : 0;
     const todoW = g_total>0 ? (100*(g_todo/g_total)) : 0;
@@ -323,6 +340,7 @@
     document.getElementById("g_txt").textContent = `${pct}%`;
   }
 
+  // ---------- rendu ----------
   function statusChip(st){
     const map = {
       "OK":["chip ok","OK"],
@@ -340,25 +358,9 @@
     bar.innerHTML = "";
     (roots||[]).forEach(r=>{
       const canCharge = (r.can_charge !== undefined) ? !!r.can_charge : subtreeAllOK(r);
-
-      const st = r.stats || {ok:0, todo:0, not_ok:0, total:0};
-      const total = Math.max(1, Number(st.total||0));
-      const wOk = (100 * (Number(st.ok||0) / total)).toFixed(2) + "%";
-      const wTodo = (100 * (Number(st.todo||0) / total)).toFixed(2) + "%";
-      const wBad = (100 * (Number(st.not_ok||0) / total)).toFixed(2) + "%";
-      const pct = total>1 ? Math.round((Number(st.ok||0)/total)*100) : (st.ok?100:0);
-
       const pill = el("div",{class:"parent"},
         el("span",{class:"dot " + (r.charged_vehicle ? "ok" : "wait")}),
         el("span",{class:"name"}, r.name),
-        el("div",{class:"mini"},
-          el("div",{class:"chef-bar", title:`OK ${st.ok||0} / ${st.total||0}`},
-            el("span",{class:"chef-seg ok", style:`width:${wOk}`}),
-            el("span",{class:"chef-seg todo", style:`width:${wTodo}`}),
-            el("span",{class:"chef-seg bad", style:`width:${wBad}`}),
-          )
-        ),
-        el("span",{class:"muted small"}, `${pct}%`),
         el("span",{class:"veh"},
           r.charged_vehicle_name ? "• " + r.charged_vehicle_name : "",
           r.charged_vehicle_by ? " – chargé par " + r.charged_vehicle_by : ""
@@ -405,104 +407,4 @@
           statusChip(nStatus),
           n.last_by ? el("span",{class:"small muted"},"(", n.last_by ,")") : null,
           el("button",{class:"btn success", onclick:()=>verify(n.id,"OK")}, "OK"),
-          el("button",{class:"btn danger", onclick:()=>verify(n.id,"NOT_OK")}, "Non conforme")
-        )
-      );
-    }else{
-      const classes = ["group"];
-      if(nStatus==="OK") classes.push("ok");
-      else if(nStatus==="NOT_OK") classes.push("bad");
-      else classes.push("wait");
-
-      const st = n.stats || {ok:0, todo:0, not_ok:0, total:0};
-      const total = Math.max(1, Number(st.total||0));
-      const wOk = (100 * (Number(st.ok||0) / total)).toFixed(2) + "%";
-      const wTodo = (100 * (Number(st.todo||0) / total)).toFixed(2) + "%";
-      const wBad = (100 * (Number(st.not_ok||0) / total)).toFixed(2) + "%";
-      const pct = total>1 ? Math.round((Number(st.ok||0)/total)*100) : (st.ok?100:0);
-
-      const children = (n.children||[]).map(c=>renderNode(c,false));
-      return el("div",{class:classes.join(" ")},
-        el("div",{class:"head", title:`${st.ok||0}/${st.total||0} OK`},
-          el("strong",{}, n.name),
-          el("div",{class:"chef-bar", style:"min-width:220px;max-width:380px;flex:1"},
-            el("span",{class:"chef-seg ok", style:`width:${wOk}`}),
-            el("span",{class:"chef-seg todo", style:`width:${wTodo}`}),
-            el("span",{class:"chef-seg bad", style:`width:${wBad}`})
-          ),
-          el("div",{class:"muted small"}, `${pct}%`),
-          isRoot && n.charged_vehicle ? el("span",{class:"chip ok"}, el("span",{class:"dot ok"}),"Chargé", n.charged_vehicle_by ? " par "+n.charged_vehicle_by : "") : null
-        ),
-        el("div",{}, children)
-      );
-    }
-  }
-
-  function syncTree(latest){
-    TREE = latest || [];
-    updateGlobalProgress(TREE);
-    renderParents(TREE);
-    renderTree();
-  }
-
-  // ---------- actions ----------
-  async function verify(nodeId, status){
-    if(!ensureOperator()){ return; }
-    try{
-      await fetch(`/public/event/{{ token }}/verify`, {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ node_id: nodeId, status, verifier_name: getOperator() })
-      }).then(ensureOk);
-      await refreshTree();
-    }catch(e){
-      alert(e.message || "Échec de la validation");
-    }
-  }
-
-  function openVehicle(parentId, currentName){
-    CURRENT_PARENT_ID = parentId;
-    document.getElementById("vehInput").value = currentName || "";
-    document.getElementById("vehTitle").textContent = currentName ? "Modifier le véhicule" : "Marquer comme chargé";
-    document.getElementById("dlgVehicle").showModal();
-  }
-  function closeVehicle(){ document.getElementById("dlgVehicle").close(); }
-  async function saveVehicle(ev){
-    ev.preventDefault();
-    const vehicle = (document.getElementById("vehInput").value || "").trim();
-    if(!vehicle){ alert("Nom du véhicule requis"); return; }
-    const parent = NODE_MAP.get(CURRENT_PARENT_ID);
-
-    // Sécurité client : si parent pas encore chargé -> tout doit être OK
-    const canCharge = (parent && parent.can_charge !== undefined) ? !!parent.can_charge : subtreeAllOK(parent);
-    if(!parent.charged_vehicle && !canCharge){
-      alert("Vous ne pouvez charger que lorsque tous les éléments du parent sont OK.");
-      return;
-    }
-
-    try{
-      await fetch(`/public/event/{{ token }}/charge`, {
-        method:"POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({
-          node_id: CURRENT_PARENT_ID,
-          vehicle_name: vehicle,
-          operator_name: getOperator() || null
-        })
-      }).then(ensureOk);
-      await refreshTree();
-      closeVehicle();
-    }catch(e){
-      alert(e.message || "Échec enregistrement véhicule");
-    }
-  }
-
-  // ---------- boot ----------
-  (function init(){
-    setOperator(getOperator()); // affiche si déjà stocké
-    if(!getOperator()){ setTimeout(()=>openOperator(true), 50); }
-    refreshTree();
-    setInterval(refreshTree, 5000);
-  })();
-</script>
-{% endblock %}
+          el("button",{class:"btn danger",
