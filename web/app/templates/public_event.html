@@ -45,7 +45,7 @@
   .warn-ic svg{width:16px;height:16px}
   .warn-ic path{fill:var(--warn)}
 
-  /* ===== Barre "cheffe" (globale uniquement) ===== */
+  /* Barre “cheffe” globale uniquement */
   .chef-progress{display:flex;align-items:center;gap:12px}
   .chef-progress .label{font-weight:700}
   .chef-progress .right{margin-left:auto;font-variant-numeric:tabular-nums}
@@ -55,7 +55,6 @@
   .chef-seg.todo{background:var(--wait)}
   .chef-seg.bad{background:var(--bad)}
 
-  /* Parents (sans barre) */
   .parents{margin-top:10px}
   .parents-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
   .parents-bar{display:flex;gap:10px;overflow:auto;padding:4px 2px}
@@ -64,7 +63,6 @@
   .parent .veh{font-size:12px;color:var(--muted)}
   .parent .state{display:flex;align-items:center;gap:6px;margin-left:auto}
 
-  /* Tree (sans barre sur les groupes) */
   .grid{display:grid;grid-template-columns:1fr;gap:12px;margin-top:12px}
   .group{border:1px solid var(--border);padding:12px;border-radius:12px;background:var(--bg2)}
   .group.ok{border-color:#1d6e5d;background:radial-gradient(600px 200px at top left, var(--ok-ghost), transparent), var(--bg2)}
@@ -101,7 +99,7 @@
     </div>
   </div>
 
-  <!-- ===== Résumé global (style cheffe) ===== -->
+  <!-- Résumé global -->
   <div class="card">
     <div class="chef-progress">
       <div class="label">Avancement</div>
@@ -158,52 +156,40 @@
   </form>
 </dialog>
 
+<!-- Socket.IO client -->
+<script src="/socket.io/socket.io.js"></script>
+
 <script>
   const TOKEN = "{{ token }}";
-  const PEREMPTION_DAYS = 30; // seuil alerte péremption
+  const PEREMPTION_DAYS = 30;
 
-  // ---------- state ----------
   let TREE = [];
   const NODE_MAP = new Map();
   let CURRENT_PARENT_ID = null;
 
-  // ---------- operator ----------
   const LS_KEY = "pcprep:operator";
   function getOperator(){ return (localStorage.getItem(LS_KEY) || "").trim(); }
   function setOperator(name){
     localStorage.setItem(LS_KEY, name || "");
     document.getElementById("opShown").textContent = name || "—";
   }
-  function ensureOperator(){
-    const n = getOperator();
-    if(!n){ openOperator(true); return false; }
-    return true;
-  }
+  function ensureOperator(){ const n = getOperator(); if(!n){ openOperator(true); return false; } return true; }
   function openOperator(force){
     const dlg = document.getElementById("dlgOperator");
     document.getElementById("opInput").value = getOperator();
     if(!dlg.open) dlg.showModal(); else if(force) dlg.showModal();
   }
   function closeOperator(){ document.getElementById("dlgOperator").close(); }
-  function saveOperatorFromModal(ev){
-    ev.preventDefault();
-    const v = (document.getElementById("opInput").value || "").trim();
-    if(!v){ alert("Nom requis"); return; }
-    setOperator(v);
-    closeOperator();
-  }
+  function saveOperatorFromModal(ev){ ev.preventDefault(); const v=(document.getElementById("opInput").value||"").trim(); if(!v){alert("Nom requis");return;} setOperator(v); closeOperator(); }
 
-  // ---------- helpers ----------
   function itemStatus(n){
     const st = (String(n.last_status || "")).trim().toUpperCase();
     if(st === "OK") return "OK";
     if(st === "NOT_OK") return "NOT_OK";
-    return "TODO"; // non vérifié => BLEU
+    return "TODO";
   }
   function statusOf(node){
-    if((node.type||"").toUpperCase()==="ITEM"){
-      return itemStatus(node);
-    }
+    if((node.type||"").toUpperCase()==="ITEM"){ return itemStatus(node); }
     const ch = node.children || [];
     if(!ch.length) return "TODO";
     let hasTodo = false;
@@ -216,9 +202,7 @@
   }
   function subtreeAllOK(node){
     if((node.type||"").toUpperCase()==="ITEM") return itemStatus(node)==="OK";
-    for(const c of (node.children||[])){
-      if(!subtreeAllOK(c)) return false;
-    }
+    for(const c of (node.children||[])){ if(!subtreeAllOK(c)) return false; }
     return true;
   }
   function el(tag, props, ...children){
@@ -228,28 +212,16 @@
       else if(k.startsWith("on") && typeof v === "function") n.addEventListener(k.substring(2), v);
       else if(v !== undefined && v !== null) n.setAttribute(k, v);
     }
-    for(const c of children){
-      if(c == null) continue;
-      if(Array.isArray(c)) n.append(...c.map(x=>typeof x === "string" ? document.createTextNode(x) : x));
-      else n.append(typeof c === "string" ? document.createTextNode(c) : c);
-    }
+    for(const c of children){ if(c == null) continue; n.append(typeof c === "string" ? document.createTextNode(c) : c); }
     return n;
   }
-  function ensureOk(res){
-    if(!res.ok){ return res.text().then(t=>{ throw new Error(t || "Erreur réseau"); }); }
-    return res;
-  }
+  function ensureOk(res){ if(!res.ok){ return res.text().then(t=>{ throw new Error(t||"Erreur réseau");}); } return res; }
 
-  // ---------- péremption ----------
+  // Péremption
   function parseMaybeDate(v){
     if(!v) return null;
-    if(typeof v === "number"){
-      if(v > 10_000_000_000) return new Date(v);
-      return new Date(v*1000);
-    }
-    const d = new Date(v);
-    if(!isNaN(d.getTime())) return d;
-    return null;
+    if(typeof v === "number"){ return new Date(v > 10_000_000_000 ? v : v*1000); }
+    const d = new Date(v); return isNaN(d.getTime()) ? null : d;
   }
   function _fromMeta(node, key){
     if(node && typeof node === "object"){
@@ -259,41 +231,17 @@
     return null;
   }
   function expiryDate(node){
-    const keys = [
-      "expiry","expiry_date","expires_at",
-      "peremption","peremption_date",
-      "valid_until","expiration","expiration_date",
-      "dlc","dlc_date","dlu","dluo",
-      "best_before","best_before_date"
-    ];
+    const keys = ["expiry","expiry_date","expires_at","peremption","peremption_date","valid_until","expiration","expiration_date","best_before","best_before_date","dlc","dlc_date"];
     for(const k of keys){
-      let v = node[k];
-      if(v == null) v = _fromMeta(node, k);
-      const d = parseMaybeDate(v);
-      if(d) return d;
+      let v = node[k]; if(v == null) v = _fromMeta(node,k);
+      const d = parseMaybeDate(v); if(d) return d;
     }
     return null;
   }
-  function expirySoon(node){
-    const d = expiryDate(node);
-    if(!d) return false;
-    const now = new Date();
-    const diff = (d - now) / (1000*60*60*24);
-    return diff <= PEREMPTION_DAYS;
-  }
-  function expiryLabel(node){
-    const d = expiryDate(node);
-    return d ? `Péremption proche : ${d.toLocaleDateString()}` : "Péremption proche";
-  }
-  function warnIcon(titleText){
-    const wrap = document.createElement("span");
-    wrap.className = "warn-ic";
-    wrap.title = titleText || "Péremption proche";
-    wrap.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1,21H23L12,2L1,21ZM13,18H11V16H13V18ZM13,14H11V10H13V14Z"/></svg>';
-    return wrap;
-  }
+  function expirySoon(node){ const d = expiryDate(node); if(!d) return false; const diff = (d - new Date())/(1000*60*60*24); return diff <= PEREMPTION_DAYS; }
+  function expiryLabel(node){ const d = expiryDate(node); return d ? `Péremption proche : ${d.toLocaleDateString()}` : "Péremption proche"; }
+  function warnIcon(titleText){ const s=document.createElement("span"); s.className="warn-ic"; s.title=titleText||"Péremption proche"; s.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1,21H23L12,2L1,21ZM13,18H11V16H13V18ZM13,14H11V10H13V14Z"/></svg>'; return s; }
 
-  // ---------- API ----------
   async function refreshTree(){
     try{
       const r = await fetch(`/public/event/{{ token }}/tree`, {cache:"no-store"});
@@ -303,20 +251,16 @@
     }catch(e){}
   }
 
-  // ---------- calcul progression globale ----------
   function flattenItems(nodes){
     const items = [];
-    function walk(n){
-      if((n.type||"").toUpperCase()==="ITEM"){ items.push(n); return; }
-      (n.children||[]).forEach(walk);
-    }
+    function walk(n){ if((n.type||"").toUpperCase()==="ITEM"){ items.push(n); } else (n.children||[]).forEach(walk); }
     (nodes||[]).forEach(walk);
     return items;
   }
   function updateGlobalProgress(roots){
     const items = flattenItems(roots);
     const total = items.length;
-    let ok=0, todo=0, bad=0;
+    let ok=0,todo=0,bad=0;
     for(const it of items){
       const s = (String(it.last_status||"").toUpperCase());
       if(s==="OK") ok++;
@@ -333,24 +277,19 @@
     document.getElementById("g_txt").textContent = `${pct}%`;
   }
 
-  // ---------- rendu ----------
   function statusChip(st){
-    const map = {
-      "OK":["chip ok","OK"],
-      "NOT_OK":["chip bad","Non conforme"],
-      "TODO":["chip wait","À vérifier"],
-      null:["chip wait","À vérifier"],
-      undefined:["chip wait","À vérifier"]
-    };
+    const map = { "OK":["chip ok","OK"], "NOT_OK":["chip bad","Non conforme"], "TODO":["chip wait","À vérifier"] };
     const [klass,label] = map[st] || map["TODO"];
-    return el("span",{class:klass, title:label}, el("span",{class:"dot " + (st==="OK"?"ok":st==="NOT_OK"?"bad":"wait")}), label);
+    const dot = el("span",{class:"dot " + (st==="OK"?"ok":st==="NOT_OK"?"bad":"wait")});
+    const span = document.createElement("span"); span.className=klass; span.title=label; span.appendChild(dot); span.appendChild(document.createTextNode(label)); return span;
   }
 
   function renderParents(roots){
     const bar = document.getElementById("parentsBar");
     bar.innerHTML = "";
     (roots||[]).forEach(r=>{
-      const canCharge = (r.can_charge !== undefined) ? !!r.can_charge : subtreeAllOK(r);
+      // client > serveur : si tout est OK au client, autorise le bouton (le serveur revalide)
+      const canCharge = subtreeAllOK(r) || !!r.can_charge;
       const pill = el("div",{class:"parent"},
         el("span",{class:"dot " + (r.charged_vehicle ? "ok" : "wait")}),
         el("span",{class:"name"}, r.name),
@@ -375,9 +314,7 @@
     NODE_MAP.clear();
     const cont = document.getElementById("tree");
     cont.innerHTML = "";
-    for(const r of TREE){
-      cont.appendChild(renderNode(r, true));
-    }
+    for(const r of TREE){ cont.appendChild(renderNode(r, true)); }
   }
 
   function renderNode(n, isRoot){
@@ -387,36 +324,42 @@
       const classes = ["item"];
       if(nStatus==="OK") classes.push("ok");
       else if(nStatus==="NOT_OK") classes.push("bad");
-      else classes.push("wait"); // TODO -> bleu
+      else classes.push("wait");
 
-      const nameAreaChildren = [ document.createTextNode(n.name) ];
-      if(expirySoon(n)){
-        nameAreaChildren.push(warnIcon(expiryLabel(n)));
-      }
+      const nameArea = document.createElement("div"); nameArea.className="name-area";
+      nameArea.appendChild(document.createTextNode(n.name));
+      if(expirySoon(n)){ nameArea.appendChild(warnIcon(expiryLabel(n))); }
 
-      return el("div",{class:classes.join(" ")},
-        el("div",{class:"name-area"}, nameAreaChildren),
-        el("div",{class:"right"},
-          statusChip(nStatus),
-          n.last_by ? el("span",{class:"small muted"},"(", n.last_by ,")") : null,
-          el("button",{class:"btn success", onclick:()=>verify(n.id,"OK")}, "OK"),
-          el("button",{class:"btn danger", onclick:()=>verify(n.id,"NOT_OK")}, "Non conforme")
-        )
-      );
+      const right = document.createElement("div"); right.className="right";
+      right.appendChild(statusChip(nStatus));
+      if(n.last_by){ const who=document.createElement("span"); who.className="small muted"; who.textContent=`(${n.last_by})`; right.appendChild(who); }
+      right.appendChild(el("button",{class:"btn success", onclick:()=>verify(n.id,"OK")},"OK"));
+      right.appendChild(el("button",{class:"btn danger", onclick:()=>verify(n.id,"NOT_OK")},"Non conforme"));
+
+      const row = document.createElement("div"); row.className=classes.join(" ");
+      row.appendChild(nameArea); row.appendChild(right);
+      return row;
     }else{
       const classes = ["group"];
       if(nStatus==="OK") classes.push("ok");
       else if(nStatus==="NOT_OK") classes.push("bad");
       else classes.push("wait");
 
-      const children = (n.children||[]).map(c=>renderNode(c,false));
-      return el("div",{class:classes.join(" ")},
-        el("div",{class:"head"},
-          el("strong",{}, n.name),
-          isRoot && n.charged_vehicle ? el("span",{class:"chip ok"}, el("span",{class:"dot ok"}),"Chargé", n.charged_vehicle_by ? " par "+n.charged_vehicle_by : "") : null
-        ),
-        el("div",{}, children)
-      );
+      const head=document.createElement("div"); head.className="head";
+      head.appendChild(el("strong",{}, n.name));
+      if(isRoot && n.charged_vehicle){
+        const chip = document.createElement("span"); chip.className="chip ok";
+        chip.appendChild(el("span",{class:"dot ok"}));
+        chip.appendChild(document.createTextNode("Chargé" + (n.charged_vehicle_by ? " par "+n.charged_vehicle_by : "")));
+        head.appendChild(chip);
+      }
+
+      const childrenWrap=document.createElement("div");
+      for(const c of (n.children||[])){ childrenWrap.appendChild(renderNode(c,false)); }
+
+      const box=document.createElement("div"); box.className=classes.join(" ");
+      box.appendChild(head); box.appendChild(childrenWrap);
+      return box;
     }
   }
 
@@ -427,7 +370,6 @@
     renderTree();
   }
 
-  // ---------- actions ----------
   async function verify(nodeId, status){
     if(!ensureOperator()){ return; }
     try{
@@ -437,9 +379,7 @@
         body: JSON.stringify({ node_id: nodeId, status, verifier_name: getOperator() })
       }).then(ensureOk);
       await refreshTree();
-    }catch(e){
-      alert(e.message || "Échec de la validation");
-    }
+    }catch(e){ alert(e.message || "Échec de la validation"); }
   }
 
   function openVehicle(parentId, currentName){
@@ -454,14 +394,11 @@
     const vehicle = (document.getElementById("vehInput").value || "").trim();
     if(!vehicle){ alert("Nom du véhicule requis"); return; }
     const parent = NODE_MAP.get(CURRENT_PARENT_ID);
-
-    // Sécurité client + serveur : si parent pas encore chargé -> tout doit être OK
-    const canCharge = (parent && parent.can_charge !== undefined) ? !!parent.can_charge : subtreeAllOK(parent);
+    const canCharge = subtreeAllOK(parent) || !!parent.can_charge;
     if(!parent.charged_vehicle && !canCharge){
       alert("Vous ne pouvez charger que lorsque tous les éléments du parent sont OK.");
       return;
     }
-
     try{
       await fetch(`/public/event/{{ token }}/charge`, {
         method:"POST",
@@ -474,16 +411,21 @@
       }).then(ensureOk);
       await refreshTree();
       closeVehicle();
-    }catch(e){
-      alert(e.message || "Échec enregistrement véhicule");
-    }
+    }catch(e){ alert(e.message || "Échec enregistrement véhicule"); }
   }
 
-  // ---------- boot ----------
+  // Boot + live push
   (function init(){
     setOperator(getOperator());
     if(!getOperator()){ setTimeout(()=>openOperator(true), 50); }
     refreshTree();
+
+    // Live via Socket.IO (fallback polling 5s)
+    try{
+      const socket = io("/events");
+      socket.on("connect", ()=>{/* ok */});
+      socket.on("event_update", (msg)=>{ refreshTree(); });
+    }catch(e){}
     setInterval(refreshTree, 5000);
   })();
 </script>
