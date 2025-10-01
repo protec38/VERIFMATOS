@@ -13,112 +13,87 @@
     --radius: 14px;
     --shadow: 0 6px 22px rgba(0,0,0,.25);
     --muted: #9fb0c6;
+    --bg-card: #0f1726;
+    --bg-block:#0f1a2a;
   }
-
-  .wrap{
-    max-width: 1100px;
-    margin: 0 auto;
-    padding: var(--pad-md);
-  }
-
+  /* Layout */
+  .wrap{max-width:1100px;margin:0 auto;padding:var(--pad-md)}
   .topbar{
     display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;
-    padding: var(--pad-md);
-    border:1px solid var(--border); border-radius: var(--radius); background: var(--bg-2);
-    box-shadow: var(--shadow);
-    position: sticky; top: 8px; z-index: 10;
+    padding:var(--pad-md);border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-2);box-shadow:var(--shadow);
+    position:sticky;top:8px;z-index:10
   }
-  .topbar .title{font-size:18px;font-weight:800}
+  .topbar .title{font-weight:800;font-size:18px}
   .name-edit{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  .name-edit input{
-    background:#0f1726;border:1px solid var(--border);border-radius:10px;padding:8px 10px;color:var(--text);min-width:220px
-  }
+  .name-edit input{min-width:220px;background:#0b1120;border:1px solid var(--border);border-radius:10px;padding:8px 10px;color:var(--text)}
   .name-edit .btn{padding:8px 12px;border-radius:10px}
 
-  .parents-card{margin-top:12px;padding:var(--pad-md);border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-2)}
+  .parents-card,.board{
+    margin-top:12px;padding:var(--pad-md);border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-2)
+  }
   .parents-card .title{display:flex;align-items:center;gap:10px;margin-bottom:10px}
   .parents-bar{display:flex;gap:10px;overflow:auto;padding:4px 2px}
   .parent-pill{
     display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;border:1px solid var(--border);
-    background:#0f1a2a;color:var(--text);white-space:nowrap;cursor:pointer;user-select:none;
-    transition: transform .08s ease, border-color .08s ease, background .08s ease;
+    background:#0f1a2a;color:var(--text);white-space:nowrap;cursor:pointer;user-select:none;transition:transform .08s,border-color .08s,background .08s
   }
-  .parent-pill:hover{ transform: translateY(-1px); }
+  .parent-pill:hover{transform:translateY(-1px)}
   .pill-ok{border-color:#1d6e5d;background:#0e2a24;color:#bff3e7}
   .pill-bad{border-color:#75212f;background:#2a0e14;color:#ffd5dc}
   .pill-wait{border-color:#24344f;background:#101c2e;color:#b7c7dc}
 
+  .board .legend{color:var(--muted);font-size:13px}
+
+  /* Groupes & Items */
+  .node{border:1px solid var(--border);border-radius:12px;padding:var(--pad-sm);margin:12px 0;background:var(--bg-block)}
+  .state-ok{
+    border-color:var(--success)!important;background:radial-gradient(600px 200px at top left, rgba(18,184,134,.15), transparent),#0f1e2f;
+    box-shadow:0 0 0 1px rgba(18,184,134,.35) inset,0 0 18px rgba(18,184,134,.15)
+  }
+  .state-bad{
+    border-color:var(--danger)!important;background:radial-gradient(600px 200px at top left, rgba(255,107,107,.12), transparent),#0f1a27;
+    box-shadow:0 0 0 1px rgba(255,107,107,.30) inset,0 0 18px rgba(255,107,107,.12)
+  }
+  .state-wait{border-color:var(--border)!important;background:radial-gradient(600px 200px at top left, rgba(45,123,191,.08), transparent),var(--bg-2)}
   .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
   .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
 
-  .board{margin-top:12px;padding:var(--pad-md);border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-2)}
-  .board .legend{color:var(--muted);font-size:13px}
+  .header{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 10px;border-radius:10px}
+  .root-toggle{cursor:pointer}
+  .left{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .name{font-weight:800}
+  .meta{font-size:12px;color:var(--muted)}
+  .chev{width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;opacity:.9}
+  .veh{font-size:12px;opacity:.95;padding:2px 6px;border-radius:6px;border:1px dashed var(--border)}
+  .veh.on{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
+  .veh.off{background:#101c2e;color:#b7c7dc;border-color:#24344f}
 
-  .node{border:1px solid var(--border); border-radius: 12px; padding: var(--pad-sm); margin: 12px 0; background:#0f1a2a}
-  .state-ok{
-    border-color: var(--success) !important;
-    background:
-      radial-gradient(600px 200px at top left, rgba(18,184,134,.15), transparent),
-      #0f1e2f;
-    box-shadow: 0 0 0 1px rgba(18,184,134,.35) inset, 0 0 18px rgba(18,184,134,.15);
-  }
-  .state-bad{
-    border-color: var(--danger) !important;
-    background:
-      radial-gradient(600px 200px at top left, rgba(255,107,107,.12), transparent),
-      #0f1a27;
-    box-shadow: 0 0 0 1px rgba(255,107,107,.30) inset, 0 0 18px rgba(255,107,107,.12);
-  }
-  .state-wait{
-    border-color: var(--border) !important;
-    background:
-      radial-gradient(600px 200px at top left, rgba(45,123,191,.08), transparent),
-      var(--bg-2);
-  }
-
-  .node .header{
-    display:flex;align-items:center;gap:10px;justify-content:space-between;
-    padding: 8px 10px; border-radius: 10px; user-select:none;
-  }
-  .node .header.root-toggle{ cursor:pointer; }
-  .node .left{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-  .node .name{font-weight:800}
-  .node .meta{font-size:12px;color:var(--muted)}
-  .chev{width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;opacity:.85}
-  .veh{font-size:12px; opacity:.95; padding:2px 6px; border-radius:6px; border:1px dashed var(--border);}
-  .veh.on{background:#0e2a24; color:#bff3e7; border-color:#1d6e5d}
-  .veh.off{background:#101c2e; color:#b7c7dc; border-color:#24344f}
-
-  .node .actions{display:flex;gap:8px;flex-wrap:wrap}
+  .actions{display:flex;gap:8px;flex-wrap:wrap}
   .btn.xs{padding:6px 10px;border-radius:10px;font-size:13px}
-  .btn.primary{background: var(--pc-orange); color:#000}
+  .btn.primary{background:var(--pc-orange);color:#000}
 
   .childs{padding:10px 8px 6px 28px}
   .childs.collapsed{display:none}
 
-  /* Sous-groupe non-pliable (confort visuel) */
   .subgroup .header{cursor:default}
   .subgroup .chev{display:none}
 
   .item{
     display:flex;align-items:flex-start;gap:10px;justify-content:space-between;
-    padding:12px;border-radius:10px;margin:10px 0;border:1px solid var(--border); background:#0f1726;
+    padding:12px;border-radius:10px;margin:10px 0;border:1px solid var(--border);background:var(--bg-card)
   }
   .item .left{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  .item .left .label{font-weight:700}
-  .item .right{display:flex;gap:8px;flex-wrap:wrap}
-  .muted{color:var(--muted);font-size:12px}
-  .warn{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 6px;border-radius:8px;border:1px solid #7a5d1e;background:#221a07;color:#ffd679}
+  .label{font-weight:700}
   .qty{opacity:.9;font-size:12px;border:1px dashed var(--border);border-radius:8px;padding:1px 6px}
+  .warn{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 6px;border-radius:8px;border:1px solid #7a5d1e;background:#221a07;color:#ffd679}
 
-  /* Mobile first */
+  /* Responsive */
   @media (max-width: 640px){
     .topbar{gap:12px}
-    .item, .node .header{padding:12px}
+    .item,.header{padding:12px}
     .item .right .btn{width:100%}
     .childs{padding-left:14px}
   }
-  /* Desktop tweaks */
   @media (min-width: 900px){
     .childs{padding-left:34px}
     .item{padding:14px 16px}
@@ -154,14 +129,14 @@
 
 <script>
 /* ====== Contexte ====== */
-const TOKEN = "{{ token }}";
-let TREE = [];
-const NODE_MAP  = new Map();          // id -> node
-const GROUP_EL  = new Map();          // id -> element group
-const ITEM_EL   = new Map();          // id -> element item
-const VEH_LABEL = new Map();          // id -> badge véhicule
-const COLLAPSED = new Map();          // id -> bool (plié/seulement racines)
-let ROOT_IDS    = new Set();          // ids des parents racines
+const TOKEN = "{{ token }}";        // fourni par la route public
+let TREE = [];                      // racines
+const NODE_MAP  = new Map();        // id -> node
+const GROUP_EL  = new Map();        // id -> element group
+const ITEM_EL   = new Map();        // id -> element item
+const VEH_LABEL = new Map();        // id -> badge véhicule
+const COLLAPSED = new Map();        // id -> bool (plié) pour racines
+let ROOT_IDS    = new Set();        // ids des parents racines
 
 /* ====== Nom opérateur (persisté) ====== */
 const NAME_KEY = "pcprep_public_operator";
@@ -171,7 +146,7 @@ const opname = document.getElementById("opname");
 document.getElementById("save-name").addEventListener("click", ()=>{ setOperator(opname.value); alert("Nom enregistré."); });
 window.addEventListener("DOMContentLoaded", ()=>{ opname.value = getOperator(); });
 
-/* ====== Utils ====== */
+/* ====== Utilitaires ====== */
 function el(tag, attrs={}, ...children){
   const e = document.createElement(tag);
   for(const [k,v] of Object.entries(attrs||{})){
@@ -196,7 +171,7 @@ function daysUntil(iso){
   try{ const d=new Date(iso+"T00:00:00"); const now=new Date(); return Math.ceil((d-now)/86400000); }catch(_){ return null; }
 }
 
-/* ====== Status / règles ====== */
+/* ====== Règles statut ====== */
 function flattenItems(nodes){ const out=[]; (nodes||[]).forEach(function rec(n){ if(isItem(n)) out.push(n); (n.children||[]).forEach(rec); }); return out; }
 function groupAllOk(n){ const items=flattenItems([n]); return items.length>0 && items.every(i=>normStatus(i.last_status)==="OK"); }
 function groupHasBad(n){ return flattenItems([n]).some(i=>normStatus(i.last_status)==="NOT_OK"); }
@@ -210,7 +185,7 @@ function buildParentsBar(){
   holder.innerHTML = "";
   (TREE||[]).forEach(p=>{
     if(!isGroup(p)) return;
-    const s = groupStatus(p);
+    const s   = groupStatus(p);
     const cls = s==="OK" ? "pill-ok" : (s==="BAD" ? "pill-bad" : "pill-wait");
     const pill = el("div",{class:"parent-pill "+cls, onclick:()=>scrollAndOpen(p.id)},
       statusDot(s==="OK", s==="BAD"),
@@ -230,11 +205,12 @@ function scrollAndOpen(id){
   if(target){ target.scrollIntoView({behavior:"smooth", block:"start"}); setTimeout(()=>window.scrollBy({top:-70,left:0}), 250); }
 }
 
-/* ====== Rendu Items ====== */
+/* ====== Rendu ====== */
 function itemStateClass(n){ const s=normStatus(n.last_status); if(s==="OK")return"state-ok"; if(s==="NOT_OK")return"state-bad"; return"state-wait"; }
+
 function renderItem(n){
   const s = normStatus(n.last_status);
-  const dleft = daysUntil(n.expiry_date); // YYYY-MM-DD
+  const dleft = daysUntil(n.expiry_date);
   const showWarn = (dleft!=null && dleft<=30);
 
   const left = el("div",{class:"left"},
@@ -247,21 +223,23 @@ function renderItem(n){
     el("button",{class:"btn xs success", onclick:()=>verify(n.id,"OK")},"OK"),
     el("button",{class:"btn xs ghost",   onclick:()=>verify(n.id,"NOT_OK")},"Non conforme")
   );
+
   const wrap = el("div",{class:"item "+itemStateClass(n), id:`item-${n.id}`}, left, right);
   ITEM_EL.set(n.id, wrap);
   return wrap;
 }
 
-/* ====== Rendu Groupes ====== */
 function renderGroup(n){
   const isRoot = ROOT_IDS.has(n.id);
 
   const dot = statusDot(groupStatus(n)==="OK", groupStatus(n)==="BAD");
-  const veh = el("span",{class:"veh "+(n.charged_vehicle?'on':'off')}, n.charged_vehicle ? `Chargé : ${n.charged_vehicle_name || "—"}` : "Non chargé");
+  const veh = el("span",{class:"veh "+(n.charged_vehicle?'on':'off')},
+    n.charged_vehicle ? `Chargé : ${n.charged_vehicle_name || "—"}` : "Non chargé"
+  );
   VEH_LABEL.set(n.id, veh);
 
-  if(isRoot && !COLLAPSED.has(n.id)) COLLAPSED.set(n.id, true);
-  const chev = isRoot ? el("span",{class:"chev", id:`chev-${n.id}`}, COLLAPSED.get(n.id) ? "▸" : "▾") : el("span",{class:"chev"});
+  if(isRoot && !COLLAPSED.has(n.id)) COLLAPSED.set(n.id,true);
+  const chev = isRoot ? el("span",{class:"chev", id:`chev-${n.id}`}, COLLAPSED.get(n.id)?"▸":"▾") : el("span",{class:"chev"});
 
   const headerLeft = el("div",{class:"left"},
     chev, dot, el("span",{class:"name"}, n.name),
@@ -271,42 +249,23 @@ function renderGroup(n){
 
   const btnCharge = isRoot ? el("button",{class:"btn xs primary", onclick:(e)=>{e.stopPropagation(); openChargeModal(n.id);}},"Charger") : null;
 
-  const header = el("div",{
-      class:"header "+(isRoot?"root-toggle":"")
-    },
-    headerLeft,
-    el("div",{class:"actions"}, btnCharge)
-  );
-  if(isRoot){
-    header.addEventListener("click", ()=>toggleCollapse(n.id));
-  }
+  const header = el("div",{class:"header "+(isRoot?"root-toggle":""),}, headerLeft, el("div",{class:"actions"}, btnCharge));
+  if(isRoot){ header.addEventListener("click", ()=>toggleCollapse(n.id)); }
 
-  const childs = el("div",{
-      class:"childs "+(isRoot && COLLAPSED.get(n.id) ? "collapsed" : ""),
-      id:`childs-${n.id}`
-    },
+  const childs = el("div",{class:"childs "+(isRoot&&COLLAPSED.get(n.id)?"collapsed":""), id:`childs-${n.id}`},
     ...(n.children||[]).map(renderNode)
   );
 
-  const extraClass = isRoot ? "" : " subgroup";
-  const box = el("div",{class:`node ${groupStateClass(n)}${extraClass}`, id:`node-${n.id}`}, header, childs);
+  const extra = isRoot ? "" : " subgroup";
+  const box = el("div",{class:`node ${groupStateClass(n)}${extra}`, id:`node-${n.id}`}, header, childs);
   GROUP_EL.set(n.id, box);
 
-  if(isRoot) updateChargeButtonState(n.id, true);
+  if(isRoot) updateChargeButtonState(n.id);
   return box;
-}
-function toggleCollapse(id){
-  if(!ROOT_IDS.has(id)) return; // seuls les parents (racines) sont pliables
-  const now = !COLLAPSED.get(id);
-  COLLAPSED.set(id, now);
-  const cont = document.getElementById("childs-"+id);
-  const chev = document.getElementById("chev-"+id);
-  if(cont){ cont.classList.toggle("collapsed", now); }
-  if(chev){ chev.textContent = now ? "▸" : "▾"; }
 }
 function renderNode(n){ return isGroup(n) ? renderGroup(n) : renderItem(n); }
 
-/* ====== Construction UI ====== */
+/* ====== Construction & Indexation ====== */
 function indexTree(nodes){
   ROOT_IDS = new Set((nodes||[]).map(n=>n.id));
   (nodes||[]).forEach(function rec(n){
@@ -318,7 +277,7 @@ function buildUIOnce(){
   const root = document.getElementById("tree");
   root.innerHTML = "";
   indexTree(TREE);
-  (TREE||[]).forEach(n=> root.appendChild(renderNode(n)));
+  (TREE||[]).forEach(n => root.appendChild(renderNode(n)));
   buildParentsBar();
 }
 
@@ -331,23 +290,27 @@ function applyItemDelta(local, incoming){
   const box = ITEM_EL.get(local.id);
   if(!box) return;
 
+  // couleur panneau
   box.classList.remove("state-ok","state-bad","state-wait");
   box.classList.add(itemStateClass(local));
 
+  // dot
   const dot = box.querySelector(".status-dot");
   if(dot){
     dot.classList.remove("dot-ok","dot-bad","dot-wait");
     const s = normStatus(local.last_status);
     dot.classList.add(s==="OK" ? "dot-ok" : (s==="NOT_OK" ? "dot-bad" : "dot-wait"));
   }
+  // quantité
   const qty = box.querySelector(".qty");
-  if(qty){ qty.textContent = `Qté: ${local.quantity ?? 1}`; }
+  if(qty) qty.textContent = `Qté: ${local.quantity ?? 1}`;
 
-  const oldWarn = box.querySelector(".warn"); if(oldWarn) oldWarn.remove();
+  // péremption
+  const oldW = box.querySelector(".warn"); if(oldW) oldW.remove();
   const dl = daysUntil(local.expiry_date);
   if(dl!=null && dl<=30){
     const left = box.querySelector(".left");
-    if(left){ left.appendChild(el("span",{class:"warn", title:`Péremption dans ${dl} jour(s)`},"⚠️ Péremption")); }
+    if(left) left.appendChild(el("span",{class:"warn", title:`Péremption dans ${dl} jour(s)`},"⚠️ Péremption"));
   }
 }
 function applyGroupDelta(local, incoming){
@@ -373,7 +336,7 @@ function applyGroupDelta(local, incoming){
     const gs = groupStatus(local);
     dot.classList.add(gs==="OK" ? "dot-ok" : (gs==="BAD" ? "dot-bad" : "dot-wait"));
   }
-  if(ROOT_IDS.has(local.id)) updateChargeButtonState(local.id, true);
+  if(ROOT_IDS.has(local.id)) updateChargeButtonState(local.id);
 }
 function syncTreeIncoming(incomingRoots){
   (incomingRoots||[]).forEach(function recInc(nInc){
@@ -392,7 +355,7 @@ function syncTreeIncoming(incomingRoots){
 /* ====== API ====== */
 async function fetchTree(){
   const r = await fetch(`/public/event/{{ token }}/tree`);
-  if(!r.ok) throw new Error("fetch tree");
+  if(!r.ok) throw new Error("fetch tree failed");
   return r.json();
 }
 async function refreshTree(){
@@ -401,15 +364,12 @@ async function refreshTree(){
     if(TREE.length===0){
       TREE = latest;
       buildUIOnce();
-      // plier tous les parents (racines) au départ
+      // plier tous les parents racines
       (TREE||[]).forEach(g=>{
-        if(ROOT_IDS.has(g.id)){
-          COLLAPSED.set(g.id, true);
-          const cont = document.getElementById("childs-"+g.id);
-          const chev = document.getElementById("chev-"+g.id);
-          cont?.classList.add("collapsed");
-          if(chev) chev.textContent = "▸";
-        }
+        COLLAPSED.set(g.id,true);
+        document.getElementById("childs-"+g.id)?.classList.add("collapsed");
+        const chev = document.getElementById("chev-"+g.id);
+        if(chev) chev.textContent = "▸";
       });
     }else{
       syncTreeIncoming(latest);
@@ -418,21 +378,17 @@ async function refreshTree(){
 }
 function verify(nodeId, status){
   const payload = { node_id: nodeId, status, verifier_name: getOperator() || "" };
-  fetch(`/public/event/{{ token }}/verify`, {
+  fetch(`/public/event/{{ token }}/verify`,{
     method:"POST",
-    headers:{ "Content-Type":"application/json" },
+    headers:{"Content-Type":"application/json"},
     body: JSON.stringify(payload)
   }).then(async res=>{
-    if(!res.ok){
-      const t = await res.text();
-      alert(t || "Vérification refusée (événement fermé ?)");
-      return;
-    }
+    if(!res.ok){ const t=await res.text(); alert(t || "Vérification refusée."); return; }
     refreshTree();
   }).catch(()=>{});
 }
 
-/* ====== Charger (parents seulement) ====== */
+/* ====== Charger (parents racines) ====== */
 let CHARGE_TARGET = null;
 function openChargeModal(parentId){
   if(!ROOT_IDS.has(parentId)) return;
@@ -441,7 +397,7 @@ function openChargeModal(parentId){
   if(!canChargeGroup(node)){ alert("Impossible : tous les éléments doivent être OK."); return; }
   CHARGE_TARGET = parentId;
   const old = document.getElementById("charge-modal"); if(old) old.remove();
-  const modal = el("div",{id:"charge-modal", style:"position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:50;"},
+  const modal = el("div",{id:"charge-modal",style:"position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:50;"},
     el("div",{style:"width:min(520px,92%);background:#0f1726;border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:var(--shadow)"},
       el("div",{class:"title",style:"margin-bottom:10px"},"Charger le parent"),
       el("label",{class:"muted",for:"veh-name"},"Véhicule"),
@@ -459,18 +415,13 @@ function openChargeModal(parentId){
 function closeChargeModal(){ document.getElementById("charge-modal")?.remove(); CHARGE_TARGET = null; }
 function confirmCharge(){
   const veh = (document.getElementById("veh-name")?.value || "").trim();
-  const payload = {
-    node_id: CHARGE_TARGET,
-    charged_vehicle: true,
-    operator_name: getOperator() || "",
-    vehicle_name: veh || null
-  };
-  fetch(`/public/event/{{ token }}/charge`, {
+  const payload = { node_id: CHARGE_TARGET, charged_vehicle: true, operator_name: getOperator() || "", vehicle_name: veh || null };
+  fetch(`/public/event/{{ token }}/charge`,{
     method:"POST",
-    headers:{ "Content-Type":"application/json" },
+    headers:{"Content-Type":"application/json"},
     body: JSON.stringify(payload)
   }).then(async res=>{
-    if(!res.ok){ const t = await res.text(); alert(t || "Échec du chargement."); return; }
+    if(!res.ok){ const t=await res.text(); alert(t || "Échec du chargement."); return; }
     closeChargeModal();
     refreshTree();
   }).catch(()=>{});
@@ -487,10 +438,21 @@ function updateChargeButtonState(parentId){
   btn.title = enable ? "" : "Tous les éléments doivent être OK";
 }
 
+/* ====== Pliage / dépliage racines ====== */
+function toggleCollapse(id){
+  if(!ROOT_IDS.has(id)) return;
+  const now = !COLLAPSED.get(id);
+  COLLAPSED.set(id, now);
+  const cont = document.getElementById("childs-"+id);
+  const chev = document.getElementById("chev-"+id);
+  if(cont) cont.classList.toggle("collapsed", now);
+  if(chev) chev.textContent = now ? "▸" : "▾";
+}
+
 /* ====== Boot ====== */
 (function init(){
   refreshTree();
-  setInterval(refreshTree, 2000); // même principe que le reste du site
+  setInterval(refreshTree, 2000);
 })();
 </script>
 
