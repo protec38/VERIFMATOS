@@ -3,165 +3,243 @@
 {% block content %}
 
 <style>
-  .state-ok{
-    border-color: var(--success) !important;
-    background:
-      radial-gradient(600px 200px at top left, rgba(18,184,134,.15), transparent),
-      #0f1e2f;
-    box-shadow: 0 0 0 1px rgba(18,184,134,.35) inset, 0 0 18px rgba(18,184,134,.15);
+  :root{
+    --bg:#0d1320; --bg2:#111a2b; --bg3:#0b1322;
+    --text:#e6eefb; --muted:#9fb3cc;
+    --border:#2a3a53; --border2:#334968;
+    --ok:#12b886; --bad:#ff6b6b; --wait:#376099;
+    --shadow:0 8px 30px rgba(0,0,0,.25);
   }
-  .state-bad{
-    border-color: var(--danger) !important;
-    background:
-      radial-gradient(600px 200px at top left, rgba(255,107,107,.12), transparent),
-      #0f1e2f;
-    box-shadow: 0 0 0 1px rgba(255,107,107,.30) inset, 0 0 18px rgba(255,107,107,.12);
-  }
-  .state-wait{
-    border-color: var(--border) !important;
-    background:
-      radial-gradient(600px 200px at top left, rgba(45,123,191,.12), transparent),
-      #0f1e2f;
-  }
-  .chip{padding:4px 8px;border-radius:999px;font-weight:800;font-size:12px;border:1px solid var(--border)}
+  .wrap{max-width:1100px;margin:16px auto;padding:0 14px}
+  .header{display:flex;align-items:center;justify-content:space-between;margin:6px 0 14px}
+  .title{display:flex;flex-direction:column}
+  .h1{font-size:22px;margin:0}
+  .muted{color:var(--muted)}
+  .small{font-size:12px}
+
+  .card{border:1px solid var(--border);background:var(--bg2);border-radius:14px;box-shadow:var(--shadow);padding:12px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .btn{border:1px solid var(--border);background:var(--bg3);padding:8px 12px;border-radius:10px;cursor:pointer}
+  .btn.success{background:#0e2a24;border-color:#1d6e5d}
+  .btn.danger{background:#2a0e14;border-color:#75212f}
+  .btn.primary{background:#0c1b30;border-color:#274a78}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+
+  .legend{display:flex;gap:8px;flex-wrap:wrap}
+  .chip{padding:4px 8px;border-radius:999px;font-weight:800;font-size:12px;border:1px solid var(--border);display:inline-flex;align-items:center;gap:6px}
   .chip.ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
   .chip.bad{background:#2a0e14;color:#ffd5dc;border-color:#75212f}
   .chip.wait{background:#101c2e;color:#b7c7dc;border-color:#24344f}
-  .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
-  .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
-  .parents-card .title{display:flex;align-items:center;gap:10px}
-  .parents-bar{display:flex;gap:8px;overflow:auto;padding:8px 2px}
-  .parent-pill{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;border:1px solid var(--border);cursor:pointer}
-  .parent-pill .name{font-weight:700}
-  .parent-pill .vehicle{color:var(--muted);font-size:12px}
-  .parent-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
-  .btn-sm{border:1px solid var(--border);background:var(--bg-3);padding:6px 10px;border-radius:999px;cursor:pointer}
-  .btn-sm:disabled{opacity:.5;cursor:not-allowed}
-  .suggest{display:flex;align-items:center;gap:8px;color:#c1d7f5}
-  .suggest .kbd{border:1px solid #3f5577;padding:2px 6px;border-radius:6px;background:#0c1b30}
-  .legend{display:flex;gap:8px;flex-wrap:wrap}
-  .legend .chip{font-size:11px;font-weight:700}
-  .legend .chip .status-dot{margin-right:6px}
-  .wrap{max-width:1100px;margin:20px auto;padding:0 14px}
-  .header{display:flex;align-items:center;justify-content:space-between;margin:10px 0 18px}
-  .h1{font-size:22px;margin:0}
-  .muted{color:var(--muted)}
-  .grid{display:grid;grid-template-columns:1fr;gap:12px}
-  .card{border:1px solid var(--border);background:var(--bg-2);border-radius:14px;box-shadow:var(--shadow);padding:12px}
-  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  .btn{border:1px solid var(--border);background:var(--bg-3);padding:8px 12px;border-radius:10px;cursor:pointer}
-  .btn.success{background:#0e2a24;border-color:#1d6e5d}
-  .btn.ghost{background:#2a0e14;border-color:#75212f}
-  .btn:disabled{opacity:.5;cursor:not-allowed}
-  .item{display:flex;justify-content:space-between;gap:8px;border:1px dashed var(--border-2);padding:10px;border-radius:10px}
-  .group{border:1px solid var(--border);padding:10px;border-radius:10px}
-  .children{display:flex;flex-direction:column;gap:10px;margin-top:8px}
-  .small{font-size:12px}
-  .kbd{border:1px solid var(--border);padding:2px 6px;border-radius:6px;background:var(--bg-3)}
-  dialog{border:1px solid var(--border);background:var(--bg-2);color:var(--text);border-radius:12px}
-  dialog input{background:var(--bg-3);color:var(--text);border:1px solid var(--border);padding:8px;border-radius:10px}
+  .dot{width:10px;height:10px;border-radius:50%}
+  .dot.ok{background:var(--ok)} .dot.bad{background:var(--bad)} .dot.wait{background:var(--wait)}
+
+  .parents{margin-top:10px}
+  .parents-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .parents-bar{display:flex;gap:10px;overflow:auto;padding:4px 2px}
+  .parent{display:flex;align-items:center;gap:10px;border:1px solid var(--border);padding:8px 10px;border-radius:12px;background:var(--bg3)}
+  .parent .name{font-weight:700}
+  .parent .veh{font-size:12px;color:var(--muted)}
+  .parent .state{display:flex;align-items:center;gap:6px;margin-left:auto}
+
+  .grid{display:grid;grid-template-columns:1fr;gap:12px;margin-top:12px}
+  .group{border:1px solid var(--border);padding:12px;border-radius:12px;background:var(--bg2)}
+  .group>.head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .item{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px dashed var(--border2);padding:10px;border-radius:10px;background:var(--bg3)}
+  .item .right{display:flex;align-items:center;gap:8px}
+
+  dialog{border:1px solid var(--border);background:var(--bg2);color:var(--text);border-radius:12px;max-width:460px}
+  dialog form{display:flex;flex-direction:column;gap:10px;padding:8px}
+  input[type="text"]{background:var(--bg3);color:var(--text);border:1px solid var(--border);padding:10px;border-radius:10px;width:100%}
+  .dialog-actions{display:flex;justify-content:flex-end;gap:8px}
+
+  @media (min-width: 920px){
+    .h1{font-size:24px}
+  }
 </style>
 
 <div class="wrap">
   <div class="header">
-    <div>
-      <h1 class="h1">{{ event.name }}</h1>
-      <div class="muted small">Partage: {{ token }}</div>
-    </div>
-    <div class="row">
-      <span class="muted small">Opérateur</span>
-      <input id="opFullName" placeholder="Nom Prénom" />
-      <button class="btn" onclick="saveOperator()">OK</button>
-    </div>
-  </div>
-
-  <div class="legend small card">
-    <div class="row">
-      <span class="chip wait"><span class="status-dot dot-wait"></span>À vérifier</span>
-      <span class="chip ok"><span class="status-dot dot-ok"></span>OK</span>
-      <span class="chip bad"><span class="status-dot dot-bad"></span>Non conforme</span>
-      <span class="muted">Astuce : tape "<span class="kbd">/</span>" pour filtrer</span>
-    </div>
-  </div>
-
-  <div id="parents" class="card parents-card">
     <div class="title">
-      <strong>Parents (racines) inclus dans l'évènement</strong>
-      <div class="parents-bar" id="parentsBar"></div>
+      <h1 class="h1">{{ event.name }}</h1>
+      <div class="muted small">Lien public : {{ token }}</div>
     </div>
+    <div class="row">
+      <div class="muted small">Opérateur : <strong id="opShown">—</strong></div>
+      <button class="btn primary" onclick="openOperator()">Changer d’opérateur</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="legend">
+      <span class="chip wait"><span class="dot wait"></span>À vérifier</span>
+      <span class="chip ok"><span class="dot ok"></span>OK</span>
+      <span class="chip bad"><span class="dot bad"></span>Non conforme</span>
+      <span class="muted small">Astuce : vous pouvez revenir modifier vos choix.</span>
+    </div>
+  </div>
+
+  <div class="card parents">
+    <div class="parents-head">
+      <strong>Parents inclus dans l’évènement</strong>
+    </div>
+    <div class="parents-bar" id="parentsBar"></div>
   </div>
 
   <div id="tree" class="grid"></div>
 </div>
 
-<dialog id="idModal">
-  <h3>Identifie-toi</h3>
-  <p class="small muted">Rentre ton nom pour valider les items</p>
-  <div class="row">
-    <input id="opModalFull" placeholder="Nom Prénom" />
-    <button class="btn" onclick="saveOperatorFromModal()">OK</button>
-  </div>
+<!-- Modal opérateur -->
+<dialog id="dlgOperator">
+  <form method="dialog" onsubmit="saveOperatorFromModal(event)">
+    <h3>Identifiez-vous</h3>
+    <p class="small muted">Renseignez votre <strong>Nom</strong> et <strong>Prénom</strong> pour valider les items.</p>
+    <input id="opInput" type="text" placeholder="Nom Prénom" autocomplete="name" />
+    <div class="dialog-actions">
+      <button class="btn" value="cancel" onclick="closeOperator()">Annuler</button>
+      <button class="btn success" value="ok">Valider</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Modal véhicule -->
+<dialog id="dlgVehicle">
+  <form method="dialog" onsubmit="saveVehicle(event)">
+    <h3 id="vehTitle">Véhicule chargé</h3>
+    <input id="vehInput" type="text" placeholder="Nom du véhicule (ex : VPSP-1)" />
+    <div class="dialog-actions">
+      <button class="btn" value="cancel" onclick="closeVehicle()">Annuler</button>
+      <button class="btn success" value="ok">Enregistrer</button>
+    </div>
+  </form>
 </dialog>
 
 <script>
   const TOKEN = "{{ token }}";
+
+  // ---------- state ----------
   let TREE = [];
   const NODE_MAP = new Map();
+  let CURRENT_PARENT_ID = null;
 
-  // ----- Operator -----
-  function getSavedName(){ return localStorage.getItem("pcprep:operator") || ""; }
-  function setSavedName(n){ localStorage.setItem("pcprep:operator", n); document.getElementById("opFullName").value = n; }
-  function requireOperatorName(){
-    const n = getSavedName();
-    if(n) return n;
-    document.getElementById("idModal").showModal();
-    return null;
-  }
-  function saveOperator(){
-    const v = (document.getElementById("opFullName").value || "").trim();
-    if(!v){ alert("Nom requis"); return; }
-    setSavedName(v);
-  }
-  function saveOperatorFromModal(){
-    const v = (document.getElementById("opModalFull").value || "").trim();
-    if(!v){ alert("Nom requis"); return; }
-    setSavedName(v);
-    document.getElementById("idModal").close();
+  // ---------- operator ----------
+  const LS_KEY = "pcprep:operator";
+
+  function getOperator(){ return (localStorage.getItem(LS_KEY) || "").trim(); }
+  function setOperator(name){
+    localStorage.setItem(LS_KEY, name || "");
+    document.getElementById("opShown").textContent = name || "—";
   }
 
-  // ----- API -----
+  function ensureOperator(){
+    const n = getOperator();
+    if(!n){
+      openOperator(true);
+      return false;
+    }
+    return true;
+  }
+
+  function openOperator(force){
+    const dlg = document.getElementById("dlgOperator");
+    document.getElementById("opInput").value = getOperator();
+    if(!dlg.open) dlg.showModal(); else if(force) dlg.showModal();
+  }
+  function closeOperator(){ document.getElementById("dlgOperator").close(); }
+
+  function saveOperatorFromModal(ev){
+    ev.preventDefault();
+    const v = (document.getElementById("opInput").value || "").trim();
+    if(!v){ alert("Nom requis"); return; }
+    setOperator(v);
+    closeOperator();
+  }
+
+  // ---------- vehicle ----------
+  function openVehicle(parentId, currentName){
+    CURRENT_PARENT_ID = parentId;
+    document.getElementById("vehInput").value = currentName || "";
+    document.getElementById("vehTitle").textContent = currentName ? "Modifier le véhicule" : "Marquer comme chargé";
+    document.getElementById("dlgVehicle").showModal();
+  }
+  function closeVehicle(){ document.getElementById("dlgVehicle").close(); }
+
+  async function saveVehicle(ev){
+    ev.preventDefault();
+    const vehicle = (document.getElementById("vehInput").value || "").trim();
+    if(!vehicle){ alert("Nom du véhicule requis"); return; }
+    try{
+      const r = await fetch(`/public/event/{{ token }}/charge`, {
+        method:"POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({
+          node_id: CURRENT_PARENT_ID,
+          vehicle_name: vehicle,
+          operator_name: getOperator() || null
+        })
+      });
+      if(!r.ok){
+        const t = await r.text();
+        alert(t || "Échec enregistrement véhicule");
+      }else{
+        await refreshTree();
+        closeVehicle();
+      }
+    }catch(e){}
+  }
+
+  // ---------- api helpers ----------
   async function refreshTree(){
     try{
-      const r = await fetch(`/public/event/{{ token }}/tree`);
+      const r = await fetch(`/public/event/{{ token }}/tree`, {cache:"no-store"});
       if(!r.ok) return;
       const latest = await r.json();
-      syncTreeIncoming(latest);
-    }catch(_){}
+      syncTree(latest);
+    }catch(e){}
   }
 
-  function notifyFromResponse(res){
+  function ensureOk(res){
     if(!res.ok){
-      return res.json().then(j=>{
-        alert(j && (j.error||j.message) ? (j.error||j.message) : "Action impossible.");
-      }).catch(()=>res.text().then(t=>alert(t || "Action impossible.")));
+      return res.text().then(t => { throw new Error(t || "Erreur réseau"); });
     }
-    return Promise.resolve();
+    return res;
   }
 
-  // ----- UI -----
+  // ---------- render ----------
   function el(tag, props, ...children){
     const n = document.createElement(tag);
-    if(props) for(const k of Object.keys(props)){
-      if(k === "class") n.className = props[k];
-      else if(k.startsWith("on") && typeof props[k] === "function") n.addEventListener(k.substring(2), props[k]);
-      else n.setAttribute(k, props[k]);
+    if(props) for(const [k,v] of Object.entries(props)){
+      if(k === "class") n.className = v;
+      else if(k.startsWith("on") && typeof v === "function") n.addEventListener(k.substring(2), v);
+      else n.setAttribute(k, v);
     }
     for(const c of children){
       if(c == null) continue;
-      if(Array.isArray(c)) c.forEach(x=>n.appendChild(typeof x === "string" ? document.createTextNode(x) : x));
-      else n.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+      if(Array.isArray(c)) n.append(...c.map(x=>typeof x === "string" ? document.createTextNode(x) : x));
+      else n.append(typeof c === "string" ? document.createTextNode(c) : c);
     }
     return n;
+  }
+
+  function statusChip(st){
+    const map = { "OK":["chip ok","OK"], "NOT_OK":["chip bad","Non conforme"], null:["chip wait","À vérifier"], undefined:["chip wait","À vérifier"] };
+    const [klass,label] = map[st] || map[undefined];
+    return el("span",{class:klass}, el("span",{class:"dot " + (st==="OK"?"ok":st==="NOT_OK"?"bad":"wait")}), label);
+  }
+
+  function renderParents(roots){
+    const bar = document.getElementById("parentsBar");
+    bar.innerHTML = "";
+    (roots||[]).forEach(r=>{
+      const pill = el("div",{class:"parent"},
+        el("span",{class:"dot " + (r.charged_vehicle ? "ok" : "wait")}),
+        el("span",{class:"name"}, r.name),
+        el("span",{class:"veh"}, r.charged_vehicle_name ? "• " + r.charged_vehicle_name : ""),
+        el("span",{class:"state"},
+          el("button",{class:"btn primary", onclick:()=>openVehicle(r.id, r.charged_vehicle_name||"")}, r.charged_vehicle ? "Modifier" : "Marquer chargé")
+        )
+      );
+      bar.appendChild(pill);
+    });
   }
 
   function renderTree(){
@@ -172,89 +250,61 @@
       cont.appendChild(renderNode(r, true));
     }
   }
+
   function renderNode(n, isRoot){
     NODE_MAP.set(n.id, n);
-    if((n.type||"").toUpperCase() === "ITEM"){
-      const chip = el("span",{class:"chip " + (n.last_status==="OK"?"ok":(n.last_status==="NOT_OK"?"bad":"wait"))},
-        n.last_status==="OK"?"OK":(n.last_status==="NOT_OK"?"Non conforme":"À vérifier")
+    if((n.type||"").toUpperCase()==="ITEM"){
+      return el("div",{class:"item"},
+        el("div",{}, n.name),
+        el("div",{class:"right"},
+          statusChip(n.last_status),
+          el("span",{class:"small muted"}, n.last_by ? "(" + n.last_by + ")" : ""),
+          el("button",{class:"btn success", onclick:()=>verify(n.id,"OK")}, "OK"),
+          el("button",{class:"btn danger", onclick:()=>verify(n.id,"NOT_OK")}, "Non conforme")
+        )
       );
-      const btns = el("div",{class:"row"},
-        el("button",{class:"btn success", onclick:()=>verify(n.id,"OK")}, "OK"),
-        el("button",{class:"btn ghost", onclick:()=>verify(n.id,"NOT_OK")}, "Non conforme"),
-      );
-      const right = el("div",{}, chip, el("div",{class:"small muted"}, n.last_by?`(${n.last_by})`:""), btns);
-      return el("div",{class:"item"}, el("div",{}, n.name), right);
     }else{
       const children = (n.children||[]).map(c=>renderNode(c,false));
-      const head = el("div",{class:"row"},
-        el("strong",{}, n.name),
-        isRoot && n.charged_vehicle ? el("span",{class:"chip ok small"},"Chargé") : null
+      return el("div",{class:"group"},
+        el("div",{class:"head"},
+          el("strong",{}, n.name),
+          isRoot && n.charged_vehicle ? el("span",{class:"chip ok"}, el("span",{class:"dot ok"}),"Chargé") : null
+        ),
+        el("div",{}, children)
       );
-      return el("div",{class:"group"}, head, el("div",{class:"children"}, children));
     }
   }
 
-  function syncTreeIncoming(latest){
+  function syncTree(latest){
     TREE = latest || [];
     renderTree();
-    // Render parents bar
-    const bar = document.getElementById("parentsBar");
-    bar.innerHTML = "";
-    (TREE||[]).forEach(root=>{
-      const pill = document.createElement("div");
-      pill.className = "parent-pill";
-      pill.onclick = ()=> openChargeModal(root.id, root.charged_vehicle_name||"");
-      pill.innerHTML = `
-        <span class="status-dot ${root.charged_vehicle ? "dot-ok":"dot-wait"}"></span>
-        <span class="name">${root.name}</span>
-        <span class="vehicle">${root.charged_vehicle_name ? root.charged_vehicle_name : ""}</span>
-        <span class="parent-actions">
-          <button class="btn-sm">${root.charged_vehicle ? "Modifier" : "Marquer chargé"}</button>
-        </span>`;
-      bar.appendChild(pill);
-    });
+    renderParents(TREE);
   }
 
-  function verify(nodeId, status){
-    const name = requireOperatorName();
-    if(!name) return;
-    const payload = { node_id: nodeId, status, verifier_name: name };
-    fetch(`/public/event/{{ token }}/verify`, {
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body: JSON.stringify(payload)
-    })
-    .then(res => notifyFromResponse(res).then(()=> res.ok && refreshTree()))
-    .catch(()=>{});
-  }
-
-  // charge modal & call
-  let CURRENT_PARENT_ID = null;
-  function openChargeModal(nodeId, vehicle){
-    CURRENT_PARENT_ID = nodeId;
-    const v = prompt("Nom du véhicule (laisser vide pour annuler)", vehicle||"");
-    if(v==null) return;
-    setImmediate(()=> chargeParent(nodeId, v.trim()));
-  }
-  async function chargeParent(nodeId, vehicle){
-    const op = getSavedName();
-    if(!vehicle) return;
+  async function verify(nodeId, status){
+    if(!ensureOperator()){ return; }
     try{
-      const r = await fetch(`/public/event/{{ token }}/charge`, {
+      const res = await fetch(`/public/event/{{ token }}/verify`, {
         method:"POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({ node_id: nodeId, vehicle_name: vehicle, operator_name: op||null })
-      });
-      if(r.ok) refreshTree();
-    }catch(_){}
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ node_id: nodeId, status, verifier_name: getOperator() })
+      }).then(ensureOk);
+      await refreshTree();
+    }catch(e){
+      alert(e.message || "Échec de la validation");
+    }
   }
 
-  // ----- bootstrap -----
+  // ---------- boot ----------
   (function init(){
-    const saved = getSavedName();
-    if(saved) document.getElementById("opFullName").value = saved;
+    setOperator(getOperator()); // affiche si déjà stocké
+    // ouverture du modal si aucun nom
+    if(!getOperator()){
+      setTimeout(()=>openOperator(true), 50);
+    }
     refreshTree();
-    setInterval(refreshTree, 4000);
+    // poll léger
+    setInterval(refreshTree, 5000);
   })();
 </script>
 {% endblock %}
