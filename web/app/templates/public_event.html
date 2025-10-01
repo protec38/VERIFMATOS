@@ -16,7 +16,6 @@
     --bg-card: #0f1726;
     --bg-block:#0f1a2a;
   }
-  /* Layout */
   .wrap{max-width:1100px;margin:0 auto;padding:var(--pad-md)}
   .topbar{
     display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;
@@ -42,7 +41,6 @@
 
   .legend{color:var(--muted);font-size:13px}
 
-  /* Groupes & Items */
   .node{border:1px solid var(--border);border-radius:12px;padding:var(--pad-sm);margin:12px 0;background:var(--bg-block)}
   .state-ok{
     border-color:var(--success)!important;background:radial-gradient(600px 200px at top left, rgba(18,184,134,.15), transparent),#0f1e2f;
@@ -89,12 +87,10 @@
 
   .substats{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 0 28px}
 
-  /* Progression (vue globale) */
   .stats-card .progress{height:8px;background:rgba(255,255,255,.08);border-radius:8px;overflow:hidden;margin-top:10px}
   .stats-card .progress > div{height:100%;width:0;background:var(--pc-orange);transition:width .25s ease}
-  .stats-chipbar{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+  .stats-card .stats-chipbar{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
 
-  /* Responsive aéré */
   @media (max-width: 640px){
     .topbar{gap:12px}
     .item,.header{padding:14px}
@@ -107,15 +103,13 @@
     .item{padding:16px 18px}
   }
 
-  /* Modal nom/prénom */
   .modal-back{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:60}
   .modal-card{width:min(520px,92%);background:#0f1726;border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:var(--shadow)}
-  .modal-card input{width:100%;margin:8px 0 12px 0;padding:10px;border-radius:10px;border:1px solid var(--border);background:#0b1120;color:var(--text)}
+  .modal-card input{width:100%;margin:8px 0 12px 0;padding:10px;border-radius:10px;border:1px solid var(--border);background:#0b1120;color:#fff}
   .modal-actions{display:flex;gap:8px;justify-content:flex-end}
 </style>
 
 <div class="wrap">
-  <!-- Topbar (pour modifier le nom après coup) -->
   <div class="topbar">
     <div class="title">Vérification secouriste</div>
     <div class="name-edit">
@@ -125,7 +119,6 @@
     </div>
   </div>
 
-  <!-- Progression globale -->
   <div class="card-like stats-card">
     <div class="title">Progression</div>
     <div class="stats-chipbar">
@@ -137,13 +130,11 @@
     <div class="muted" id="progress-text" style="margin-top:6px;">0 / 0 vérifiés</div>
   </div>
 
-  <!-- Barre parents -->
   <div class="card-like parents-card">
     <div class="title">Parents</div>
     <div id="parents-bar" class="parents-bar"></div>
   </div>
 
-  <!-- Arbre -->
   <div class="card-like">
     <div class="row space-between">
       <div class="title">Matériel</div>
@@ -154,7 +145,6 @@
 </div>
 
 <script>
-/* ====== Contexte ====== */
 const TOKEN = "{{ token }}";
 let TREE = [];
 const NODE_MAP  = new Map();
@@ -162,9 +152,7 @@ const GROUP_EL  = new Map();
 const ITEM_EL   = new Map();
 const VEH_LABEL = new Map();
 const COLLAPSED = new Map();
-let ROOT_IDS    = new Set();
 
-/* ====== Nom opérateur (persisté) ====== */
 const NAME_KEY = "pcprep_public_operator";
 function getOperator(){ return (localStorage.getItem(NAME_KEY) || "").trim(); }
 function setOperator(v){ localStorage.setItem(NAME_KEY, (v||"").trim()); }
@@ -173,10 +161,9 @@ document.getElementById("save-name").addEventListener("click", ()=>{ setOperator
 window.addEventListener("DOMContentLoaded", ()=>{
   const cur = getOperator();
   opname.value = cur;
-  if(!cur){ openNameModal(true); } // ouverture auto si pas de nom
+  if(!cur){ openNameModal(true); }
 });
 
-/* ====== Modal nom/prénom ====== */
 function openNameModal(force=false){
   if(document.getElementById("name-modal")) return;
   const modal = document.createElement("div");
@@ -204,13 +191,8 @@ function openNameModal(force=false){
   const cancelBtn = document.getElementById("name-cancel");
   if(cancelBtn) cancelBtn.addEventListener("click", ()=> modal.remove());
 }
-function ensureOperatorOrAsk(){
-  if(getOperator()) return true;
-  openNameModal(true);
-  return false;
-}
+function ensureOperatorOrAsk(){ if(getOperator()) return true; openNameModal(true); return false; }
 
-/* ====== Utilitaires ====== */
 function el(tag, attrs={}, ...children){
   const e = document.createElement(tag);
   for(const [k,v] of Object.entries(attrs||{})){
@@ -234,24 +216,19 @@ function daysUntil(iso){
   if(!iso) return null;
   try{ const d=new Date(iso+"T00:00:00"); const now=new Date(); return Math.ceil((d-now)/86400000); }catch(_){ return null; }
 }
-
-/* ====== Règles statut / comptages ====== */
 function flattenItems(nodes){ const out=[]; (nodes||[]).forEach(function rec(n){ if(isItem(n)) out.push(n); (n.children||[]).forEach(rec); }); return out; }
 function groupAllOk(n){ const items=flattenItems([n]); return items.length>0 && items.every(i=>normStatus(i.last_status)==="OK"); }
 function groupHasBad(n){ return flattenItems([n]).some(i=>normStatus(i.last_status)==="NOT_OK"); }
 function groupStatus(n){ if(groupAllOk(n)) return "OK"; if(groupHasBad(n)) return "BAD"; return "WAIT"; }
 function canChargeGroup(n){ return groupAllOk(n); }
 
-/* ==== Global stats (vue d'ensemble) ==== */
 function recomputeGlobalStats(){
   const items = flattenItems(TREE);
   const total = items.length;
   let ok=0, bad=0, wait=0;
   for(const it of items){
     const s = normStatus(it.last_status);
-    if(s==="OK") ok++;
-    else if(s==="NOT_OK") bad++;
-    else wait++;
+    if(s==="OK") ok++; else if(s==="NOT_OK") bad++; else wait++;
   }
   document.getElementById("stat-ok").textContent   = `OK : ${ok}`;
   document.getElementById("stat-bad").textContent  = `Non conformes : ${bad}`;
@@ -261,7 +238,6 @@ function recomputeGlobalStats(){
   document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
 }
 
-/* ====== Barre parents ====== */
 function statusDot(isOk, isBad){ return el("span",{class:"status-dot "+(isOk?"dot-ok":(isBad?"dot-bad":"dot-wait"))}); }
 function buildParentsBar(){
   const holder = document.getElementById("parents-bar");
@@ -288,7 +264,6 @@ function scrollAndOpen(id){
   if(target){ target.scrollIntoView({behavior:"smooth", block:"start"}); setTimeout(()=>window.scrollBy({top:-70,left:0}), 250); }
 }
 
-/* ====== Helpers UI ====== */
 function statusChip(s){
   s = normStatus(s);
   if(s==="OK") return el("span",{class:"chip ok"},"OK");
@@ -302,7 +277,6 @@ function groupStateClass(n){
   return "state-wait";
 }
 
-/* ====== Rendu ====== */
 function renderItem(n){
   const s = normStatus(n.last_status);
   const dl = daysUntil(n.expiry_date);
@@ -346,8 +320,7 @@ function renderGroupStats(n){
 
 function renderGroup(n){
   const isRoot = !!n.is_event_root;
-
-  if(!COLLAPSED.has(n.id)) COLLAPSED.set(n.id, true); // plié au départ
+  if(!COLLAPSED.has(n.id)) COLLAPSED.set(n.id, true);
   const chev = el("span",{class:"chev", id:`chev-${n.id}`}, COLLAPSED.get(n.id) ? "▸" : "▾");
   const dot  = statusDot(groupStatus(n)==="OK", groupStatus(n)==="BAD");
 
@@ -376,15 +349,12 @@ function renderGroup(n){
 
   const box = el("div",{class:`node ${groupStateClass(n)}`, id:`node-${n.id}`}, header, childs);
   GROUP_EL.set(n.id, box);
-
   if(isRoot) updateChargeButtonState(n.id);
   return box;
 }
 function renderNode(n){ return isGroup(n) ? renderGroup(n) : renderItem(n); }
 
-/* ====== Construction & Indexation ====== */
 function indexTree(nodes){
-  ROOT_IDS = new Set((nodes||[]).map(n=>n.id));
   (nodes||[]).forEach(function rec(n){
     NODE_MAP.set(n.id, n);
     (n.children||[]).forEach(rec);
@@ -399,7 +369,6 @@ function buildUIOnce(){
   recomputeGlobalStats();
 }
 
-/* ====== MAJ incrémentales ====== */
 function updateGroupStatsEl(n){
   const items = flattenItems([n]);
   let ok=0,bad=0,wait=0;
@@ -464,7 +433,7 @@ function applyItemDelta(local, incoming){
 }
 
 function applyGroupDelta(local, incoming){
-  if(local.is_event_root && (typeof incoming.charged_vehicle !== "undefined")){
+  if(typeof incoming.charged_vehicle !== "undefined"){
     local.charged_vehicle = !!incoming.charged_vehicle;
     local.charged_vehicle_name = incoming.charged_vehicle_name || null;
     const lab = VEH_LABEL.get(local.id);
@@ -489,7 +458,7 @@ function applyGroupDelta(local, incoming){
   }
 
   updateGroupStatsEl(local);
-  if(local.is_event_root) updateChargeButtonState(local.id);
+  updateChargeButtonState(local.id);
 }
 
 function syncTreeIncoming(incomingRoots){
@@ -507,7 +476,6 @@ function syncTreeIncoming(incomingRoots){
   recomputeGlobalStats();
 }
 
-/* ====== API ====== */
 async function fetchTree(){
   const r = await fetch(`/public/event/{{ token }}/tree`);
   if(!r.ok) throw new Error("fetch tree failed");
@@ -519,7 +487,6 @@ async function refreshTree(){
     if(TREE.length===0){
       TREE = latest;
       buildUIOnce();
-      // plier TOUS les groupes au départ
       NODE_MAP.forEach((n,id)=>{
         if(isGroup(n)){
           COLLAPSED.set(id,true);
@@ -545,11 +512,11 @@ function verify(nodeId, status){
   }).catch(()=>{});
 }
 
-/* ====== Charger (parents racines) ====== */
+/* ===== Charger (racine) ===== */
 let CHARGE_TARGET = null;
 function openChargeModal(parentId){
   const node = NODE_MAP.get(parentId);
-  if(!node || !node.is_event_root) return;
+  if(!node) return;
   if(!canChargeGroup(node)){ alert("Impossible : tous les éléments doivent être OK."); return; }
   CHARGE_TARGET = parentId;
 
@@ -557,8 +524,8 @@ function openChargeModal(parentId){
   const modal = el("div",{id:"charge-modal",class:"modal-back"},
     el("div",{class:"modal-card"},
       el("div",{class:"title",style:"margin-bottom:10px"},"Charger le parent"),
-      el("label",{class:"muted",for:"veh-name"},"Véhicule"),
-      el("input",{id:"veh-name",placeholder:"Ex : VSAV-2"}),
+      el("label",{class:"muted",for:"veh-name"},"Nom du véhicule (obligatoire)"),
+      el("input",{id:"veh-name",placeholder:"Ex : VSAV-2", required:true}),
       el("div",{class:"muted",style:"margin-bottom:10px"},"Opérateur : ", getOperator() || "—"),
       el("div",{class:"modal-actions"},
         el("button",{class:"btn ghost",onclick:closeChargeModal},"Annuler"),
@@ -572,13 +539,26 @@ function openChargeModal(parentId){
 function closeChargeModal(){ document.getElementById("charge-modal")?.remove(); CHARGE_TARGET = null; }
 function confirmCharge(){
   const veh = (document.getElementById("veh-name")?.value || "").trim();
-  const payload = { node_id: CHARGE_TARGET, charged_vehicle: true, operator_name: getOperator() || "", vehicle_name: veh || null };
+  if(!veh){ alert("Merci d’indiquer le nom du véhicule."); return; }
+
+  const payload = { node_id: CHARGE_TARGET, charged_vehicle: true, operator_name: getOperator() || "", vehicle_name: veh };
   fetch(`/public/event/{{ token }}/charge`,{
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body: JSON.stringify(payload)
   }).then(async res=>{
     if(!res.ok){ const t=await res.text(); alert(t || "Échec du chargement."); return; }
+    // MAJ optimiste du libellé immédiatement
+    const n = NODE_MAP.get(CHARGE_TARGET);
+    if(n){
+      n.charged_vehicle = true;
+      n.charged_vehicle_name = veh;
+      const lab = VEH_LABEL.get(n.id);
+      if(lab){
+        lab.classList.remove("off"); lab.classList.add("on");
+        lab.textContent = `Chargé : ${veh}`;
+      }
+    }
     closeChargeModal();
     refreshTree();
   }).catch(()=>{});
@@ -586,7 +566,7 @@ function confirmCharge(){
 function updateChargeButtonState(parentId){
   const n = NODE_MAP.get(parentId);
   const box = GROUP_EL.get(parentId);
-  if(!n || !box || !n.is_event_root) return;
+  if(!n || !box) return;
   const btn = box.querySelector(".actions .btn.primary");
   if(!btn) return;
   const enable = canChargeGroup(n);
@@ -594,7 +574,7 @@ function updateChargeButtonState(parentId){
   btn.title = enable ? "" : "Tous les éléments doivent être OK";
 }
 
-/* ====== Pliage / dépliage ====== */
+/* ====== Pliage ====== */
 function toggleCollapse(id){
   const now = !COLLAPSED.get(id);
   COLLAPSED.set(id, now);
@@ -604,7 +584,7 @@ function toggleCollapse(id){
   if(chev) chev.textContent = now ? "▸" : "▾";
 }
 
-/* ====== Boot ====== */
+/* Boot */
 (function init(){
   refreshTree();
   setInterval(()=>{
