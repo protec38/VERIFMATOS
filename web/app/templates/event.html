@@ -61,7 +61,6 @@
     </div>
     <div class="row wrap" style="margin-top:10px;">
       <a class="btn" target="_blank" href="/reports/event/{{ event.id }}/pdf">Exporter PDF</a>
-      <!-- ✅ Bouton restauré -->
       <button class="btn primary" id="btn-share">Lien secouristes</button>
       <button class="btn" id="btn-close">Clôturer l'événement</button>
     </div>
@@ -91,9 +90,6 @@
   </div>
   <div id="tree" class="tree" style="margin-top:10px;"></div>
 </div>
-
-<!-- Socket.IO client -->
-<script src="/socket.io/socket.io.js"></script>
 
 <script>
 const EVENT_ID = {{ event.id }};
@@ -282,6 +278,7 @@ function applyItemDelta(local, incoming){
 }
 
 function applyGroupDelta(local, incoming){
+  // Met à jour infos de véhicule si fournies (non destructif)
   if(local.is_event_root && (typeof incoming.charged_vehicle !== "undefined")){
     local.charged_vehicle = !!incoming.charged_vehicle;
     local.charged_vehicle_name = incoming.charged_vehicle_name || null;
@@ -292,10 +289,24 @@ function applyGroupDelta(local, incoming){
       lab.textContent = local.charged_vehicle ? `Chargé sur : ${local.charged_vehicle_name || "—"}` : "Non chargé";
     }
   }
+
   const box = GROUP_EL.get(local.id);
   if(!box) return;
+
+  // Recalcule l'état du groupe en fonction des enfants (après deltas items)
+  const state = groupStateClass(local);
+
+  // 1) Couleur du panneau
   box.classList.remove("state-ok","state-bad","state-wait");
-  box.classList.add(groupStateClass(local));
+  box.classList.add(state);
+
+  // 2) ✅ Pastille (dot) dans l'en-tête : on la met à jour sans re-render
+  const dot = box.querySelector(".status-dot");
+  if(dot){
+    dot.classList.remove("dot-ok","dot-bad","dot-wait");
+    const gs = groupStatus(local);
+    dot.classList.add(gs==="OK" ? "dot-ok" : (gs==="BAD" ? "dot-bad" : "dot-wait"));
+  }
 }
 
 function syncTreeIncoming(incomingRoots){
@@ -313,29 +324,30 @@ function syncTreeIncoming(incomingRoots){
       applyGroupDelta(nLoc, nInc);
     }
   });
-  updateParentsBarOnly();
+  updateParentsBarOnly(); // 🔄 met aussi à jour les pastilles des parents
   recomputeStats();
 }
 
-/* ---------- Barre Parents ---------- */
+/* ---------- Barre Parents (avec pastilles dynamiques) ---------- */
 function buildParentsBar(){
   const holder = document.getElementById("parents-bar");
   if(!holder) return;
   holder.innerHTML = "";
+
   const parents = (TREE||[]).filter(n => isGroup(n));
   parents.forEach(p => {
     const s = groupStatus(p);
     const pillClass = s==="OK" ? "pill-ok" : (s==="BAD" ? "pill-bad" : "pill-wait");
     const pill = el("div", {class:"parent-pill "+pillClass, onclick:()=>scrollToParent(p.id)},
-      statusDot(s==="OK", s==="BAD")),
-      holder.appendChild(pill.appendChild(el("span", {class:"strong"}, p.name))),
-      p.charged_vehicle ? holder.appendChild(el("span", {class:"vehicle on"}, p.charged_vehicle_name || "—")) : null
+      statusDot(s==="OK", s==="BAD"),
+      el("span", {class:"strong"}, p.name),
+      p.charged_vehicle ? el("span", {class:"vehicle on"}, p.charged_vehicle_name || "—") : null
+    );
+    holder.appendChild(pill);
   });
 }
 function updateParentsBarOnly(){
-  const holder = document.getElementById("parents-bar");
-  if(!holder) return;
-  holder.innerHTML = "";
+  // On reconstruit rapidement la barre pour refléter les nouvelles pastilles
   buildParentsBar();
 }
 function scrollToParent(id){
@@ -395,25 +407,11 @@ document.getElementById("btn-close").addEventListener("click", ()=>{
   });
 });
 
-/* ---------- Init + live socket ---------- */
+/* ---------- Init (polling uniquement, pas de techno changée) ---------- */
 (function init(){
   buildUIOnce();
-
-  // Live via Socket.IO (mêmes événements que la page publique/serveur)
-  try{
-    const socket = io("/events");
-    socket.on("connect", ()=>{/* ok */});
-    socket.on("event_update", (msg)=>{
-      // si l’évènement est précisé, on filtre, sinon on rafraîchit quand même
-      if(msg && typeof msg === "object" && "event_id" in msg && msg.event_id !== EVENT_ID) return;
-      refreshTree();
-    });
-  }catch(e){
-    // pas de socket => on ne casse rien
-  }
-
-  // Fallback polling doux (au cas où)
-  setInterval(refreshTree, 5000);
+  // ⚠️ On garde exactement le même mécanisme que le reste du site : polling
+  setInterval(refreshTree, 2000);
 })();
 </script>
 {% endblock %}
