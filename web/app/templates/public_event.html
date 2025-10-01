@@ -306,7 +306,8 @@
     const bar = document.getElementById("parentsBar");
     bar.innerHTML = "";
     (roots||[]).forEach(r=>{
-      const canCharge = subtreeAllOK(r);
+      // ⬇️ on utilise le calcul serveur si dispo, sinon fallback client
+      const canCharge = (r.can_charge !== undefined) ? !!r.can_charge : subtreeAllOK(r);
       const pill = el("div",{class:"parent"},
         el("span",{class:"dot " + (r.charged_vehicle ? "ok" : "wait")}),
         el("span",{class:"name"}, r.name),
@@ -317,7 +318,7 @@
         el("span",{class:"state"},
           el("button",{
             class:"btn primary",
-            // ⬇️ modif : bouton désactivé seulement si PAS encore chargé ET pas tout OK
+            // désactivé seulement si PAS encore chargé ET pas tout OK
             disabled: (!r.charged_vehicle && !canCharge),
             title: (!r.charged_vehicle && !canCharge) ? "Disponible quand tous les éléments du parent sont OK" : "",
             onclick:()=>openVehicle(r.id, r.charged_vehicle_name||"")
@@ -364,7 +365,7 @@
       const classes = ["group"];
       if(nStatus==="OK") classes.push("ok");
       else if(nStatus==="NOT_OK") classes.push("bad");
-      else classes.push("wait"); // TODO -> bleu pour groupe aussi
+      else classes.push("wait"); // TODO -> bleu
 
       const children = (n.children||[]).map(c=>renderNode(c,false));
       return el("div",{class:classes.join(" ")},
