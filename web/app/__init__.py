@@ -1,28 +1,31 @@
 # app/__init__.py
 from __future__ import annotations
 from datetime import datetime
-import logging
-from flask import Flask, redirect, url_for
+
+from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager
 from flask_socketio import SocketIO
+
 from .config import get_config
 
+# -----------------
 # Extensions
+# -----------------
 db = SQLAlchemy()
 migrate = Migrate()
-login_manager = LoginManager(
-    login_view="auth.login",
-    session_protection="strong"
-)
 
-# Socket.IO in-process (pas de Redis ici)
+# IMPORTANT: ne pas passer login_view au constructeur
+login_manager = LoginManager()
+
+# Socket.IO en local (AUCUN Redis)
 socketio = SocketIO(
     async_mode="eventlet",
     cors_allowed_origins="*",
-    message_queue=None,
+    message_queue=None,  # <= Redis désactivé
 )
+
 
 def create_app():
     app = Flask(__name__)
@@ -34,43 +37,63 @@ def create_app():
     migrate.init_app(app, db)
     login_manager.init_app(app)
 
+    # Définir les propriétés du login_manager APRÈS la création
+    # (si l’endpoint n’existe pas, ça ne plante pas ici)
+    login_manager.login_view = "auth.login"
+    try:
+        # Optionnel / rétro-compat: certaines versions ignorent cette prop
+        login_manager.session_protection = "strong"
+    except Exception:
+        pass
+
+    # -----------------
     # Blueprints API
-    from .auth.views import bp as auth_api_bp
-    app.register_blueprint(auth_api_bp)
-
-    from .admin.views import bp as admin_api_bp
-    app.register_blueprint(admin_api_bp)
-
-    from .stock.views import bp as stock_api_bp
-    app.register_blueprint(stock_api_bp)
-
-    from .verify.views import bp as verify_api_bp
-    app.register_blueprint(verify_api_bp)
-
-    # Reports / Stats / PWA si présents
+    # -----------------
     try:
-        from .reports.views import bp as reports_api_bp
-        app.register_blueprint(reports_api_bp)
+        from .auth.views import bp as auth_api_bp
+        app.register_blueprint(auth_api_bp)
     except Exception:
         pass
 
     try:
-        from .stats.views import bp as stats_api_bp
-        app.register_blueprint(stats_api_bp)
+        from .admin.views import bp as admin_api_bp
+        app.register_blueprint(admin_api_bp)
     except Exception:
         pass
 
     try:
-        from .pwa.views import bp as pwa_bp
-        app.register_blueprint(pwa_bp)
+        from .stock.views import bp as stock_api_bp
+        app.register_blueprint(stock_api_bp)
     except Exception:
         pass
 
+    try:
+        from .verify.views import bp as verify_api_bp
+        app.register_blueprint(verify_api_bp)
+    except Exception:
+        pass
+
+    # Modules optionnels
+    for mod in ("reports", "stats", "pwa"):
+        try:
+            module = __import__(f"{__name__}.{mod}.views", fromlist=["bp"])
+            app.register_blueprint(getattr(module, "bp"))
+        except Exception:
+            pass
+
+    # -----------------
     # Pages HTML (public + dashboard)
-    from .views_html import bp as pages_bp
-    app.register_blueprint(pages_bp)
+    # -----------------
+    # Ton projet d’avant utilise le blueprint déclaré dans views_html.py
+    try:
+        from .views_html import bp as pages_bp
+        app.register_blueprint(pages_bp)
+    except Exception:
+        pass
 
+    # -----------------
     # Healthcheck simple
+    # -----------------
     @app.get("/healthz")
     def healthz():
         try:
@@ -80,7 +103,9 @@ def create_app():
             db_ok = False
         return {"status": "healthy" if db_ok else "degraded"}
 
-    # Handlers Socket.IO
+    # -----------------
+    # Socket.IO handlers (optionnel)
+    # -----------------
     try:
         from .sockets import register_socketio_handlers
         register_socketio_handlers(socketio)
@@ -89,5 +114,19 @@ def create_app():
 
     return app
 
-# Instance pour wsgi
+
+# Instance globale pour wsgi/gunicorn (wsgi:app)
 app = create_app()
+
+# Flask-Login user loader (si ton models.User existe)
+try:
+    from .models import User  # type: ignore
+
+    @login_manager.user_loader
+    def load_user(user_id: str):
+        try:
+            return db.session.get(User, int(user_id))
+        except Exception:
+            return None
+except Exception:
+    pass
