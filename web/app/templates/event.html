@@ -259,6 +259,7 @@ function buildUIOnce(){
 
 /* ---------- MAJ incrémentales ---------- */
 function applyItemDelta(local, incoming){
+  // normalise & applique les nouvelles valeurs
   local.last_status = normStatus(incoming.last_status || "PENDING");
   local.last_by = incoming.last_by || "";
   if(incoming.quantity != null) local.quantity = incoming.quantity;
@@ -268,17 +269,25 @@ function applyItemDelta(local, incoming){
   const qtySpan = ITEM_QTY_TXT.get(local.id);
   if(!box) return;
 
+  // 1) Classe visuelle de l'item (fond/contour)
   box.classList.remove("state-ok","state-bad","state-wait");
   box.classList.add(itemStateClass(local));
 
+  // 2) ⚡️ Met à jour la pastille (dot) de l'item SANS F5
+  const dot = box.querySelector(".status-dot");
   const s = normStatus(local.last_status);
+  if(dot){
+    dot.classList.remove("dot-ok","dot-bad","dot-wait");
+    dot.classList.add(s==="OK" ? "dot-ok" : (s==="NOT_OK" ? "dot-bad" : "dot-wait"));
+  }
+
+  // 3) Texte d'état & quantité
   const label = s==="OK" ? "✅ OK" : (s==="NOT_OK" ? "❌ Non conforme" : "⏳ En attente");
   if(statusDiv) statusDiv.textContent = `Dernier statut: ${label}${local.last_by ? " ("+local.last_by+")" : ""}`;
   if(qtySpan) qtySpan.textContent = `Qté: ${local.quantity ?? 1}`;
 }
 
 function applyGroupDelta(local, incoming){
-  // Met à jour infos de véhicule si fournies (non destructif)
   if(local.is_event_root && (typeof incoming.charged_vehicle !== "undefined")){
     local.charged_vehicle = !!incoming.charged_vehicle;
     local.charged_vehicle_name = incoming.charged_vehicle_name || null;
@@ -289,18 +298,14 @@ function applyGroupDelta(local, incoming){
       lab.textContent = local.charged_vehicle ? `Chargé sur : ${local.charged_vehicle_name || "—"}` : "Non chargé";
     }
   }
-
   const box = GROUP_EL.get(local.id);
   if(!box) return;
 
-  // Recalcule l'état du groupe en fonction des enfants (après deltas items)
-  const state = groupStateClass(local);
-
-  // 1) Couleur du panneau
+  // Couleurs de panneau
   box.classList.remove("state-ok","state-bad","state-wait");
-  box.classList.add(state);
+  box.classList.add(groupStateClass(local));
 
-  // 2) ✅ Pastille (dot) dans l'en-tête : on la met à jour sans re-render
+  // Pastille (dot) d'en-tête du groupe
   const dot = box.querySelector(".status-dot");
   if(dot){
     dot.classList.remove("dot-ok","dot-bad","dot-wait");
@@ -324,16 +329,15 @@ function syncTreeIncoming(incomingRoots){
       applyGroupDelta(nLoc, nInc);
     }
   });
-  updateParentsBarOnly(); // 🔄 met aussi à jour les pastilles des parents
+  updateParentsBarOnly();
   recomputeStats();
 }
 
-/* ---------- Barre Parents (avec pastilles dynamiques) ---------- */
+/* ---------- Barre Parents ---------- */
 function buildParentsBar(){
   const holder = document.getElementById("parents-bar");
   if(!holder) return;
   holder.innerHTML = "";
-
   const parents = (TREE||[]).filter(n => isGroup(n));
   parents.forEach(p => {
     const s = groupStatus(p);
@@ -347,7 +351,6 @@ function buildParentsBar(){
   });
 }
 function updateParentsBarOnly(){
-  // On reconstruit rapidement la barre pour refléter les nouvelles pastilles
   buildParentsBar();
 }
 function scrollToParent(id){
@@ -407,10 +410,9 @@ document.getElementById("btn-close").addEventListener("click", ()=>{
   });
 });
 
-/* ---------- Init (polling uniquement, pas de techno changée) ---------- */
+/* ---------- Init (polling, comme avant) ---------- */
 (function init(){
   buildUIOnce();
-  // ⚠️ On garde exactement le même mécanisme que le reste du site : polling
   setInterval(refreshTree, 2000);
 })();
 </script>
