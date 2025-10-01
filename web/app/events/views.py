@@ -21,22 +21,21 @@ from ..models import (
     Role,
 )
 
-# Blueprints
 bp_events = Blueprint("events_api", __name__, url_prefix="/events")
 bp_public = Blueprint("public_api", __name__, url_prefix="/public")
 
-# -------------------------------------------------
-# Droits
-# -------------------------------------------------
+# ------------------------------------------
+# Auth helpers
+# ------------------------------------------
 def _is_manager() -> bool:
     return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF)
 
 def _can_view() -> bool:
     return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF, Role.VIEWER)
 
-# -------------------------------------------------
-# Helpers communs
-# -------------------------------------------------
+# ------------------------------------------
+# Common helpers
+# ------------------------------------------
 def _event_or_404(event_id: int) -> Event:
     ev = db.session.get(Event, int(event_id))
     if not ev:
@@ -50,16 +49,16 @@ def _event_from_token_or_404(token: str) -> Event:
     return link.event
 
 def _emit(event_name: str, payload: Dict[str, Any]):
-    # Pas de Redis requis : on catch toute erreur.
+    # Pas de Redis requis : si SocketIO n'est pas prêt, on ignore.
     try:
         if socketio:
             socketio.emit(event_name, payload, namespace="/events")
     except Exception:
         pass
 
-# -------------------------------------------------
-# Arbre & utilitaires
-# -------------------------------------------------
+# ------------------------------------------
+# Tree & utils
+# ------------------------------------------
 def _children(parent_id: int) -> List[StockNode]:
     return StockNode.query.filter_by(parent_id=parent_id).all()
 
@@ -75,10 +74,6 @@ def _walk_items(root: StockNode) -> List[StockNode]:
     return out
 
 def _last_verif_map(event_id: int, item_ids: List[int]) -> Dict[int, Dict[str, Any]]:
-    """
-    Pour chaque item_id => {status, by, at, comment} basé sur la DERNIÈRE vérif.
-    Tolère Enum ou string.
-    """
     if not item_ids:
         return {}
     q = (
@@ -90,7 +85,7 @@ def _last_verif_map(event_id: int, item_ids: List[int]) -> Dict[int, Dict[str, A
     out: Dict[int, Dict[str, Any]] = {}
     for r in q:
         nid = int(r.node_id)
-        if nid in out:  # on ne garde que la dernière
+        if nid in out:
             continue
         raw = getattr(r, "status", None)
         status = raw.name if hasattr(raw, "name") else (str(raw).upper() if raw else "TODO")
@@ -104,9 +99,7 @@ def _last_verif_map(event_id: int, item_ids: List[int]) -> Dict[int, Dict[str, A
     return out
 
 def _extract_expiry(n: StockNode) -> Optional[str]:
-    """
-    Sort une ISO date (YYYY-MM-DD) à partir des champs de péremption connus.
-    """
+    # renvoie YYYY-MM-DD si dispo, compatible db.Date
     for attr in ("expiry_date", "expiry", "expires_at", "peremption", "peremption_date", "valid_until"):
         v = getattr(n, attr, None)
         if v:
@@ -119,6 +112,9 @@ def _extract_expiry(n: StockNode) -> Optional[str]:
     return None
 
 def _all_descendants_ok(event_id: int, group: StockNode) -> bool:
+    """
+    True si TOUS les items du sous-arbre sont OK (tolère Enum/str, casse normalisée).
+    """
     if group.type != NodeType.GROUP:
         return False
     items = _walk_items(group)
@@ -126,24 +122,20 @@ def _all_descendants_ok(event_id: int, group: StockNode) -> bool:
         return True
     last = _last_verif_map(event_id, [i.id for i in items])
     for it in items:
-        if (last.get(int(it.id), {}).get("status") or "TODO") != "OK":
+        st = (last.get(int(it.id), {}).get("status") or "TODO")
+        st = st.name if hasattr(st, "name") else str(st)
+        if st.upper() != "OK":
             return False
     return True
 
 def _build_event_tree(event_id: int) -> List[Dict[str, Any]]:
-    """
-    Arbre JSON pour le front public :
-      - GROUP: children, can_charge, charged_* infos
-      - ITEM : last_status, last_by, last_at, comment, expiry/expiry_date
-    """
     rows = db.session.execute(
-        select(StockNode).join(
-            event_stock, StockNode.id == event_stock.c.node_id
-        ).where(event_stock.c.event_id == event_id)
+        select(StockNode).join(event_stock, StockNode.id == event_stock.c.node_id)
+        .where(event_stock.c.event_id == event_id)
     ).scalars().all()
     roots = [n for n in rows if n.type == NodeType.GROUP]
 
-    # Prépare dernier statut pour toutes les feuilles
+    # Prépare dernières vérifs pour toutes les feuilles
     all_items: List[StockNode] = []
     for r in roots:
         all_items.extend(_walk_items(r))
@@ -171,7 +163,6 @@ def _build_event_tree(event_id: int) -> List[Dict[str, Any]]:
 
         ch = [ser(c) for c in _children(n.id)]
         base["children"] = ch
-        # Pour le bouton "charger"
         try:
             base["can_charge"] = _all_descendants_ok(event_id, n)
         except Exception:
@@ -190,11 +181,11 @@ def _build_event_tree(event_id: int) -> List[Dict[str, Any]]:
 
     return [ser(r) for r in roots]
 
-# -------------------------------------------------
-# Routes internes (manager/chef)
-# -------------------------------------------------
+# ------------------------------------------
+# Routes internes (chef/manager)
+# ------------------------------------------
 @bp_events.post("/")
-@bp_events.post("")  # accepte /events ET /events/
+@bp_events.post("")
 @login_required
 def create_event():
     if not _is_manager():
@@ -208,7 +199,6 @@ def create_event():
     if not name or not isinstance(root_ids, list) or not root_ids:
         abort(400, description="name et root_ids (liste non vide) requis.")
 
-    # date optionnelle
     dt = None
     if date_raw:
         try:
@@ -220,7 +210,7 @@ def create_event():
         name=name,
         date=dt,
         status=EventStatus.OPEN,
-        created_by_id=current_user.id  # évite l’erreur attrib int -> relation
+        created_by_id=current_user.id
     )
     db.session.add(ev)
     db.session.flush()
@@ -294,7 +284,7 @@ def event_verify(event_id: int):
     rec = VerificationRecord(
         event_id=ev.id,
         node_id=node.id,
-        status=status,  # string ou Enum accepté
+        status=status,
         verifier_name=verifier_name or None,
         comment=comment,
     )
@@ -314,10 +304,6 @@ def event_verify(event_id: int):
 @bp_events.post("/<int:event_id>/parent-status")
 @login_required
 def event_parent_charged(event_id: int):
-    """
-    Marque un parent (GROUP) comme 'chargé'.
-    Autorisé uniquement si TOUT le sous-arbre est OK (contrôle serveur).
-    """
     if not _is_manager():
         abort(403)
     ev = _event_or_404(event_id)
@@ -336,6 +322,7 @@ def event_parent_charged(event_id: int):
     if not node or node.type != NodeType.GROUP:
         abort(404, description="Parent introuvable ou non GROUP.")
 
+    # sécurité serveur : tout doit être OK si on passe à "chargé"
     if charged_vehicle and not _all_descendants_ok(ev.id, node):
         abort(400, description="Impossible de charger : tous les éléments ne sont pas OK.")
 
@@ -412,9 +399,9 @@ def delete_event(event_id: int):
     db.session.commit()
     return jsonify({"ok": True})
 
-# -------------------------------------------------
+# ------------------------------------------
 # Public (secouristes)
-# -------------------------------------------------
+# ------------------------------------------
 @bp_public.get("/event/<token>/tree")
 def public_event_tree(token: str):
     ev = _event_from_token_or_404(token)
@@ -462,10 +449,6 @@ def public_verify(token: str):
 
 @bp_public.post("/event/<token>/charge")
 def public_parent_charge(token: str):
-    """
-    Marque un parent (GROUP) comme 'chargé' côté public.
-    Autorisé uniquement si tout le sous-arbre est OK (contrôle serveur).
-    """
     ev = _event_from_token_or_404(token)
     if ev.status != EventStatus.OPEN:
         return jsonify({"error": "Événement fermé — vérifications verrouillées."}), 403
