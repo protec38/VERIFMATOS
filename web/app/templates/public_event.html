@@ -1,11 +1,28 @@
 {% extends "base.html" %}
-{% set title = "Événement (secouristes)" %}
+{% set title = "Vérification du matériel (secouristes)" %}
 {% block content %}
 
 <style>
-  .state-ok{border-color:var(--success)!important;background:radial-gradient(400px 120px at top right, rgba(18,184,134,.07), transparent),var(--bg-2);box-shadow:0 0 0 1px rgba(18,184,134,.35) inset,0 0 18px rgba(18,184,134,.15)}
-  .state-bad{border-color:var(--danger)!important;background:radial-gradient(400px 120px at top right, rgba(255,107,107,.07), transparent),var(--bg-2);box-shadow:0 0 0 1px rgba(255,107,107,.30) inset,0 0 18px rgba(255,107,107,.12)}
-  .state-wait{border-color:var(--border)!important;background:radial-gradient(400px 120px at top left, rgba(45,123,191,.08), transparent),var(--bg-2)}
+  .state-ok{
+    border-color: var(--success) !important;
+    background:
+      radial-gradient(600px 200px at top left, rgba(18,184,134,.15), transparent),
+      #0f1e2f;
+    box-shadow: 0 0 0 1px rgba(18,184,134,.35) inset, 0 0 18px rgba(18,184,134,.15);
+  }
+  .state-bad{
+    border-color: var(--danger) !important;
+    background:
+      radial-gradient(600px 200px at top left, rgba(255,107,107,.12), transparent),
+      #0f1e2f;
+    box-shadow: 0 0 0 1px rgba(255,107,107,.30) inset, 0 0 18px rgba(255,107,107,.12);
+  }
+  .state-wait{
+    border-color: var(--border) !important;
+    background:
+      radial-gradient(600px 200px at top left, rgba(45,123,191,.12), transparent),
+      #0f1e2f;
+  }
   .chip{padding:4px 8px;border-radius:999px;font-weight:800;font-size:12px;border:1px solid var(--border)}
   .chip.ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
   .chip.bad{background:#2a0e14;color:#ffd5dc;border-color:#75212f}
