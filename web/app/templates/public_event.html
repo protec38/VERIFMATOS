@@ -59,7 +59,7 @@
   .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
 
   .header{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 10px;border-radius:10px}
-  .root-toggle{cursor:pointer}
+  .toggle{cursor:pointer}
   .left{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
   .name{font-weight:800}
   .meta{font-size:12px;color:var(--muted)}
@@ -74,9 +74,6 @@
 
   .childs{padding:10px 8px 6px 28px}
   .childs.collapsed{display:none}
-
-  .subgroup .header{cursor:default}
-  .subgroup .chev{display:none}
 
   .item{
     display:flex;align-items:flex-start;gap:10px;justify-content:space-between;
@@ -129,13 +126,13 @@
 
 <script>
 /* ====== Contexte ====== */
-const TOKEN = "{{ token }}";        // fourni par la route public
+const TOKEN = "{{ token }}";        // fourni par la route publique
 let TREE = [];                      // racines
 const NODE_MAP  = new Map();        // id -> node
 const GROUP_EL  = new Map();        // id -> element group
 const ITEM_EL   = new Map();        // id -> element item
 const VEH_LABEL = new Map();        // id -> badge véhicule
-const COLLAPSED = new Map();        // id -> bool (plié) pour racines
+const COLLAPSED = new Map();        // id -> bool (plié) pour TOUS les groupes
 let ROOT_IDS    = new Set();        // ids des parents racines
 
 /* ====== Nom opérateur (persisté) ====== */
@@ -238,8 +235,8 @@ function renderGroup(n){
   );
   VEH_LABEL.set(n.id, veh);
 
-  if(isRoot && !COLLAPSED.has(n.id)) COLLAPSED.set(n.id,true);
-  const chev = isRoot ? el("span",{class:"chev", id:`chev-${n.id}`}, COLLAPSED.get(n.id)?"▸":"▾") : el("span",{class:"chev"});
+  if(!COLLAPSED.has(n.id)) COLLAPSED.set(n.id, true); // tous les groupes pliés par défaut
+  const chev = el("span",{class:"chev", id:`chev-${n.id}`}, COLLAPSED.get(n.id) ? "▸" : "▾");
 
   const headerLeft = el("div",{class:"left"},
     chev, dot, el("span",{class:"name"}, n.name),
@@ -249,15 +246,14 @@ function renderGroup(n){
 
   const btnCharge = isRoot ? el("button",{class:"btn xs primary", onclick:(e)=>{e.stopPropagation(); openChargeModal(n.id);}},"Charger") : null;
 
-  const header = el("div",{class:"header "+(isRoot?"root-toggle":""),}, headerLeft, el("div",{class:"actions"}, btnCharge));
-  if(isRoot){ header.addEventListener("click", ()=>toggleCollapse(n.id)); }
+  const header = el("div",{class:"header toggle"}, headerLeft, el("div",{class:"actions"}, btnCharge));
+  header.addEventListener("click", ()=>toggleCollapse(n.id));
 
-  const childs = el("div",{class:"childs "+(isRoot&&COLLAPSED.get(n.id)?"collapsed":""), id:`childs-${n.id}`},
+  const childs = el("div",{class:"childs "+(COLLAPSED.get(n.id)?"collapsed":""), id:`childs-${n.id}`},
     ...(n.children||[]).map(renderNode)
   );
 
-  const extra = isRoot ? "" : " subgroup";
-  const box = el("div",{class:`node ${groupStateClass(n)}${extra}`, id:`node-${n.id}`}, header, childs);
+  const box = el("div",{class:`node ${groupStateClass(n)}`, id:`node-${n.id}`}, header, childs);
   GROUP_EL.set(n.id, box);
 
   if(isRoot) updateChargeButtonState(n.id);
@@ -314,6 +310,7 @@ function applyItemDelta(local, incoming){
   }
 }
 function applyGroupDelta(local, incoming){
+  // Mise à jour badge véhicule sur racines si présent
   if(ROOT_IDS.has(local.id) && (typeof incoming.charged_vehicle !== "undefined")){
     local.charged_vehicle = !!incoming.charged_vehicle;
     local.charged_vehicle_name = incoming.charged_vehicle_name || null;
@@ -364,12 +361,14 @@ async function refreshTree(){
     if(TREE.length===0){
       TREE = latest;
       buildUIOnce();
-      // plier tous les parents racines
-      (TREE||[]).forEach(g=>{
-        COLLAPSED.set(g.id,true);
-        document.getElementById("childs-"+g.id)?.classList.add("collapsed");
-        const chev = document.getElementById("chev-"+g.id);
-        if(chev) chev.textContent = "▸";
+      // plier TOUS les groupes au départ
+      NODE_MAP.forEach((n,id)=>{
+        if(isGroup(n)){
+          COLLAPSED.set(id,true);
+          document.getElementById("childs-"+id)?.classList.add("collapsed");
+          const chev = document.getElementById("chev-"+id);
+          if(chev) chev.textContent = "▸";
+        }
       });
     }else{
       syncTreeIncoming(latest);
@@ -438,9 +437,8 @@ function updateChargeButtonState(parentId){
   btn.title = enable ? "" : "Tous les éléments doivent être OK";
 }
 
-/* ====== Pliage / dépliage racines ====== */
+/* ====== Pliage / dépliage (pour TOUS les groupes) ====== */
 function toggleCollapse(id){
-  if(!ROOT_IDS.has(id)) return;
   const now = !COLLAPSED.get(id);
   COLLAPSED.set(id, now);
   const cont = document.getElementById("childs-"+id);
