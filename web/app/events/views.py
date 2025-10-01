@@ -130,7 +130,8 @@ def _all_descendants_ok(event_id: int, group_node: StockNode) -> bool:
 def _extract_expiry(n: StockNode) -> Optional[str]:
     """
     Extrait une date de péremption si disponible sur StockNode.
-    On normalise dans le champ 'expiry' (ISO string).
+    On normalise en ISO string (YYYY-MM-DD).
+    Couvre notamment: expiry_date = db.Date.
     """
     candidates = (
         "expiry",
@@ -144,10 +145,10 @@ def _extract_expiry(n: StockNode) -> Optional[str]:
         v = getattr(n, attr, None)
         if v:
             try:
-                # support datetime.date/datetime/déjà str
+                # datetime.date/datetime
                 if hasattr(v, "isoformat"):
                     return v.isoformat()  # type: ignore[no-any-return]
-                # str: on tente de parser "YYYY-MM-DD" => renvoyer tel quel
+                # str: renvoyer tel quel
                 return str(v)
             except Exception:
                 return str(v)
@@ -157,7 +158,7 @@ def _extract_expiry(n: StockNode) -> Optional[str]:
 def _build_event_tree(event_id: int) -> List[Dict[str, Any]]:
     """
     Construit l'arbre demandé par le front (parents inclus dans l'évènement + enfants).
-    Pour les ITEMs, ajoute last_status/last_by/last_at/comment et 'expiry' si dispo.
+    Pour les ITEMs, ajoute last_status/last_by/last_at/comment et 'expiry' + 'expiry_date'.
     Pour les GROUPs, ajoute charged_vehicle / charged_vehicle_name / charged_vehicle_by.
     """
     # Racines liées à l’évènement (GROUP)
@@ -191,12 +192,15 @@ def _build_event_tree(event_id: int) -> List[Dict[str, Any]]:
         }
         if n.type == NodeType.ITEM:
             info = last.get(int(n.id), {})
+            exp_iso = _extract_expiry(n)
             base.update({
                 "last_status": (info.get("status") or "TODO"),
                 "last_by": info.get("by"),
                 "last_at": info.get("at"),
                 "comment": info.get("comment"),
-                "expiry": _extract_expiry(n),  # <-- pour alerte péremption côté UI
+                # ---> on expose les deux clés :
+                "expiry": exp_iso,
+                "expiry_date": exp_iso,
                 "children": [],
             })
             return base
@@ -246,7 +250,7 @@ def create_event():
         except Exception:
             abort(400, description="date invalide (YYYY-MM-DD).")
 
-    # created_by : utiliser *_id si la FK s'appelle comme ça (évite l'erreur 'int has no _sa_instance_state')
+    # created_by : utiliser *_id si la FK s'appelle comme ça (évite l’erreur ORM)
     ev = Event(
         name=name,
         date=dt,
@@ -352,7 +356,7 @@ def event_verify(event_id: int):
 def event_parent_charged(event_id: int):
     """
     Marque un parent (GROUP) comme 'chargé'.
-    Désormais, on l'autorise **uniquement** si TOUT le sous-arbre est OK.
+    Autorisé uniquement si TOUT le sous-arbre est OK (blocage côté serveur).
     """
     if not _is_manager():
         abort(403)
@@ -512,7 +516,7 @@ def public_verify(token: str):
 def public_parent_charge(token: str):
     """
     Marque un parent (GROUP) comme 'chargé' côté public.
-    Désormais, autorisé **uniquement si tout le sous-arbre est OK**.
+    Autorisé uniquement si tout le sous-arbre est OK (sécurité serveur).
     """
     ev = _event_from_token_or_404(token)
     if ev.status != EventStatus.OPEN:
