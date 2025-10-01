@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import secrets
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 from flask import Blueprint, request, jsonify, abort
@@ -21,11 +21,13 @@ from ..models import (
     Role,
 )
 
+# Deux blueprints, comme dans ton projet
 bp_events = Blueprint("events_api", __name__, url_prefix="/events")
 bp_public = Blueprint("public_api", __name__, url_prefix="/public")
 
+
 # -------------------------------------------------
-# Helpers
+# Helpers droits
 # -------------------------------------------------
 def _is_manager() -> bool:
     return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF)
@@ -33,6 +35,10 @@ def _is_manager() -> bool:
 def _can_view() -> bool:
     return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF, Role.VIEWER)
 
+
+# -------------------------------------------------
+# Helpers communs
+# -------------------------------------------------
 def _event_or_404(event_id: int) -> Event:
     ev = db.session.get(Event, int(event_id))
     if not ev:
@@ -54,10 +60,14 @@ def _emit(event_name: str, payload: Dict[str, Any]):
         # Ne jamais faire planter l'API pour un emit
         pass
 
+
 # -------------------------------------------------
-# Utils arbre (lecture derniere vérif par item)
+# Utils vérif + arbre
 # -------------------------------------------------
 def _last_verif_map(event_id: int, item_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+    """
+    Pour chaque item_id, récupère la dernière vérif (status/by/at/comment).
+    """
     if not item_ids:
         return {}
     q = (
@@ -82,8 +92,75 @@ def _last_verif_map(event_id: int, item_ids: List[int]) -> Dict[int, Dict[str, A
         }
     return out
 
+
+def _collect_desc_item_ids(root: StockNode) -> List[int]:
+    """
+    Renvoie tous les IDs d'ITEM sous ce noeud (récursif).
+    """
+    ids: List[int] = []
+
+    def walk(n: StockNode):
+        if n.type == NodeType.ITEM:
+            ids.append(int(n.id))
+            return
+        for c in StockNode.query.filter_by(parent_id=n.id).all():
+            walk(c)
+
+    walk(root)
+    return ids
+
+
+def _all_descendants_ok(event_id: int, group_node: StockNode) -> bool:
+    """
+    True ssi tous les items descendants de group_node ont pour DERNIER status 'OK'.
+    """
+    if group_node.type != NodeType.GROUP:
+        return False
+    item_ids = _collect_desc_item_ids(group_node)
+    if not item_ids:
+        # pas d'items => on autorise (considéré OK)
+        return True
+    last = _last_verif_map(event_id, item_ids)
+    for iid in item_ids:
+        if (last.get(iid, {}).get("status") or "TODO") != "OK":
+            return False
+    return True
+
+
+def _extract_expiry(n: StockNode) -> Optional[str]:
+    """
+    Extrait une date de péremption si disponible sur StockNode.
+    On normalise dans le champ 'expiry' (ISO string).
+    """
+    candidates = (
+        "expiry",
+        "expiry_date",
+        "expires_at",
+        "peremption",
+        "peremption_date",
+        "valid_until",
+    )
+    for attr in candidates:
+        v = getattr(n, attr, None)
+        if v:
+            try:
+                # support datetime.date/datetime/déjà str
+                if hasattr(v, "isoformat"):
+                    return v.isoformat()  # type: ignore[no-any-return]
+                # str: on tente de parser "YYYY-MM-DD" => renvoyer tel quel
+                return str(v)
+            except Exception:
+                return str(v)
+    return None
+
+
 def _build_event_tree(event_id: int) -> List[Dict[str, Any]]:
-    # racines liées à l’évènement
+    """
+    Construit l'arbre demandé par le front (parents inclus dans l'évènement + enfants).
+    Pour les ITEMs, ajoute last_status/last_by/last_at/comment et 'expiry' si dispo.
+    Pour les GROUPs, ajoute charged_vehicle / charged_vehicle_name / charged_vehicle_by.
+    """
+    # Racines liées à l’évènement (GROUP)
     rows = db.session.execute(
         select(StockNode).join(
             event_stock, StockNode.id == event_stock.c.node_id
@@ -91,18 +168,20 @@ def _build_event_tree(event_id: int) -> List[Dict[str, Any]]:
     ).scalars().all()
     roots = [n for n in rows if n.type == NodeType.GROUP]
 
-    # collecte tous les ITEM ids
-    items: List[StockNode] = []
+    # Collecte items pour map des dernières vérifs
+    all_items: List[StockNode] = []
+
     def collect_items(n: StockNode):
         if n.type == NodeType.ITEM:
-            items.append(n)
+            all_items.append(n)
         else:
             for c in StockNode.query.filter_by(parent_id=n.id).all():
                 collect_items(c)
+
     for r in roots:
         collect_items(r)
 
-    last = _last_verif_map(event_id, [i.id for i in items])
+    last = _last_verif_map(event_id, [i.id for i in all_items])
 
     def ser(n: StockNode) -> Dict[str, Any]:
         base: Dict[str, Any] = {
@@ -117,9 +196,11 @@ def _build_event_tree(event_id: int) -> List[Dict[str, Any]]:
                 "last_by": info.get("by"),
                 "last_at": info.get("at"),
                 "comment": info.get("comment"),
+                "expiry": _extract_expiry(n),  # <-- pour alerte péremption côté UI
                 "children": [],
             })
             return base
+
         # GROUP
         ch = [ser(c) for c in StockNode.query.filter_by(parent_id=n.id).all()]
         base["children"] = ch
@@ -128,12 +209,19 @@ def _build_event_tree(event_id: int) -> List[Dict[str, Any]]:
             base["charged_vehicle"] = getattr(ens, "charged_vehicle", None)
             if hasattr(ens, "charged_vehicle_name"):
                 base["charged_vehicle_name"] = getattr(ens, "charged_vehicle_name", None)
+            # Nom affiché côté UI : "chargé par ..."
+            base["charged_vehicle_by"] = getattr(ens, "verifier_name", None)
+        else:
+            base["charged_vehicle"] = None
+            base["charged_vehicle_name"] = None
+            base["charged_vehicle_by"] = None
         return base
 
     return [ser(r) for r in roots]
 
+
 # -------------------------------------------------
-# Routes internes
+# Routes internes (manager/chef)
 # -------------------------------------------------
 @bp_events.post("/")
 @bp_events.post("")  # accepte /events ET /events/
@@ -158,12 +246,12 @@ def create_event():
         except Exception:
             abort(400, description="date invalide (YYYY-MM-DD).")
 
-    # created_by : selon ton modèle -> colonne *_id
+    # created_by : utiliser *_id si la FK s'appelle comme ça (évite l'erreur 'int has no _sa_instance_state')
     ev = Event(
         name=name,
         date=dt,
         status=EventStatus.OPEN,
-        created_by_id=current_user.id
+        created_by_id=current_user.id  # <--- important
     )
     db.session.add(ev)
     db.session.flush()
@@ -262,6 +350,10 @@ def event_verify(event_id: int):
 @bp_events.post("/<int:event_id>/parent-status")
 @login_required
 def event_parent_charged(event_id: int):
+    """
+    Marque un parent (GROUP) comme 'chargé'.
+    Désormais, on l'autorise **uniquement** si TOUT le sous-arbre est OK.
+    """
     if not _is_manager():
         abort(403)
     ev = _event_or_404(event_id)
@@ -280,12 +372,20 @@ def event_parent_charged(event_id: int):
     if not node or node.type != NodeType.GROUP:
         abort(404, description="Parent introuvable ou non GROUP.")
 
+    # Blocage serveur si tout n'est pas OK
+    if charged_vehicle and not _all_descendants_ok(ev.id, node):
+        abort(400, description="Impossible de charger : tous les éléments ne sont pas OK.")
+
     ens = EventNodeStatus.query.filter_by(event_id=ev.id, node_id=node.id).first() \
         or EventNodeStatus(event_id=ev.id, node_id=node.id)
     ens.charged_vehicle = charged_vehicle
     if hasattr(ens, "charged_vehicle_name"):
         ens.charged_vehicle_name = vehicle_name if charged_vehicle else None
-    ens.verifier_name = operator_name or None
+    # On stocke le nom (côté UI : 'Chargé par ...')
+    try:
+        ens.verifier_name = operator_name or None
+    except Exception:
+        pass
     ens.updated_at = datetime.utcnow()
 
     db.session.add(ens)
@@ -296,12 +396,12 @@ def event_parent_charged(event_id: int):
         "event_id": ev.id,
         "node_id": node.id,
         "charged": charged_vehicle,
+        "vehicle_name": getattr(ens, "charged_vehicle_name", None),
+        "by": getattr(ens, "verifier_name", None),
     }
-    if hasattr(ens, "charged_vehicle_name"):
-        out["vehicle_name"] = ens.charged_vehicle_name
     _emit("event_update", out)
 
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, **out})
 
 
 @bp_events.patch("/<int:event_id>/status")
@@ -357,14 +457,16 @@ def delete_event(event_id: int):
 
     return jsonify({"ok": True})
 
+
 # -------------------------------------------------
-# Public routes
+# Public routes (secouristes)
 # -------------------------------------------------
 @bp_public.get("/event/<token>/tree")
 def public_event_tree(token: str):
     ev = _event_from_token_or_404(token)
     tree = _build_event_tree(ev.id)
     return jsonify(tree)
+
 
 @bp_public.post("/event/<token>/verify")
 def public_verify(token: str):
@@ -408,6 +510,10 @@ def public_verify(token: str):
 
 @bp_public.post("/event/<token>/charge")
 def public_parent_charge(token: str):
+    """
+    Marque un parent (GROUP) comme 'chargé' côté public.
+    Désormais, autorisé **uniquement si tout le sous-arbre est OK**.
+    """
     ev = _event_from_token_or_404(token)
     if ev.status != EventStatus.OPEN:
         return jsonify({"error": "Événement fermé — vérifications verrouillées."}), 403
@@ -424,12 +530,20 @@ def public_parent_charge(token: str):
     if not node or node.type != NodeType.GROUP:
         abort(404, description="Parent introuvable ou non GROUP.")
 
+    # Blocage serveur si tout n'est pas OK
+    if charged_vehicle and not _all_descendants_ok(ev.id, node):
+        abort(400, description="Impossible de charger : tous les éléments ne sont pas OK.")
+
     ens = EventNodeStatus.query.filter_by(event_id=ev.id, node_id=node.id).first() \
         or EventNodeStatus(event_id=ev.id, node_id=node.id)
     ens.charged_vehicle = charged_vehicle
     if hasattr(ens, "charged_vehicle_name"):
         ens.charged_vehicle_name = vehicle_name if charged_vehicle else None
-    ens.verifier_name = operator_name or None
+    # on stocke le nom du secouriste qui a chargé
+    try:
+        ens.verifier_name = operator_name or None
+    except Exception:
+        pass
     ens.updated_at = datetime.utcnow()
 
     db.session.add(ens)
@@ -440,9 +554,9 @@ def public_parent_charge(token: str):
         "event_id": ev.id,
         "node_id": node.id,
         "charged": charged_vehicle,
+        "vehicle_name": getattr(ens, "charged_vehicle_name", None),
+        "by": getattr(ens, "verifier_name", None),
     }
-    if hasattr(ens, "charged_vehicle_name"):
-        out["vehicle_name"] = ens.charged_vehicle_name
     _emit("event_update", out)
 
-    return jsonify({"ok": True, "node_id": node.id, "vehicle": vehicle_name, "by": operator_name})
+    return jsonify({"ok": True, **out})
