@@ -164,7 +164,7 @@
 
   // ---------- helpers ----------
   function itemStatus(n){
-    const st = (n.last_status || "").toUpperCase();
+    const st = (String(n.last_status || "")).trim().toUpperCase();
     if(st === "OK") return "OK";
     if(st === "NOT_OK") return "NOT_OK";
     return "TODO"; // non vérifié => BLEU
@@ -209,7 +209,7 @@
     return res;
   }
 
-  // ---------- peremption ----------
+  // ---------- peremption (détection étendue) ----------
   function parseMaybeDate(v){
     if(!v) return null;
     if(typeof v === "number"){
@@ -220,16 +220,56 @@
     if(!isNaN(d.getTime())) return d;
     return null;
   }
+  function _fromMeta(node, key){
+    if(node && typeof node === "object"){
+      if(node.meta && typeof node.meta === "object" && node.meta[key] != null) return node.meta[key];
+      if(node.data && typeof node.data === "object" && node.data[key] != null) return node.data[key];
+    }
+    return null;
+  }
   function expiryDate(node){
-    const cand = node.expiry || node.expiry_date || node.expires_at || node.peremption || node.peremption_date || node.valid_until || null;
-    return parseMaybeDate(cand);
+    const keys = [
+      "expiry","expiry_date","expires_at",
+      "peremption","peremption_date",
+      "valid_until","expiration","expiration_date",
+      "dlc","dlc_date","dlu","dluo",
+      "best_before","best_before_date"
+    ];
+    for(const k of keys){
+      let v = node[k];
+      if(v == null) v = _fromMeta(node, k);
+      const d = parseMaybeDate(v);
+      if(d) return d;
+    }
+    return null;
+  }
+  function expiryDaysLeft(node){
+    const dayKeys = ["days_to_expiry","days_left","remaining_days","peremption_days","daysRemaining"];
+    for(const k of dayKeys){
+      let v = node[k];
+      if(v == null) v = _fromMeta(node, k);
+      if(v == null) continue;
+      const n = Number(v);
+      if(!Number.isNaN(n)) return n;
+    }
+    return null;
   }
   function expirySoon(node){
+    const days = expiryDaysLeft(node);
+    if(days != null){
+      return days >= 0 && days <= PEREMPTION_DAYS;
+    }
     const d = expiryDate(node);
     if(!d) return false;
     const now = new Date();
     const diff = (d - now) / (1000*60*60*24);
     return diff <= PEREMPTION_DAYS;
+  }
+  function expiryLabel(node){
+    const days = expiryDaysLeft(node);
+    if(days != null) return `Péremption proche : ${days}j`;
+    const d = expiryDate(node);
+    return d ? `Péremption proche : ${d.toLocaleDateString()}` : "Péremption proche";
   }
   function warnIcon(titleText){
     const wrap = document.createElement("span");
@@ -259,7 +299,7 @@
       undefined:["chip wait","À vérifier"]
     };
     const [klass,label] = map[st] || map["TODO"];
-    return el("span",{class:klass}, el("span",{class:"dot " + (st==="OK"?"ok":st==="NOT_OK"?"bad":"wait")}), label);
+    return el("span",{class:klass, title:label}, el("span",{class:"dot " + (st==="OK"?"ok":st==="NOT_OK"?"bad":"wait")}), label);
   }
 
   function renderParents(roots){
@@ -277,8 +317,9 @@
         el("span",{class:"state"},
           el("button",{
             class:"btn primary",
-            title: canCharge ? "" : "Disponible quand tous les éléments du parent sont OK",
-            disabled: !canCharge,
+            // ⬇️ modif : bouton désactivé seulement si PAS encore chargé ET pas tout OK
+            disabled: (!r.charged_vehicle && !canCharge),
+            title: (!r.charged_vehicle && !canCharge) ? "Disponible quand tous les éléments du parent sont OK" : "",
             onclick:()=>openVehicle(r.id, r.charged_vehicle_name||"")
           }, r.charged_vehicle ? "Modifier" : "Marquer chargé")
         )
@@ -307,9 +348,7 @@
 
       const nameAreaChildren = [ document.createTextNode(n.name) ];
       if(expirySoon(n)){
-        const d = expiryDate(n);
-        const label = d ? ("Péremption proche : " + d.toLocaleDateString()) : "Péremption proche";
-        nameAreaChildren.push(warnIcon(label));
+        nameAreaChildren.push(warnIcon(expiryLabel(n)));
       }
 
       return el("div",{class:classes.join(" ")},
@@ -372,7 +411,7 @@
     const vehicle = (document.getElementById("vehInput").value || "").trim();
     if(!vehicle){ alert("Nom du véhicule requis"); return; }
     const parent = NODE_MAP.get(CURRENT_PARENT_ID);
-    if(!subtreeAllOK(parent)){
+    if(!subtreeAllOK(parent) && !parent.charged_vehicle){
       alert("Vous ne pouvez charger que lorsque tous les éléments du parent sont OK.");
       return;
     }
