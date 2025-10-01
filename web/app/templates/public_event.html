@@ -1,432 +1,497 @@
 {% extends "base.html" %}
-{% set title = "Vérification du matériel (secouristes)" %}
+{% set title = "Vérification Secouriste" %}
 {% block content %}
+
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 
 <style>
   :root{
-    --bg:#0d1320; --bg2:#111a2b; --bg3:#0b1322;
-    --text:#e6eefb; --muted:#9fb3cc;
-    --border:#2a3a53; --border2:#334968;
-    --ok:#12b886; --bad:#ff6b6b; --wait:#376099; --warn:#f0b429;
-    --ok-ghost:rgba(18,184,134,.12);
-    --bad-ghost:rgba(255,107,107,.09);
-    --wait-ghost:rgba(55,96,153,.12);
-    --wait-border:#274a78;
-    --shadow:0 8px 30px rgba(0,0,0,.25);
+    --pad-xs: 6px;
+    --pad-sm: 10px;
+    --pad-md: 14px;
+    --pad-lg: 18px;
+    --radius: 14px;
+    --shadow: 0 6px 22px rgba(0,0,0,.25);
+    --muted: #9fb0c6;
   }
 
-  body{background:var(--bg);color:var(--text)}
-  .wrap{max-width:1100px;margin:16px auto;padding:0 14px}
-  .header{display:flex;align-items:center;justify-content:space-between;margin:6px 0 14px}
-  .title{display:flex;flex-direction:column}
-  .h1{font-size:22px;margin:0}
-  .muted{color:var(--muted)}
-  .small{font-size:12px}
+  .wrap{
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: var(--pad-md);
+  }
 
-  .card{border:1px solid var(--border);background:var(--bg2);border-radius:14px;box-shadow:var(--shadow);padding:12px}
+  .topbar{
+    display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;
+    padding: var(--pad-md);
+    border:1px solid var(--border); border-radius: var(--radius); background: var(--bg-2);
+    box-shadow: var(--shadow);
+    position: sticky; top: 8px; z-index: 10;
+  }
+  .topbar .title{font-size:18px;font-weight:800}
+  .name-edit{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .name-edit input{
+    background:#0f1726;border:1px solid var(--border);border-radius:10px;padding:8px 10px;color:var(--text);min-width:220px
+  }
+  .name-edit .btn{padding:8px 12px;border-radius:10px}
 
-  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  .btn{border:1px solid var(--border);background:var(--bg3);padding:8px 12px;border-radius:10px;cursor:pointer}
-  .btn.success{background:#0e2a24;border-color:#1d6e5d}
-  .btn.danger{background:#2a0e14;border-color:#75212f}
-  .btn.primary{background:#0c1b30;border-color:#274a78}
-  .btn:disabled{opacity:.5;cursor:not-allowed}
-
-  .legend{display:flex;gap:8px;flex-wrap:wrap}
-  .chip{padding:4px 8px;border-radius:999px;font-weight:800;font-size:12px;border:1px solid var(--border);display:inline-flex;align-items:center;gap:6px}
-  .chip.ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
-  .chip.bad{background:#2a0e14;color:#ffd5dc;border-color:#75212f}
-  .chip.wait{background:#0c1b30;color:#cfe2ff;border-color:var(--wait-border)}
-  .chip.warn{background:#2a210c;color:#ffe9b8;border-color:#7a5a1d}
-  .dot{width:10px;height:10px;border-radius:50%}
-  .dot.ok{background:var(--ok)} .dot.bad{background:var(--bad)} .dot.wait{background:var(--wait)} .dot.warn{background:var(--warn)}
-
-  .warn-ic{width:16px;height:16px;display:inline-block;vertical-align:middle}
-  .warn-ic svg{width:16px;height:16px}
-  .warn-ic path{fill:var(--warn)}
-
-  /* Barre “cheffe” globale uniquement */
-  .chef-progress{display:flex;align-items:center;gap:12px}
-  .chef-progress .label{font-weight:700}
-  .chef-progress .right{margin-left:auto;font-variant-numeric:tabular-nums}
-  .chef-bar{position:relative;width:100%;height:12px;border-radius:999px;overflow:hidden;border:1px solid var(--border);background:var(--bg3)}
-  .chef-seg{height:100%;display:inline-block}
-  .chef-seg.ok{background:var(--ok)}
-  .chef-seg.todo{background:var(--wait)}
-  .chef-seg.bad{background:var(--bad)}
-
-  .parents{margin-top:10px}
-  .parents-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .parents-card{margin-top:12px;padding:var(--pad-md);border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-2)}
+  .parents-card .title{display:flex;align-items:center;gap:10px;margin-bottom:10px}
   .parents-bar{display:flex;gap:10px;overflow:auto;padding:4px 2px}
-  .parent{display:flex;align-items:center;gap:10px;border:1px solid var(--border);padding:8px 10px;border-radius:12px;background:var(--bg3);min-width:280px}
-  .parent .name{font-weight:700}
-  .parent .veh{font-size:12px;color:var(--muted)}
-  .parent .state{display:flex;align-items:center;gap:6px;margin-left:auto}
+  .parent-pill{
+    display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;border:1px solid var(--border);
+    background:#0f1a2a;color:var(--text);white-space:nowrap;cursor:pointer;user-select:none;
+    transition: transform .08s ease, border-color .08s ease, background .08s ease;
+  }
+  .parent-pill:hover{ transform: translateY(-1px); }
+  .pill-ok{border-color:#1d6e5d;background:#0e2a24;color:#bff3e7}
+  .pill-bad{border-color:#75212f;background:#2a0e14;color:#ffd5dc}
+  .pill-wait{border-color:#24344f;background:#101c2e;color:#b7c7dc}
 
-  .grid{display:grid;grid-template-columns:1fr;gap:12px;margin-top:12px}
-  .group{border:1px solid var(--border);padding:12px;border-radius:12px;background:var(--bg2)}
-  .group.ok{border-color:#1d6e5d;background:radial-gradient(600px 200px at top left, var(--ok-ghost), transparent), var(--bg2)}
-  .group.bad{border-color:#75212f;background:radial-gradient(600px 200px at top left, var(--bad-ghost), transparent), var(--bg2)}
-  .group.wait{border-color:var(--wait-border);background:radial-gradient(600px 200px at top left, var(--wait-ghost), transparent), var(--bg2)}
-  .group>.head{display:flex;align-items:center;gap:10px;margin-bottom:8px;justify-content:space-between;flex-wrap:wrap}
+  .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
+  .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
 
-  .item{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px dashed var(--border2);padding:10px;border-radius:10px;background:var(--bg3)}
-  .item.ok{border-color:#1d6e5d;background:radial-gradient(500px 180px at top left, var(--ok-ghost), transparent), var(--bg3)}
-  .item.bad{border-color:#75212f;background:radial-gradient(500px 180px at top left, var(--bad-ghost), transparent), var(--bg3)}
-  .item.wait{border-color:var(--wait-border);background:radial-gradient(500px 180px at top left, var(--wait-ghost), transparent), var(--bg3)}
-  .item .name-area{display:flex;align-items:center;gap:8px}
-  .item .right{display:flex;align-items:center;gap:8px}
+  .board{margin-top:12px;padding:var(--pad-md);border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-2)}
+  .board .legend{color:var(--muted);font-size:13px}
 
-  dialog{border:1px solid var(--border);background:var(--bg2);color:var(--text);border-radius:12px;max-width:460px}
-  dialog form{display:flex;flex-direction:column;gap:10px;padding:8px}
-  input[type="text"]{background:var(--bg3);color:var(--text);border:1px solid var(--border);padding:10px;border-radius:10px;width:100%}
-  .dialog-actions{display:flex;justify-content:flex-end;gap:8px}
+  .node{border:1px solid var(--border); border-radius: 12px; padding: var(--pad-sm); margin: 12px 0; background:#0f1a2a}
+  .state-ok{
+    border-color: var(--success) !important;
+    background:
+      radial-gradient(600px 200px at top left, rgba(18,184,134,.15), transparent),
+      #0f1e2f;
+    box-shadow: 0 0 0 1px rgba(18,184,134,.35) inset, 0 0 18px rgba(18,184,134,.15);
+  }
+  .state-bad{
+    border-color: var(--danger) !important;
+    background:
+      radial-gradient(600px 200px at top left, rgba(255,107,107,.12), transparent),
+      #0f1a27;
+    box-shadow: 0 0 0 1px rgba(255,107,107,.30) inset, 0 0 18px rgba(255,107,107,.12);
+  }
+  .state-wait{
+    border-color: var(--border) !important;
+    background:
+      radial-gradient(600px 200px at top left, rgba(45,123,191,.08), transparent),
+      var(--bg-2);
+  }
 
-  @media (min-width: 920px){
-    .h1{font-size:24px}
+  .node .header{
+    display:flex;align-items:center;gap:10px;justify-content:space-between;
+    padding: 8px 10px; border-radius: 10px; user-select:none;
+  }
+  .node .header.root-toggle{ cursor:pointer; }
+  .node .left{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .node .name{font-weight:800}
+  .node .meta{font-size:12px;color:var(--muted)}
+  .chev{width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;opacity:.85}
+  .veh{font-size:12px; opacity:.95; padding:2px 6px; border-radius:6px; border:1px dashed var(--border);}
+  .veh.on{background:#0e2a24; color:#bff3e7; border-color:#1d6e5d}
+  .veh.off{background:#101c2e; color:#b7c7dc; border-color:#24344f}
+
+  .node .actions{display:flex;gap:8px;flex-wrap:wrap}
+  .btn.xs{padding:6px 10px;border-radius:10px;font-size:13px}
+  .btn.primary{background: var(--pc-orange); color:#000}
+
+  .childs{padding:10px 8px 6px 28px}
+  .childs.collapsed{display:none}
+
+  /* Sous-groupe non-pliable (confort visuel) */
+  .subgroup .header{cursor:default}
+  .subgroup .chev{display:none}
+
+  .item{
+    display:flex;align-items:flex-start;gap:10px;justify-content:space-between;
+    padding:12px;border-radius:10px;margin:10px 0;border:1px solid var(--border); background:#0f1726;
+  }
+  .item .left{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .item .left .label{font-weight:700}
+  .item .right{display:flex;gap:8px;flex-wrap:wrap}
+  .muted{color:var(--muted);font-size:12px}
+  .warn{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 6px;border-radius:8px;border:1px solid #7a5d1e;background:#221a07;color:#ffd679}
+  .qty{opacity:.9;font-size:12px;border:1px dashed var(--border);border-radius:8px;padding:1px 6px}
+
+  /* Mobile first */
+  @media (max-width: 640px){
+    .topbar{gap:12px}
+    .item, .node .header{padding:12px}
+    .item .right .btn{width:100%}
+    .childs{padding-left:14px}
+  }
+  /* Desktop tweaks */
+  @media (min-width: 900px){
+    .childs{padding-left:34px}
+    .item{padding:14px 16px}
   }
 </style>
 
 <div class="wrap">
-  <div class="header">
-    <div class="title">
-      <h1 class="h1">{{ event.name }}</h1>
-      <div class="muted small">Lien public : {{ token }}</div>
-    </div>
-    <div class="row">
-      <div class="muted small">Opérateur : <strong id="opShown">—</strong></div>
-      <button class="btn primary" onclick="openOperator()">Changer d’opérateur</button>
-    </div>
-  </div>
-
-  <!-- Résumé global -->
-  <div class="card">
-    <div class="chef-progress">
-      <div class="label">Avancement</div>
-      <div class="chef-bar" aria-label="Barre de progression globale" title="OK / À vérifier / Non conforme">
-        <span id="g_ok" class="chef-seg ok" style="width:0%"></span>
-        <span id="g_todo" class="chef-seg todo" style="width:0%"></span>
-        <span id="g_bad" class="chef-seg bad" style="width:0%"></span>
-      </div>
-      <div id="g_txt" class="right">0%</div>
+  <!-- Nom / prénom -->
+  <div class="topbar">
+    <div class="title">Vérification secouriste</div>
+    <div class="name-edit">
+      <label for="opname" class="muted">Nom & Prénom :</label>
+      <input id="opname" placeholder="Ex : Dupont Marie" />
+      <button class="btn" id="save-name">Enregistrer</button>
     </div>
   </div>
 
-  <div class="card">
-    <div class="legend">
-      <span class="chip wait"><span class="dot wait"></span>À vérifier</span>
-      <span class="chip ok"><span class="dot ok"></span>OK</span>
-      <span class="chip bad"><span class="dot bad"></span>Non conforme</span>
-      <span class="chip warn"><span class="dot warn"></span>Péremption proche</span>
-    </div>
+  <!-- Barre parents -->
+  <div class="parents-card">
+    <div class="title">Parents</div>
+    <div id="parents-bar" class="parents-bar"></div>
   </div>
 
-  <div class="card parents">
-    <div class="parents-head">
-      <strong>Parents inclus dans l’évènement</strong>
+  <!-- Arbre -->
+  <div class="board">
+    <div class="row space-between">
+      <div class="title">Matériel</div>
+      <div class="legend">Vert = tout OK • Rouge = non conforme • Bleu = en attente • ⚠️ proche péremption</div>
     </div>
-    <div class="parents-bar" id="parentsBar"></div>
+    <div id="tree"></div>
   </div>
-
-  <div id="tree" class="grid"></div>
 </div>
 
-<!-- Modal opérateur -->
-<dialog id="dlgOperator">
-  <form method="dialog" onsubmit="saveOperatorFromModal(event)">
-    <h3>Identifiez-vous</h3>
-    <p class="small muted">Renseignez votre <strong>Nom</strong> et <strong>Prénom</strong> pour valider les items.</p>
-    <input id="opInput" type="text" placeholder="Nom Prénom" autocomplete="name" />
-    <div class="dialog-actions">
-      <button class="btn" value="cancel" onclick="closeOperator()">Annuler</button>
-      <button class="btn success" value="ok">Valider</button>
-    </div>
-  </form>
-</dialog>
-
-<!-- Modal véhicule -->
-<dialog id="dlgVehicle">
-  <form method="dialog" onsubmit="saveVehicle(event)">
-    <h3 id="vehTitle">Véhicule chargé</h3>
-    <input id="vehInput" type="text" placeholder="Nom du véhicule (ex : VPSP-1)" />
-    <div class="dialog-actions">
-      <button class="btn" value="cancel" onclick="closeVehicle()">Annuler</button>
-      <button id="vehSaveBtn" class="btn success" value="ok">Enregistrer</button>
-    </div>
-  </form>
-</dialog>
-
-<!-- Socket.IO client -->
-<script src="/socket.io/socket.io.js"></script>
-
 <script>
-  const TOKEN = "{{ token }}";
-  const PEREMPTION_DAYS = 30;
+/* ====== Contexte ====== */
+const TOKEN = "{{ token }}";
+let TREE = [];
+const NODE_MAP  = new Map();          // id -> node
+const GROUP_EL  = new Map();          // id -> element group
+const ITEM_EL   = new Map();          // id -> element item
+const VEH_LABEL = new Map();          // id -> badge véhicule
+const COLLAPSED = new Map();          // id -> bool (plié/seulement racines)
+let ROOT_IDS    = new Set();          // ids des parents racines
 
-  let TREE = [];
-  const NODE_MAP = new Map();
-  let CURRENT_PARENT_ID = null;
+/* ====== Nom opérateur (persisté) ====== */
+const NAME_KEY = "pcprep_public_operator";
+function getOperator(){ return (localStorage.getItem(NAME_KEY) || "").trim(); }
+function setOperator(v){ localStorage.setItem(NAME_KEY, (v||"").trim()); }
+const opname = document.getElementById("opname");
+document.getElementById("save-name").addEventListener("click", ()=>{ setOperator(opname.value); alert("Nom enregistré."); });
+window.addEventListener("DOMContentLoaded", ()=>{ opname.value = getOperator(); });
 
-  const LS_KEY = "pcprep:operator";
-  function getOperator(){ return (localStorage.getItem(LS_KEY) || "").trim(); }
-  function setOperator(name){
-    localStorage.setItem(LS_KEY, name || "");
-    document.getElementById("opShown").textContent = name || "—";
+/* ====== Utils ====== */
+function el(tag, attrs={}, ...children){
+  const e = document.createElement(tag);
+  for(const [k,v] of Object.entries(attrs||{})){
+    if(k==="class") e.className = v;
+    else if(k==="html") e.innerHTML = v;
+    else if(k.startsWith("on") && typeof v==="function") e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v);
   }
-  function ensureOperator(){ const n = getOperator(); if(!n){ openOperator(true); return false; } return true; }
-  function openOperator(force){
-    const dlg = document.getElementById("dlgOperator");
-    document.getElementById("opInput").value = getOperator();
-    if(!dlg.open) dlg.showModal(); else if(force) dlg.showModal();
-  }
-  function closeOperator(){ document.getElementById("dlgOperator").close(); }
-  function saveOperatorFromModal(ev){ ev.preventDefault(); const v=(document.getElementById("opInput").value||"").trim(); if(!v){alert("Nom requis");return;} setOperator(v); closeOperator(); }
+  for(const c of children){ if(c!=null) e.append(c.nodeType?c:document.createTextNode(c)); }
+  return e;
+}
+const isItem  = n => (n.type||"").toUpperCase()==="ITEM";
+const isGroup = n => (n.type||"").toUpperCase()==="GROUP";
+function normStatus(s){
+  s = (s||"").toUpperCase();
+  if(s==="OK") return "OK";
+  if(s==="NOT_OK" || s==="NOK" || s==="KO" || s==="NOT-OK" || s==="NOTOK") return "NOT_OK";
+  return "PENDING";
+}
+function daysUntil(iso){
+  if(!iso) return null;
+  try{ const d=new Date(iso+"T00:00:00"); const now=new Date(); return Math.ceil((d-now)/86400000); }catch(_){ return null; }
+}
 
-  function itemStatus(n){
-    const st = (String(n.last_status || "")).trim().toUpperCase();
-    if(st === "OK") return "OK";
-    if(st === "NOT_OK") return "NOT_OK";
-    return "TODO";
-  }
-  function statusOf(node){
-    if((node.type||"").toUpperCase()==="ITEM"){ return itemStatus(node); }
-    const ch = node.children || [];
-    if(!ch.length) return "TODO";
-    let hasTodo = false;
-    for(const c of ch){
-      const s = statusOf(c);
-      if(s === "NOT_OK") return "NOT_OK";
-      if(s === "TODO") hasTodo = true;
-    }
-    return hasTodo ? "TODO" : "OK";
-  }
-  function subtreeAllOK(node){
-    if((node.type||"").toUpperCase()==="ITEM") return itemStatus(node)==="OK";
-    for(const c of (node.children||[])){ if(!subtreeAllOK(c)) return false; }
-    return true;
-  }
-  function el(tag, props, ...children){
-    const n = document.createElement(tag);
-    if(props) for(const [k,v] of Object.entries(props)){
-      if(k === "class") n.className = v;
-      else if(k.startsWith("on") && typeof v === "function") n.addEventListener(k.substring(2), v);
-      else if(v !== undefined && v !== null) n.setAttribute(k, v);
-    }
-    for(const c of children){ if(c == null) continue; n.append(typeof c === "string" ? document.createTextNode(c) : c); }
-    return n;
-  }
-  function ensureOk(res){ if(!res.ok){ return res.text().then(t=>{ throw new Error(t||"Erreur réseau");}); } return res; }
+/* ====== Status / règles ====== */
+function flattenItems(nodes){ const out=[]; (nodes||[]).forEach(function rec(n){ if(isItem(n)) out.push(n); (n.children||[]).forEach(rec); }); return out; }
+function groupAllOk(n){ const items=flattenItems([n]); return items.length>0 && items.every(i=>normStatus(i.last_status)==="OK"); }
+function groupHasBad(n){ return flattenItems([n]).some(i=>normStatus(i.last_status)==="NOT_OK"); }
+function groupStatus(n){ if(groupAllOk(n)) return "OK"; if(groupHasBad(n)) return "BAD"; return "WAIT"; }
+function canChargeGroup(n){ return groupAllOk(n); }
 
-  // Péremption
-  function parseMaybeDate(v){
-    if(!v) return null;
-    if(typeof v === "number"){ return new Date(v > 10_000_000_000 ? v : v*1000); }
-    const d = new Date(v); return isNaN(d.getTime()) ? null : d;
-  }
-  function _fromMeta(node, key){
-    if(node && typeof node === "object"){
-      if(node.meta && typeof node.meta === "object" && node.meta[key] != null) return node.meta[key];
-      if(node.data && typeof node.data === "object" && node.data[key] != null) return node.data[key];
-    }
-    return null;
-  }
-  function expiryDate(node){
-    const keys = ["expiry","expiry_date","expires_at","peremption","peremption_date","valid_until","expiration","expiration_date","best_before","best_before_date","dlc","dlc_date"];
-    for(const k of keys){
-      let v = node[k]; if(v == null) v = _fromMeta(node,k);
-      const d = parseMaybeDate(v); if(d) return d;
-    }
-    return null;
-  }
-  function expirySoon(node){ const d = expiryDate(node); if(!d) return false; const diff = (d - new Date())/(1000*60*60*24); return diff <= PEREMPTION_DAYS; }
-  function expiryLabel(node){ const d = expiryDate(node); return d ? `Péremption proche : ${d.toLocaleDateString()}` : "Péremption proche"; }
-  function warnIcon(titleText){ const s=document.createElement("span"); s.className="warn-ic"; s.title=titleText||"Péremption proche"; s.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1,21H23L12,2L1,21ZM13,18H11V16H13V18ZM13,14H11V10H13V14Z"/></svg>'; return s; }
+/* ====== Barre parents ====== */
+function statusDot(isOk, isBad){ return el("span",{class:"status-dot "+(isOk?"dot-ok":(isBad?"dot-bad":"dot-wait"))}); }
+function buildParentsBar(){
+  const holder = document.getElementById("parents-bar");
+  holder.innerHTML = "";
+  (TREE||[]).forEach(p=>{
+    if(!isGroup(p)) return;
+    const s = groupStatus(p);
+    const cls = s==="OK" ? "pill-ok" : (s==="BAD" ? "pill-bad" : "pill-wait");
+    const pill = el("div",{class:"parent-pill "+cls, onclick:()=>scrollAndOpen(p.id)},
+      statusDot(s==="OK", s==="BAD"),
+      el("span",{class:"strong"}, p.name),
+      p.charged_vehicle ? el("span",{class:"veh on"}, p.charged_vehicle_name || "—") : null
+    );
+    holder.appendChild(pill);
+  });
+}
+function scrollAndOpen(id){
+  COLLAPSED.set(id,false);
+  const cont = document.getElementById("childs-"+id);
+  const chev = document.getElementById("chev-"+id);
+  if(cont){ cont.classList.remove("collapsed"); }
+  if(chev){ chev.textContent = "▾"; }
+  const target = document.getElementById("node-"+id);
+  if(target){ target.scrollIntoView({behavior:"smooth", block:"start"}); setTimeout(()=>window.scrollBy({top:-70,left:0}), 250); }
+}
 
-  async function refreshTree(){
-    try{
-      const r = await fetch(`/public/event/{{ token }}/tree`, {cache:"no-store"});
-      if(!r.ok) return;
-      const latest = await r.json();
-      syncTree(latest);
-    }catch(e){}
-  }
+/* ====== Rendu Items ====== */
+function itemStateClass(n){ const s=normStatus(n.last_status); if(s==="OK")return"state-ok"; if(s==="NOT_OK")return"state-bad"; return"state-wait"; }
+function renderItem(n){
+  const s = normStatus(n.last_status);
+  const dleft = daysUntil(n.expiry_date); // YYYY-MM-DD
+  const showWarn = (dleft!=null && dleft<=30);
 
-  function flattenItems(nodes){
-    const items = [];
-    function walk(n){ if((n.type||"").toUpperCase()==="ITEM"){ items.push(n); } else (n.children||[]).forEach(walk); }
-    (nodes||[]).forEach(walk);
-    return items;
-  }
-  function updateGlobalProgress(roots){
-    const items = flattenItems(roots);
-    const total = items.length;
-    let ok=0,todo=0,bad=0;
-    for(const it of items){
-      const s = (String(it.last_status||"").toUpperCase());
-      if(s==="OK") ok++;
-      else if(s==="NOT_OK") bad++;
-      else todo++;
-    }
-    const okW   = total>0 ? (100*(ok/total))   : 0;
-    const todoW = total>0 ? (100*(todo/total)) : 0;
-    const badW  = total>0 ? (100*(bad/total))  : 0;
-    document.getElementById("g_ok").style.width = okW+"%";
-    document.getElementById("g_todo").style.width = todoW+"%";
-    document.getElementById("g_bad").style.width = badW+"%";
-    const pct = total>0 ? Math.round((ok/total)*100) : 0;
-    document.getElementById("g_txt").textContent = `${pct}%`;
-  }
+  const left = el("div",{class:"left"},
+    el("span",{class:"status-dot "+(s==="OK"?"dot-ok":(s==="NOT_OK"?"dot-bad":"dot-wait"))}),
+    el("span",{class:"label"}, n.name),
+    el("span",{class:"qty"}, `Qté: ${n.quantity ?? 1}`),
+    showWarn ? el("span",{class:"warn", title:`Péremption dans ${dleft} jour(s)`},"⚠️ Péremption") : null
+  );
+  const right = el("div",{class:"right"},
+    el("button",{class:"btn xs success", onclick:()=>verify(n.id,"OK")},"OK"),
+    el("button",{class:"btn xs ghost",   onclick:()=>verify(n.id,"NOT_OK")},"Non conforme")
+  );
+  const wrap = el("div",{class:"item "+itemStateClass(n), id:`item-${n.id}`}, left, right);
+  ITEM_EL.set(n.id, wrap);
+  return wrap;
+}
 
-  function statusChip(st){
-    const map = { "OK":["chip ok","OK"], "NOT_OK":["chip bad","Non conforme"], "TODO":["chip wait","À vérifier"] };
-    const [klass,label] = map[st] || map["TODO"];
-    const dot = el("span",{class:"dot " + (st==="OK"?"ok":st==="NOT_OK"?"bad":"wait")});
-    const span = document.createElement("span"); span.className=klass; span.title=label; span.appendChild(dot); span.appendChild(document.createTextNode(label)); return span;
-  }
+/* ====== Rendu Groupes ====== */
+function renderGroup(n){
+  const isRoot = ROOT_IDS.has(n.id);
 
-  function renderParents(roots){
-    const bar = document.getElementById("parentsBar");
-    bar.innerHTML = "";
-    (roots||[]).forEach(r=>{
-      // client > serveur : si tout est OK au client, autorise le bouton (le serveur revalide)
-      const canCharge = subtreeAllOK(r) || !!r.can_charge;
-      const pill = el("div",{class:"parent"},
-        el("span",{class:"dot " + (r.charged_vehicle ? "ok" : "wait")}),
-        el("span",{class:"name"}, r.name),
-        el("span",{class:"veh"},
-          r.charged_vehicle_name ? "• " + r.charged_vehicle_name : "",
-          r.charged_vehicle_by ? " – chargé par " + r.charged_vehicle_by : ""
-        ),
-        el("span",{class:"state"},
-          el("button",{
-            class:"btn primary",
-            disabled: (!r.charged_vehicle && !canCharge),
-            title: (!r.charged_vehicle && !canCharge) ? "Disponible quand tous les éléments du parent sont OK" : "",
-            onclick:()=>openVehicle(r.id, r.charged_vehicle_name||"")
-          }, r.charged_vehicle ? "Modifier" : "Marquer chargé")
-        )
-      );
-      bar.appendChild(pill);
-    });
+  const dot = statusDot(groupStatus(n)==="OK", groupStatus(n)==="BAD");
+  const veh = el("span",{class:"veh "+(n.charged_vehicle?'on':'off')}, n.charged_vehicle ? `Chargé : ${n.charged_vehicle_name || "—"}` : "Non chargé");
+  VEH_LABEL.set(n.id, veh);
+
+  if(isRoot && !COLLAPSED.has(n.id)) COLLAPSED.set(n.id, true);
+  const chev = isRoot ? el("span",{class:"chev", id:`chev-${n.id}`}, COLLAPSED.get(n.id) ? "▸" : "▾") : el("span",{class:"chev"});
+
+  const headerLeft = el("div",{class:"left"},
+    chev, dot, el("span",{class:"name"}, n.name),
+    isRoot ? veh : null,
+    el("span",{class:"meta"}, `• ${flattenItems([n]).length} élément(s)`)
+  );
+
+  const btnCharge = isRoot ? el("button",{class:"btn xs primary", onclick:(e)=>{e.stopPropagation(); openChargeModal(n.id);}},"Charger") : null;
+
+  const header = el("div",{
+      class:"header "+(isRoot?"root-toggle":"")
+    },
+    headerLeft,
+    el("div",{class:"actions"}, btnCharge)
+  );
+  if(isRoot){
+    header.addEventListener("click", ()=>toggleCollapse(n.id));
   }
 
-  function renderTree(){
-    NODE_MAP.clear();
-    const cont = document.getElementById("tree");
-    cont.innerHTML = "";
-    for(const r of TREE){ cont.appendChild(renderNode(r, true)); }
-  }
+  const childs = el("div",{
+      class:"childs "+(isRoot && COLLAPSED.get(n.id) ? "collapsed" : ""),
+      id:`childs-${n.id}`
+    },
+    ...(n.children||[]).map(renderNode)
+  );
 
-  function renderNode(n, isRoot){
+  const extraClass = isRoot ? "" : " subgroup";
+  const box = el("div",{class:`node ${groupStateClass(n)}${extraClass}`, id:`node-${n.id}`}, header, childs);
+  GROUP_EL.set(n.id, box);
+
+  if(isRoot) updateChargeButtonState(n.id, true);
+  return box;
+}
+function toggleCollapse(id){
+  if(!ROOT_IDS.has(id)) return; // seuls les parents (racines) sont pliables
+  const now = !COLLAPSED.get(id);
+  COLLAPSED.set(id, now);
+  const cont = document.getElementById("childs-"+id);
+  const chev = document.getElementById("chev-"+id);
+  if(cont){ cont.classList.toggle("collapsed", now); }
+  if(chev){ chev.textContent = now ? "▸" : "▾"; }
+}
+function renderNode(n){ return isGroup(n) ? renderGroup(n) : renderItem(n); }
+
+/* ====== Construction UI ====== */
+function indexTree(nodes){
+  ROOT_IDS = new Set((nodes||[]).map(n=>n.id));
+  (nodes||[]).forEach(function rec(n){
     NODE_MAP.set(n.id, n);
-    const nStatus = statusOf(n);
-    if((n.type||"").toUpperCase()==="ITEM"){
-      const classes = ["item"];
-      if(nStatus==="OK") classes.push("ok");
-      else if(nStatus==="NOT_OK") classes.push("bad");
-      else classes.push("wait");
+    (n.children||[]).forEach(rec);
+  });
+}
+function buildUIOnce(){
+  const root = document.getElementById("tree");
+  root.innerHTML = "";
+  indexTree(TREE);
+  (TREE||[]).forEach(n=> root.appendChild(renderNode(n)));
+  buildParentsBar();
+}
 
-      const nameArea = document.createElement("div"); nameArea.className="name-area";
-      nameArea.appendChild(document.createTextNode(n.name));
-      if(expirySoon(n)){ nameArea.appendChild(warnIcon(expiryLabel(n))); }
+/* ====== MAJ incrémentales ====== */
+function applyItemDelta(local, incoming){
+  local.last_status = normStatus(incoming.last_status || "PENDING");
+  local.quantity    = (incoming.quantity!=null)?incoming.quantity:local.quantity;
+  local.expiry_date = incoming.expiry_date || local.expiry_date;
 
-      const right = document.createElement("div"); right.className="right";
-      right.appendChild(statusChip(nStatus));
-      if(n.last_by){ const who=document.createElement("span"); who.className="small muted"; who.textContent=`(${n.last_by})`; right.appendChild(who); }
-      right.appendChild(el("button",{class:"btn success", onclick:()=>verify(n.id,"OK")},"OK"));
-      right.appendChild(el("button",{class:"btn danger", onclick:()=>verify(n.id,"NOT_OK")},"Non conforme"));
+  const box = ITEM_EL.get(local.id);
+  if(!box) return;
 
-      const row = document.createElement("div"); row.className=classes.join(" ");
-      row.appendChild(nameArea); row.appendChild(right);
-      return row;
-    }else{
-      const classes = ["group"];
-      if(nStatus==="OK") classes.push("ok");
-      else if(nStatus==="NOT_OK") classes.push("bad");
-      else classes.push("wait");
+  box.classList.remove("state-ok","state-bad","state-wait");
+  box.classList.add(itemStateClass(local));
 
-      const head=document.createElement("div"); head.className="head";
-      head.appendChild(el("strong",{}, n.name));
-      if(isRoot && n.charged_vehicle){
-        const chip = document.createElement("span"); chip.className="chip ok";
-        chip.appendChild(el("span",{class:"dot ok"}));
-        chip.appendChild(document.createTextNode("Chargé" + (n.charged_vehicle_by ? " par "+n.charged_vehicle_by : "")));
-        head.appendChild(chip);
-      }
+  const dot = box.querySelector(".status-dot");
+  if(dot){
+    dot.classList.remove("dot-ok","dot-bad","dot-wait");
+    const s = normStatus(local.last_status);
+    dot.classList.add(s==="OK" ? "dot-ok" : (s==="NOT_OK" ? "dot-bad" : "dot-wait"));
+  }
+  const qty = box.querySelector(".qty");
+  if(qty){ qty.textContent = `Qté: ${local.quantity ?? 1}`; }
 
-      const childrenWrap=document.createElement("div");
-      for(const c of (n.children||[])){ childrenWrap.appendChild(renderNode(c,false)); }
-
-      const box=document.createElement("div"); box.className=classes.join(" ");
-      box.appendChild(head); box.appendChild(childrenWrap);
-      return box;
+  const oldWarn = box.querySelector(".warn"); if(oldWarn) oldWarn.remove();
+  const dl = daysUntil(local.expiry_date);
+  if(dl!=null && dl<=30){
+    const left = box.querySelector(".left");
+    if(left){ left.appendChild(el("span",{class:"warn", title:`Péremption dans ${dl} jour(s)`},"⚠️ Péremption")); }
+  }
+}
+function applyGroupDelta(local, incoming){
+  if(ROOT_IDS.has(local.id) && (typeof incoming.charged_vehicle !== "undefined")){
+    local.charged_vehicle = !!incoming.charged_vehicle;
+    local.charged_vehicle_name = incoming.charged_vehicle_name || null;
+    const lab = VEH_LABEL.get(local.id);
+    if(lab){
+      lab.classList.toggle("on", !!local.charged_vehicle);
+      lab.classList.toggle("off", !local.charged_vehicle);
+      lab.textContent = local.charged_vehicle ? `Chargé : ${local.charged_vehicle_name || "—"}` : "Non chargé";
     }
   }
+  const box = GROUP_EL.get(local.id);
+  if(!box) return;
 
-  function syncTree(latest){
-    TREE = latest || [];
-    updateGlobalProgress(TREE);
-    renderParents(TREE);
-    renderTree();
-  }
+  box.classList.remove("state-ok","state-bad","state-wait");
+  box.classList.add(groupStateClass(local));
 
-  async function verify(nodeId, status){
-    if(!ensureOperator()){ return; }
-    try{
-      await fetch(`/public/event/{{ token }}/verify`, {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ node_id: nodeId, status, verifier_name: getOperator() })
-      }).then(ensureOk);
-      await refreshTree();
-    }catch(e){ alert(e.message || "Échec de la validation"); }
+  const dot = box.querySelector(".status-dot");
+  if(dot){
+    dot.classList.remove("dot-ok","dot-bad","dot-wait");
+    const gs = groupStatus(local);
+    dot.classList.add(gs==="OK" ? "dot-ok" : (gs==="BAD" ? "dot-bad" : "dot-wait"));
   }
+  if(ROOT_IDS.has(local.id)) updateChargeButtonState(local.id, true);
+}
+function syncTreeIncoming(incomingRoots){
+  (incomingRoots||[]).forEach(function recInc(nInc){
+    const nLoc = NODE_MAP.get(nInc.id);
+    if(!nLoc) return;
+    if(isItem(nLoc)){
+      applyItemDelta(nLoc, nInc);
+    }else{
+      (nInc.children||[]).forEach(recInc);
+      applyGroupDelta(nLoc, nInc);
+    }
+  });
+  buildParentsBar();
+}
 
-  function openVehicle(parentId, currentName){
-    CURRENT_PARENT_ID = parentId;
-    document.getElementById("vehInput").value = currentName || "";
-    document.getElementById("vehTitle").textContent = currentName ? "Modifier le véhicule" : "Marquer comme chargé";
-    document.getElementById("dlgVehicle").showModal();
-  }
-  function closeVehicle(){ document.getElementById("dlgVehicle").close(); }
-  async function saveVehicle(ev){
-    ev.preventDefault();
-    const vehicle = (document.getElementById("vehInput").value || "").trim();
-    if(!vehicle){ alert("Nom du véhicule requis"); return; }
-    const parent = NODE_MAP.get(CURRENT_PARENT_ID);
-    const canCharge = subtreeAllOK(parent) || !!parent.can_charge;
-    if(!parent.charged_vehicle && !canCharge){
-      alert("Vous ne pouvez charger que lorsque tous les éléments du parent sont OK.");
+/* ====== API ====== */
+async function fetchTree(){
+  const r = await fetch(`/public/event/{{ token }}/tree`);
+  if(!r.ok) throw new Error("fetch tree");
+  return r.json();
+}
+async function refreshTree(){
+  try{
+    const latest = await fetchTree();
+    if(TREE.length===0){
+      TREE = latest;
+      buildUIOnce();
+      // plier tous les parents (racines) au départ
+      (TREE||[]).forEach(g=>{
+        if(ROOT_IDS.has(g.id)){
+          COLLAPSED.set(g.id, true);
+          const cont = document.getElementById("childs-"+g.id);
+          const chev = document.getElementById("chev-"+g.id);
+          cont?.classList.add("collapsed");
+          if(chev) chev.textContent = "▸";
+        }
+      });
+    }else{
+      syncTreeIncoming(latest);
+    }
+  }catch(_){}
+}
+function verify(nodeId, status){
+  const payload = { node_id: nodeId, status, verifier_name: getOperator() || "" };
+  fetch(`/public/event/{{ token }}/verify`, {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify(payload)
+  }).then(async res=>{
+    if(!res.ok){
+      const t = await res.text();
+      alert(t || "Vérification refusée (événement fermé ?)");
       return;
     }
-    try{
-      await fetch(`/public/event/{{ token }}/charge`, {
-        method:"POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({
-          node_id: CURRENT_PARENT_ID,
-          vehicle_name: vehicle,
-          operator_name: getOperator() || null
-        })
-      }).then(ensureOk);
-      await refreshTree();
-      closeVehicle();
-    }catch(e){ alert(e.message || "Échec enregistrement véhicule"); }
-  }
-
-  // Boot + live push
-  (function init(){
-    setOperator(getOperator());
-    if(!getOperator()){ setTimeout(()=>openOperator(true), 50); }
     refreshTree();
+  }).catch(()=>{});
+}
 
-    // Live via Socket.IO (fallback polling 5s)
-    try{
-      const socket = io("/events");
-      socket.on("connect", ()=>{/* ok */});
-      socket.on("event_update", (msg)=>{ refreshTree(); });
-    }catch(e){}
-    setInterval(refreshTree, 5000);
-  })();
+/* ====== Charger (parents seulement) ====== */
+let CHARGE_TARGET = null;
+function openChargeModal(parentId){
+  if(!ROOT_IDS.has(parentId)) return;
+  const node = NODE_MAP.get(parentId);
+  if(!node) return;
+  if(!canChargeGroup(node)){ alert("Impossible : tous les éléments doivent être OK."); return; }
+  CHARGE_TARGET = parentId;
+  const old = document.getElementById("charge-modal"); if(old) old.remove();
+  const modal = el("div",{id:"charge-modal", style:"position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:50;"},
+    el("div",{style:"width:min(520px,92%);background:#0f1726;border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:var(--shadow)"},
+      el("div",{class:"title",style:"margin-bottom:10px"},"Charger le parent"),
+      el("label",{class:"muted",for:"veh-name"},"Véhicule"),
+      el("input",{id:"veh-name",placeholder:"Ex : VSAV-2",style:"width:100%;margin:8px 0 12px 0;padding:10px;border-radius:10px;border:1px solid var(--border);background:#0b1120;color:var(--text)"}),
+      el("div",{class:"muted",style:"margin-bottom:10px"},"Opérateur : ", getOperator() || "—"),
+      el("div",{style:"display:flex;gap:8px;justify-content:flex-end"},
+        el("button",{class:"btn ghost",onclick:closeChargeModal},"Annuler"),
+        el("button",{class:"btn primary",onclick:confirmCharge},"Confirmer")
+      )
+    )
+  );
+  document.body.appendChild(modal);
+  setTimeout(()=>document.getElementById("veh-name")?.focus(), 10);
+}
+function closeChargeModal(){ document.getElementById("charge-modal")?.remove(); CHARGE_TARGET = null; }
+function confirmCharge(){
+  const veh = (document.getElementById("veh-name")?.value || "").trim();
+  const payload = {
+    node_id: CHARGE_TARGET,
+    charged_vehicle: true,
+    operator_name: getOperator() || "",
+    vehicle_name: veh || null
+  };
+  fetch(`/public/event/{{ token }}/charge`, {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify(payload)
+  }).then(async res=>{
+    if(!res.ok){ const t = await res.text(); alert(t || "Échec du chargement."); return; }
+    closeChargeModal();
+    refreshTree();
+  }).catch(()=>{});
+}
+function updateChargeButtonState(parentId){
+  if(!ROOT_IDS.has(parentId)) return;
+  const n = NODE_MAP.get(parentId);
+  const box = GROUP_EL.get(parentId);
+  if(!n || !box) return;
+  const btn = box.querySelector(".actions .btn.primary");
+  if(!btn) return;
+  const enable = canChargeGroup(n);
+  btn.disabled = !enable;
+  btn.title = enable ? "" : "Tous les éléments doivent être OK";
+}
+
+/* ====== Boot ====== */
+(function init(){
+  refreshTree();
+  setInterval(refreshTree, 2000); // même principe que le reste du site
+})();
 </script>
+
 {% endblock %}
