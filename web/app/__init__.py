@@ -2,7 +2,7 @@
 from __future__ import annotations
 from datetime import datetime
 
-from flask import Flask
+from flask import Flask, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager
@@ -37,12 +37,10 @@ def create_app():
     migrate.init_app(app, db)
     login_manager.init_app(app)
 
-    # Définir les propriétés du login_manager APRÈS la création
-    # (si l’endpoint n’existe pas, ça ne plante pas ici)
+    # Définir les propriétés APRÈS init_app
     login_manager.login_view = "auth.login"
     try:
-        # Optionnel / rétro-compat: certaines versions ignorent cette prop
-        login_manager.session_protection = "strong"
+        login_manager.session_protection = "strong"  # rétro-compat
     except Exception:
         pass
 
@@ -73,6 +71,13 @@ def create_app():
     except Exception:
         pass
 
+    try:
+        # IMPORTANT: on enregistre aussi l'API événements (tree/verify/parent-status…)
+        from .events.views import bp as events_api_bp
+        app.register_blueprint(events_api_bp)
+    except Exception:
+        pass
+
     # Modules optionnels
     for mod in ("reports", "stats", "pwa"):
         try:
@@ -84,12 +89,18 @@ def create_app():
     # -----------------
     # Pages HTML (public + dashboard)
     # -----------------
-    # Ton projet d’avant utilise le blueprint déclaré dans views_html.py
     try:
         from .views_html import bp as pages_bp
         app.register_blueprint(pages_bp)
     except Exception:
         pass
+
+    # -----------------
+    # Root → redirige vers dashboard
+    # -----------------
+    @app.get("/")
+    def _root_redirect():
+        return redirect(url_for("pages.dashboard"))
 
     # -----------------
     # Healthcheck simple
