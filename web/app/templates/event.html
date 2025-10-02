@@ -99,6 +99,54 @@ let IS_OPEN = ("{{ event.status }}".toUpperCase() === "OPEN");
 
 // ❌ Pas de “Charger” ici (réservé à la page publique)
 const ALLOW_CHARGE = false;
+const HAS_SOCKET_IO = typeof io !== "undefined";
+
+let socketClient = null;
+let socketInitialized = false;
+let socketRefreshTimer = null;
+let refreshInFlight = false;
+let refreshQueued = false;
+
+function scheduleRealtimeRefresh(delay = 250){
+  if(socketRefreshTimer) return;
+  socketRefreshTimer = setTimeout(()=>{
+    socketRefreshTimer = null;
+    refreshTree();
+  }, delay);
+}
+
+function setupSocket(){
+  if(socketInitialized || !HAS_SOCKET_IO){
+    return;
+  }
+  socketInitialized = true;
+  socketClient = io("/events", { withCredentials: true });
+  socketClient.on("connect", ()=>{
+    socketClient.emit("join_event", { event_id: EVENT_ID });
+  });
+  socketClient.on("event_update", payload => {
+    if(!payload || payload.event_id !== EVENT_ID){
+      return;
+    }
+    if(payload.type === "joined"){
+      return;
+    }
+    if(payload.type === "status" && payload.status){
+      const statusUpper = String(payload.status).toUpperCase();
+      IS_OPEN = statusUpper === "OPEN";
+      const badge = document.getElementById("status-badge");
+      if(badge){
+        badge.textContent = `Statut : ${statusUpper}`;
+      }
+      if(!IS_OPEN){
+        ITEM_EL.forEach(box=>{
+          box.querySelectorAll("button").forEach(btn => btn.disabled = true);
+        });
+      }
+    }
+    scheduleRealtimeRefresh(payload.type === "status" ? 50 : 200);
+  });
+}
 
 /* ========= State ========= */
 const NODE_MAP = new Map();
@@ -362,12 +410,24 @@ function scrollToParent(id){
 
 /* ---------- API ---------- */
 async function refreshTree(){
+  if(refreshInFlight){
+    refreshQueued = true;
+    return;
+  }
+  refreshInFlight = true;
   try{
     const r = await fetch(`/events/${EVENT_ID}/tree`, {credentials:"include"});
     if(!r.ok) return;
     const latest = await r.json();
     syncTreeIncoming(latest);
   }catch(_){}
+  finally{
+    refreshInFlight = false;
+    if(refreshQueued){
+      refreshQueued = false;
+      await refreshTree();
+    }
+  }
 }
 function verify(nodeId, status){
   const payload = { node_id: nodeId, status, verifier_name: CURRENT_USER || "op" };
@@ -410,10 +470,15 @@ document.getElementById("btn-close").addEventListener("click", ()=>{
   });
 });
 
-/* ---------- Init (polling, comme avant) ---------- */
+/* ---------- Init (polling + temps réel) ---------- */
 (function init(){
   buildUIOnce();
-  setInterval(refreshTree, 2000);
+  refreshTree();
+  if(HAS_SOCKET_IO){
+    setupSocket();
+  }
+  const interval = HAS_SOCKET_IO ? 15000 : 5000;
+  setInterval(refreshTree, interval);
 })();
 </script>
 {% endblock %}

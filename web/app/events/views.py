@@ -25,6 +25,7 @@ from ..models import (
 from ..tree_query import build_event_tree
 
 bp_events = Blueprint("events_api", __name__, url_prefix="/events")
+EVENT_SOCKET_NS = "/events"
 bp_public = Blueprint("public_api", __name__, url_prefix="/public")
 
 # -------------------------------------------------
@@ -52,7 +53,11 @@ def _emit(event_name: str, payload: Dict[str, Any]):
     # S'il y a SocketIO, on émet localement (pas de Redis si non configuré)
     try:
         if socketio:
-            socketio.emit(event_name, payload, namespace="/events")
+            event_id = payload.get("event_id") if isinstance(payload, dict) else None
+            emit_kwargs = {"namespace": EVENT_SOCKET_NS}
+            if event_id is not None:
+                emit_kwargs["room"] = f"event_{event_id}"
+            socketio.emit(event_name, payload, **emit_kwargs)
     except Exception:
         # Ne jamais faire planter l'API pour un emit
         pass

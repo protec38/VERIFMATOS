@@ -146,12 +146,49 @@
 
 <script>
 const TOKEN = "{{ token }}";
+const EVENT_ID = {{ event.id }};
+const HAS_SOCKET_IO = typeof io !== "undefined";
+
 let TREE = [];
+let socketClient = null;
+let socketInitialized = false;
+let socketRefreshTimer = null;
+let refreshInFlight = false;
+let refreshQueued = false;
+
 const NODE_MAP  = new Map();
 const GROUP_EL  = new Map();
 const ITEM_EL   = new Map();
 const VEH_LABEL = new Map();
 const COLLAPSED = new Map();
+
+function scheduleRealtimeRefresh(delay = 250){
+  if(socketRefreshTimer) return;
+  socketRefreshTimer = setTimeout(()=>{
+    socketRefreshTimer = null;
+    refreshTree();
+  }, delay);
+}
+
+function setupSocket(){
+  if(socketInitialized || !HAS_SOCKET_IO){
+    return;
+  }
+  socketInitialized = true;
+  socketClient = io("/events", { withCredentials: true });
+  socketClient.on("connect", ()=>{
+    socketClient.emit("join_event", { event_id: EVENT_ID });
+  });
+  socketClient.on("event_update", payload => {
+    if(!payload || payload.event_id !== EVENT_ID){
+      return;
+    }
+    if(payload.type === "joined"){
+      return;
+    }
+    scheduleRealtimeRefresh(payload.type === "status" ? 80 : 200);
+  });
+}
 
 const NAME_KEY = "pcprep_public_operator";
 function getOperator(){ return (localStorage.getItem(NAME_KEY) || "").trim(); }
@@ -530,6 +567,11 @@ async function fetchTree(){
   return r.json();
 }
 async function refreshTree(){
+  if(refreshInFlight){
+    refreshQueued = true;
+    return;
+  }
+  refreshInFlight = true;
   try{
     const latest = await fetchTree();
     if(TREE.length===0){
@@ -547,6 +589,13 @@ async function refreshTree(){
       syncTreeIncoming(latest);
     }
   }catch(_){}
+  finally{
+    refreshInFlight = false;
+    if(refreshQueued){
+      refreshQueued = false;
+      await refreshTree();
+    }
+  }
 }
 function verify(nodeId, status){
   const payload = { node_id: nodeId, status, verifier_name: getOperator() || "" };
@@ -635,10 +684,14 @@ function toggleCollapse(id){
 /* Boot */
 (function init(){
   refreshTree();
+  if(HAS_SOCKET_IO){
+    setupSocket();
+  }
+  const interval = HAS_SOCKET_IO ? 15000 : 5000;
   setInterval(()=>{
     refreshTree();
     if(!getOperator() && !document.getElementById("name-modal")) openNameModal(true);
-  }, 2000);
+  }, interval);
 })();
 </script>
 
