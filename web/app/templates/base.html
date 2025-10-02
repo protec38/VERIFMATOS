@@ -83,6 +83,7 @@
       {% if _cu and _cu.is_authenticated and _cu.role and _cu.role.name == 'ADMIN' %}
         <!-- NAV CORRIGÉE : Stock et Administration pointent vers deux routes distinctes -->
         <a class="btn" href="/stock">🧰 Stock</a>
+        <a href="/peremption" class="nav-link">Péremption</a>
         <a class="btn" href="/admin">🔧 Administration</a>
       {% endif %}
       {% if _cu and _cu.is_authenticated %}
