@@ -7,18 +7,17 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager
 from flask_socketio import SocketIO
-from .peremption.views import bp_peremption
 
 from .config import get_config
 
 # -----------------
-# Extensions
+# Extensions (déclarées au niveau module)
 # -----------------
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()  # ne rien passer au ctor
 
-# Socket.IO en local (AUCUN Redis)
+# Socket.IO en local (AUCUN Redis) — instance non liée, on fera init_app(app) après
 socketio = SocketIO(
     async_mode="eventlet",
     cors_allowed_origins="*",
@@ -44,26 +43,30 @@ def _register_bp_if_any(app: Flask, dotted_module: str, candidates: tuple[str, .
     return False
 
 
-def create_app():
+def create_app() -> Flask:
     app = Flask(__name__)
     cfg = get_config()
     app.config.from_object(cfg)
-    app.register_blueprint(bp_peremption)
 
     # Init extensions
     db.init_app(app)
     migrate.init_app(app, db)
     login_manager.init_app(app)
-
-    # Propriétés LoginManager APRÈS init_app
     login_manager.login_view = "auth.login"
     try:
         login_manager.session_protection = "strong"
     except Exception:
         pass
 
+    # Lier Socket.IO à l'app (pas de Redis)
+    try:
+        socketio.init_app(app)
+    except Exception:
+        # On ne casse pas l'app si SocketIO échoue
+        pass
+
     # -----------------
-    # Blueprints API (robuste : on tolère les absents, et plusieurs noms d'attribut)
+    # Blueprints (robuste : on tolère les absents, et plusieurs noms d'attribut)
     # -----------------
     _register_bp_if_any(app, "app.auth.views")
     _register_bp_if_any(app, "app.admin.views")
@@ -73,13 +76,15 @@ def create_app():
     _register_bp_if_any(app, "app.verify.views")
 
     # Events API (POST /events, GET /events/<id>/tree, etc.)
-    # ⇒ si le blueprint ne s'appelle pas 'bp', on couvre 'bp_events'
-    _register_bp_if_any(app, "app.events.views", candidates=("bp", "bp_events"))
+    _register_bp_if_any(app, "app.events.views", candidates=("bp", "bp_events", "bp_public"))
 
     # Optionnels
     _register_bp_if_any(app, "app.reports.views")
     _register_bp_if_any(app, "app.stats.views")
     _register_bp_if_any(app, "app.pwa.views")
+
+    # Péremption (nouveau)
+    _register_bp_if_any(app, "app.peremption.views", candidates=("bp_peremption", "bp"))
 
     # Pages HTML (public + dashboard)
     _register_bp_if_any(app, "app.views_html")
@@ -106,21 +111,17 @@ def create_app():
     except Exception:
         pass
 
-    return app
-
-
-# Instance globale pour wsgi/gunicorn (wsgi:app)
-app = create_app()
-
-# Flask-Login user loader
-try:
-    from .models import User  # type: ignore
-
+    # Flask-Login user loader (placé ici pour éviter les imports circulaires)
     @login_manager.user_loader
     def load_user(user_id: str):
+        from .models import User  # import tardif : db déjà initialisé
         try:
             return db.session.get(User, int(user_id))
         except Exception:
             return None
-except Exception:
-    pass
+
+    return app
+
+
+# ⚠️ Pas de création d'instance globale ici (pas de `app = create_app()`)
+# Lancer via wsgi.py ou gunicorn : `from app import create_app; app = create_app()`
