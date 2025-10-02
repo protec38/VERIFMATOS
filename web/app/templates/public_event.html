@@ -193,6 +193,7 @@ function openNameModal(force=false){
 }
 function ensureOperatorOrAsk(){ if(getOperator()) return true; openNameModal(true); return false; }
 
+/* ====== Helpers DOM / data ====== */
 function el(tag, attrs={}, ...children){
   const e = document.createElement(tag);
   for(const [k,v] of Object.entries(attrs||{})){
@@ -212,9 +213,20 @@ function normStatus(s){
   if(s==="NOT_OK" || s==="NOK" || s==="KO" || s==="NOT-OK" || s==="NOTOK") return "NOT_OK";
   return "PENDING";
 }
-function daysUntil(iso){
+function daysUntilISO(iso){
   if(!iso) return null;
   try{ const d=new Date(iso+"T00:00:00"); const now=new Date(); return Math.ceil((d-now)/86400000); }catch(_){ return null; }
+}
+function nextExpiryDaysFromNode(n){
+  // Priorité à n.expiries (liste), fallback sur n.expiry_date (legacy)
+  if (Array.isArray(n.expiries) && n.expiries.length){
+    // expiries est déjà trié côté API (date asc)
+    for (const e of n.expiries){
+      const d = daysUntilISO(e.date);
+      if (d !== null) return d;
+    }
+  }
+  return daysUntilISO(n.expiry_date);
 }
 function flattenItems(nodes){ const out=[]; (nodes||[]).forEach(function rec(n){ if(isItem(n)) out.push(n); (n.children||[]).forEach(rec); }); return out; }
 function groupAllOk(n){ const items=flattenItems([n]); return items.length>0 && items.every(i=>normStatus(i.last_status)==="OK"); }
@@ -222,6 +234,7 @@ function groupHasBad(n){ return flattenItems([n]).some(i=>normStatus(i.last_stat
 function groupStatus(n){ if(groupAllOk(n)) return "OK"; if(groupHasBad(n)) return "BAD"; return "WAIT"; }
 function canChargeGroup(n){ return groupAllOk(n); }
 
+/* ====== Stats ====== */
 function recomputeGlobalStats(){
   const items = flattenItems(TREE);
   const total = items.length;
@@ -238,6 +251,7 @@ function recomputeGlobalStats(){
   document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
 }
 
+/* ====== Parents bar ====== */
 function statusDot(isOk, isBad){ return el("span",{class:"status-dot "+(isOk?"dot-ok":(isBad?"dot-bad":"dot-wait"))}); }
 function buildParentsBar(){
   const holder = document.getElementById("parents-bar");
@@ -264,6 +278,7 @@ function scrollAndOpen(id){
   if(target){ target.scrollIntoView({behavior:"smooth", block:"start"}); setTimeout(()=>window.scrollBy({top:-70,left:0}), 250); }
 }
 
+/* ====== UI classes ====== */
 function statusChip(s){
   s = normStatus(s);
   if(s==="OK") return el("span",{class:"chip ok"},"OK");
@@ -277,11 +292,21 @@ function groupStateClass(n){
   return "state-wait";
 }
 
+/* ====== Rendu ====== */
 function renderItem(n){
   const s = normStatus(n.last_status);
-  const dl = daysUntil(n.expiry_date);
+  const dl = nextExpiryDaysFromNode(n);
   const qty = (n.quantity != null ? n.quantity : 1);
   const showWarn = (dl!=null && dl<=30);
+
+  // petit résumé des dates (ex: 12/10, 28/10…)
+  let expSummary = null;
+  if (Array.isArray(n.expiries) && n.expiries.length){
+    const parts = n.expiries.slice(0,3).map(e=>{
+      try{ const d=new Date(e.date+"T00:00:00"); return d.toLocaleDateString(); }catch(_){ return e.date; }
+    });
+    expSummary = el("span",{class:"meta"}, "• Exp: "+parts.join(", ")+(n.expiries.length>3?"…":""));
+  }
 
   const left = el("div",{class:"left"},
     el("span",{class:"status-dot "+(s==="OK"?"dot-ok":(s==="NOT_OK"?"dot-bad":"dot-wait"))}),
@@ -289,6 +314,7 @@ function renderItem(n){
     el("span",{class:"qty"}, `Qté: ${qty}`),
     statusChip(s),
     n.last_by ? el("span",{class:"meta"}, `• par ${n.last_by}`) : null,
+    expSummary,
     showWarn ? el("span",{class:"warn", title:`Péremption dans ${dl} jour(s)`},"⚠️ Péremption") : null
   );
   const right = el("div",{class:"right"},
@@ -369,6 +395,7 @@ function buildUIOnce(){
   recomputeGlobalStats();
 }
 
+/* ====== Updates ====== */
 function updateGroupStatsEl(n){
   const items = flattenItems([n]);
   let ok=0,bad=0,wait=0;
@@ -391,8 +418,11 @@ function updateGroupStatsEl(n){
 function applyItemDelta(local, incoming){
   local.last_status = normStatus(incoming.last_status || "PENDING");
   local.quantity    = (incoming.quantity!=null)?incoming.quantity:local.quantity;
-  local.expiry_date = (incoming.expiry_date!=null)?incoming.expiry_date:local.expiry_date;
   local.last_by     = (incoming.last_by!=null)?incoming.last_by:local.last_by;
+
+  // ⬇️ support nouveaux champs
+  if (Array.isArray(incoming.expiries)) local.expiries = incoming.expiries;
+  if (incoming.expiry_date != null) local.expiry_date = incoming.expiry_date;
 
   const box = ITEM_EL.get(local.id);
   if(!box) return;
@@ -424,11 +454,28 @@ function applyItemDelta(local, incoming){
   }
   metaBy.textContent = local.last_by ? `• par ${local.last_by}` : "";
 
-  const oldWarn = box.querySelector(".warn"); if(oldWarn) oldWarn.remove();
-  const dl = daysUntil(local.expiry_date);
-  if(dl!=null && dl<=30){
-    const left = box.querySelector(".left");
-    if(left) left.appendChild(el("span",{class:"warn", title:`Péremption dans ${dl} jour(s)`},"⚠️ Péremption"));
+  // MàJ résumé expirations + triangle
+  // 1) supprimer anciens éléments warn et résumé exp
+  Array.from(box.querySelectorAll(".warn")).forEach(e=>e.remove());
+  const left = box.querySelector(".left");
+  // remove ancient "• Exp:" meta if present (very simple heuristic)
+  Array.from(box.querySelectorAll(".meta")).forEach(m=>{
+    if (m.textContent.startsWith("• Exp:")) m.remove();
+  });
+
+  // 2) résumé exp
+  if (left){
+    if (Array.isArray(local.expiries) && local.expiries.length){
+      const parts = local.expiries.slice(0,3).map(e=>{
+        try{ const d=new Date(e.date+"T00:00:00"); return d.toLocaleDateString(); }catch(_){ return e.date; }
+      });
+      left.appendChild(el("span",{class:"meta"},"• Exp: "+parts.join(", ")+(local.expiries.length>3?"…":"")));
+    }
+    // 3) triangle
+    const dl = nextExpiryDaysFromNode(local);
+    if (dl!=null && dl<=30){
+      left.appendChild(el("span",{class:"warn", title:`Péremption dans ${dl} jour(s)`},"⚠️ Péremption"));
+    }
   }
 }
 
@@ -476,6 +523,7 @@ function syncTreeIncoming(incomingRoots){
   recomputeGlobalStats();
 }
 
+/* ===== API ===== */
 async function fetchTree(){
   const r = await fetch(`/public/event/{{ token }}/tree`);
   if(!r.ok) throw new Error("fetch tree failed");
