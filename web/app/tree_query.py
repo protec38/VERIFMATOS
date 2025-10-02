@@ -135,30 +135,8 @@ def _serialize(node: StockNode,
         qty_selected = selected_quantities.get(int(node.id))
         if qty_selected is None:
             qty_selected = getattr(node, "unique_quantity", None)
-
-        child_id = f"unique-{node.id}"
-        child_payload: Dict[str, Any] = {
-            "id": child_id,
-            "type": NodeType.ITEM.name,
-            "name": node.name,
-            "quantity": qty_selected,
-            "selected_quantity": qty_selected,
-            "last_status": info.get("status", "TODO"),
-            "last_by": info.get("by"),
-            "last_at": info.get("at"),
-            "comment": info.get("comment"),
-            "issue_code": info.get("issue_code"),
-            "observed_qty": info.get("observed_qty"),
-            "missing_qty": info.get("missing_qty"),
-            "unique_item": True,
-            "unique_from_parent": True,
-            "unique_parent_id": node.id,
-            "target_node_id": node.id,
-        }
-
         base.update({
             "unique_item": True,
-            "unique_parent": True,
             "unique_quantity": getattr(node, "unique_quantity", None),
             "quantity": qty_selected,
             "selected_quantity": qty_selected,
@@ -170,8 +148,7 @@ def _serialize(node: StockNode,
             "observed_qty": info.get("observed_qty"),
             "missing_qty": info.get("missing_qty"),
         })
-        base["is_event_root"] = bool(is_root)
-        base["children"] = [child_payload]
+        base["children"] = []
         return base
 
     children = []
@@ -241,7 +218,7 @@ def tree_stats(tree: List[Dict[str, Any]]) -> Dict[str, int]:
         return bool(n.get("unique_parent"))
 
     def collect(n: Dict[str, Any]):
-        if ((n.get("type") or "").upper() == "ITEM") or (n.get("unique_item") and not _is_unique_parent(n)):
+        if ((n.get("type") or "").upper() == "ITEM") or n.get("unique_item"):
             items.append(n)
         for c in n.get("children") or []:
             collect(c)

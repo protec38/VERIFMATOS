@@ -127,14 +127,7 @@ function el(tag, attrs={}, ...children){
   return e;
 }
 const isUnique = n => !!(n && n.unique_item);
-const isUniqueParent = n => !!(n && n.unique_parent);
-const targetNodeId = n => (n && (n.target_node_id || n.id));
-const domSafeId = id => String(id).replace(/[^a-zA-Z0-9_-]/g, '-');
-const isItem = n => {
-  if(!n) return false;
-  if(isUniqueParent(n)) return false;
-  return ((n.type||"").toUpperCase()==="ITEM") || (!!n.unique_item && !isUniqueParent(n));
-};
+const isItem = n => (n && ((n.type||"").toUpperCase()==="ITEM" || isUnique(n)));
 const isGroup = n => !isItem(n);
 function normStatus(s){
   s = (s||"").toUpperCase();

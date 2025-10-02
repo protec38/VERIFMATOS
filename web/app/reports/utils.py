@@ -85,11 +85,15 @@ def _build_subtree(node: StockNode,
         status = info.get("status", "TODO")
         ok = 1 if status == "OK" else 0
         total = 1
-        qty_selected = selected_quantities.get(node.id) if is_unique else getattr(node, "quantity", None)
-        if is_unique and qty_selected is None:
-            qty_selected = getattr(node, "unique_quantity", None)
-
-        leaf_payload = {
+        if is_unique:
+            qty_selected = selected_quantities.get(node.id)
+            if qty_selected is None:
+                qty_selected = getattr(node, "unique_quantity", None)
+            data["unique_item"] = True
+            data["unique_quantity"] = getattr(node, "unique_quantity", None)
+            data["quantity"] = qty_selected
+            data["selected_quantity"] = qty_selected
+        data.update({
             "last_status": status,
             "last_by": info.get("verifier_name"),
             "last_at": info.get("created_at"),
