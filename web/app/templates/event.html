@@ -101,6 +101,21 @@ let IS_OPEN = ("{{ event.status }}".toUpperCase() === "OPEN");
 const ALLOW_CHARGE = false;
 const HAS_SOCKET_IO = typeof io !== "undefined";
 
+const formatVehicleLabel = (vehicleName, operatorName) => {
+  const vehicle = (vehicleName || "").trim();
+  const operator = (operatorName || "").trim();
+  if(vehicle && operator){
+    return `Charge : ${vehicle} - ${operator}`;
+  }
+  if(vehicle){
+    return `Charge : ${vehicle}`;
+  }
+  if(operator){
+    return `Charge : ${operator}`;
+  }
+  return "Charge";
+};
+
 let socketClient = null;
 let socketInitialized = false;
 let socketRefreshTimer = null;
@@ -276,16 +291,18 @@ function renderItem(n){
 
 function renderGroup(n){
   // Badge véhicule (affiché sur racines si présent dans le tree)
-  const veh = el("span", {class:"vehicle "+(n.charged_vehicle?'on':'off')},
-    n.charged_vehicle ? `Chargé : ${n.charged_vehicle_name || "—"}` : "Non chargé"
-  );
-  VEH_LABEL.set(n.id, veh);
+  const vehLabel = n.charged_vehicle ? formatVehicleLabel(n.charged_vehicle_name, n.charged_vehicle_operator) : "Non charge";
+  const veh = el("span", {class:"vehicle "+(n.charged_vehicle?"on":"off")}, vehLabel);
+  if(n.is_event_root){
+    VEH_LABEL.set(n.id, veh);
+  } else if(VEH_LABEL.has(n.id)){
+    VEH_LABEL.delete(n.id);
+  }
 
   const headerLeft = el("div", {class:"name"},
     statusDot(groupStatus(n)==="OK", groupStatus(n)==="BAD"), " ", n.name,
     n.is_event_root ? veh : null
   );
-
   const header = el("div", {class:"header"}, headerLeft);
 
   // ❌ Aucun bouton “Charger” ici (réservé à la page publique)
@@ -339,11 +356,14 @@ function applyGroupDelta(local, incoming){
   if(local.is_event_root && (typeof incoming.charged_vehicle !== "undefined")){
     local.charged_vehicle = !!incoming.charged_vehicle;
     local.charged_vehicle_name = incoming.charged_vehicle_name || null;
+    const hasOperator = Object.prototype.hasOwnProperty.call(incoming, "charged_vehicle_operator");
+    const previousOperator = local.charged_vehicle_operator || null;
+    local.charged_vehicle_operator = hasOperator ? (incoming.charged_vehicle_operator || null) : (local.charged_vehicle ? previousOperator : null);
     const lab = VEH_LABEL.get(local.id);
     if(lab){
       lab.classList.toggle("on", !!local.charged_vehicle);
       lab.classList.toggle("off", !local.charged_vehicle);
-      lab.textContent = local.charged_vehicle ? `Chargé : ${local.charged_vehicle_name || "—"}` : "Non chargé";
+      lab.textContent = local.charged_vehicle ? formatVehicleLabel(local.charged_vehicle_name, local.charged_vehicle_operator) : "Non charge";
     }
   }
   const box = GROUP_EL.get(local.id);
@@ -372,6 +392,9 @@ function syncTreeIncoming(incomingRoots){
       if(nLoc.is_event_root){
         nLoc.charged_vehicle = !!nInc.charged_vehicle;
         nLoc.charged_vehicle_name = nInc.charged_vehicle_name || null;
+        const hasOperatorRoot = Object.prototype.hasOwnProperty.call(nInc, "charged_vehicle_operator");
+        const previousOperatorRoot = nLoc.charged_vehicle_operator || null;
+        nLoc.charged_vehicle_operator = hasOperatorRoot ? (nInc.charged_vehicle_operator || null) : (nLoc.charged_vehicle ? previousOperatorRoot : null);
       }
       (nInc.children||[]).forEach(recInc);
       applyGroupDelta(nLoc, nInc);
@@ -393,7 +416,7 @@ function buildParentsBar(){
     const pill = el("div", {class:"parent-pill "+pillClass, onclick:()=>scrollToParent(p.id)},
       statusDot(s==="OK", s==="BAD"),
       el("span", {class:"strong"}, p.name),
-      p.charged_vehicle ? el("span", {class:"vehicle on"}, p.charged_vehicle_name || "—") : null
+      p.charged_vehicle ? el("span", {class:"vehicle on"}, formatVehicleLabel(p.charged_vehicle_name, p.charged_vehicle_operator)) : null
     );
     holder.appendChild(pill);
   });

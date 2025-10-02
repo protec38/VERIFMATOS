@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import Dict, Any, List, Optional
 from datetime import date
+import json
 
 from . import db
 from .models import (
@@ -144,10 +145,21 @@ def _serialize(node: StockNode,
     ens = ens_map.get(int(node.id))
     if ens:
         base["charged_vehicle"] = getattr(ens, "charged_vehicle", None)
-        if hasattr(ens, "charged_vehicle_name"):
-            base["charged_vehicle_name"] = getattr(ens, "charged_vehicle_name", None)
-        if getattr(ens, "comment", None):
-            base["comment"] = ens.comment
+        vehicle_name = getattr(ens, "charged_vehicle_name", None) if hasattr(ens, "charged_vehicle_name") else None
+        operator_name = None
+        raw_comment = getattr(ens, "comment", None)
+        if raw_comment:
+            try:
+                data = json.loads(raw_comment)
+                vehicle_name = data.get("vehicle_name") or vehicle_name
+                operator_name = data.get("operator_name") or data.get("operator")
+            except Exception:
+                pass
+            base["comment"] = raw_comment
+        if vehicle_name is not None:
+            base["charged_vehicle_name"] = vehicle_name
+        if operator_name is not None:
+            base["charged_vehicle_operator"] = operator_name
 
     return base
 

@@ -149,6 +149,21 @@ const TOKEN = "{{ token }}";
 const EVENT_ID = {{ event.id }};
 const HAS_SOCKET_IO = typeof io !== "undefined";
 
+const formatVehicleLabel = (vehicleName, operatorName) => {
+  const vehicle = (vehicleName || "").trim();
+  const operator = (operatorName || "").trim();
+  if(vehicle && operator){
+    return `Charge : ${vehicle} - ${operator}`;
+  }
+  if(vehicle){
+    return `Charge : ${vehicle}`;
+  }
+  if(operator){
+    return `Charge : ${operator}`;
+  }
+  return "Charge";
+};
+
 let TREE = [];
 let socketClient = null;
 let socketInitialized = false;
@@ -300,7 +315,7 @@ function buildParentsBar(){
     const pill = el("div",{class:"parent-pill "+cls, onclick:()=>scrollAndOpen(p.id)},
       statusDot(s==="OK", s==="BAD"),
       el("span",{class:"strong"}, p.name),
-      p.charged_vehicle ? el("span",{class:"veh on"}, p.charged_vehicle_name || "—") : null
+      p.charged_vehicle ? el("span",{class:"veh on"}, formatVehicleLabel(p.charged_vehicle_name, p.charged_vehicle_operator)) : null
     );
     holder.appendChild(pill);
   });
@@ -387,11 +402,15 @@ function renderGroup(n){
   const chev = el("span",{class:"chev", id:`chev-${n.id}`}, COLLAPSED.get(n.id) ? "▸" : "▾");
   const dot  = statusDot(groupStatus(n)==="OK", groupStatus(n)==="BAD");
 
+  const vehicleLabel = isRoot && n.charged_vehicle ? formatVehicleLabel(n.charged_vehicle_name, n.charged_vehicle_operator) : "Non charge";
   const veh  = isRoot
-    ? el("span",{class:"veh "+(n.charged_vehicle?'on':'off')},
-        n.charged_vehicle ? `Chargé : ${n.charged_vehicle_name || "—"}` : "Non chargé")
+    ? el("span",{class:"veh "+(n.charged_vehicle?"on":"off")}, n.charged_vehicle ? vehicleLabel : "Non charge")
     : null;
-  if(isRoot) VEH_LABEL.set(n.id, veh);
+  if(isRoot){
+    VEH_LABEL.set(n.id, veh);
+  } else if(VEH_LABEL.has(n.id)){
+    VEH_LABEL.delete(n.id);
+  }
 
   const headerLeft = el("div",{class:"left"},
     chev, dot, el("span",{class:"name"}, n.name),
@@ -520,11 +539,14 @@ function applyGroupDelta(local, incoming){
   if(typeof incoming.charged_vehicle !== "undefined"){
     local.charged_vehicle = !!incoming.charged_vehicle;
     local.charged_vehicle_name = incoming.charged_vehicle_name || null;
+    const hasOperator = Object.prototype.hasOwnProperty.call(incoming, "charged_vehicle_operator");
+    const previousOperator = local.charged_vehicle_operator || null;
+    local.charged_vehicle_operator = hasOperator ? (incoming.charged_vehicle_operator || null) : (local.charged_vehicle ? previousOperator : null);
     const lab = VEH_LABEL.get(local.id);
     if(lab){
       lab.classList.toggle("on", !!local.charged_vehicle);
       lab.classList.toggle("off", !local.charged_vehicle);
-      lab.textContent = local.charged_vehicle ? `Chargé : ${local.charged_vehicle_name || "—"}` : "Non chargé";
+      lab.textContent = local.charged_vehicle ? formatVehicleLabel(local.charged_vehicle_name, local.charged_vehicle_operator) : "Non charge";
     }
   }
 
@@ -638,7 +660,8 @@ function confirmCharge(){
   const veh = (document.getElementById("veh-name")?.value || "").trim();
   if(!veh){ alert("Merci d’indiquer le nom du véhicule."); return; }
 
-  const payload = { node_id: CHARGE_TARGET, charged_vehicle: true, operator_name: getOperator() || "", vehicle_name: veh };
+  const operatorName = getOperator() || "";
+  const payload = { node_id: CHARGE_TARGET, charged_vehicle: true, operator_name: operatorName, vehicle_name: veh };
   fetch(`/public/event/{{ token }}/charge`,{
     method:"POST",
     headers:{"Content-Type":"application/json"},
@@ -650,10 +673,11 @@ function confirmCharge(){
     if(n){
       n.charged_vehicle = true;
       n.charged_vehicle_name = veh;
+      n.charged_vehicle_operator = operatorName || null;
       const lab = VEH_LABEL.get(n.id);
       if(lab){
         lab.classList.remove("off"); lab.classList.add("on");
-        lab.textContent = `Chargé : ${veh}`;
+        lab.textContent = formatVehicleLabel(n.charged_vehicle_name, n.charged_vehicle_operator);
       }
     }
     closeChargeModal();
