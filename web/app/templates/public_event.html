@@ -312,10 +312,12 @@ function buildParentsBar(){
     if(!isGroup(p)) return;
     const s   = groupStatus(p);
     const cls = s==="OK" ? "pill-ok" : (s==="BAD" ? "pill-bad" : "pill-wait");
+    const meta = extractVehicleMeta(p);
+    const label = formatVehicleLabel(meta.vehicle, meta.operator);
     const pill = el("div",{class:"parent-pill "+cls, onclick:()=>scrollAndOpen(p.id)},
       statusDot(s==="OK", s==="BAD"),
       el("span",{class:"strong"}, p.name),
-      p.charged_vehicle ? el("span",{class:"veh on"}, formatVehicleLabel(p.charged_vehicle_name, p.charged_vehicle_operator)) : null
+      p.charged_vehicle ? el("span",{class:"veh on"}, label) : null
     );
     holder.appendChild(pill);
   });
@@ -538,10 +540,9 @@ function applyItemDelta(local, incoming){
 function applyGroupDelta(local, incoming){
   if(typeof incoming.charged_vehicle !== "undefined"){
     local.charged_vehicle = !!incoming.charged_vehicle;
-    local.charged_vehicle_name = incoming.charged_vehicle_name || null;
-    const hasOperator = Object.prototype.hasOwnProperty.call(incoming, "charged_vehicle_operator");
-    const previousOperator = local.charged_vehicle_operator || null;
-    local.charged_vehicle_operator = hasOperator ? (incoming.charged_vehicle_operator || null) : (local.charged_vehicle ? previousOperator : null);
+    const meta = extractVehicleMeta(incoming);
+    local.charged_vehicle_name = meta.vehicle ?? null;
+    local.charged_vehicle_operator = meta.operator ?? null;
     const lab = VEH_LABEL.get(local.id);
     if(lab){
       lab.classList.toggle("on", !!local.charged_vehicle);
@@ -574,13 +575,12 @@ function syncTreeIncoming(incomingRoots){
     if(isItem(nLoc)){
       applyItemDelta(nLoc, nInc);
     }else{
-      if(nLoc.is_event_root){
+      if(typeof nInc.charged_vehicle !== "undefined"){
         nLoc.charged_vehicle = !!nInc.charged_vehicle;
-        nLoc.charged_vehicle_name = nInc.charged_vehicle_name || null;
-        const hasOperatorRoot = Object.prototype.hasOwnProperty.call(nInc, "charged_vehicle_operator");
-        const previousOperatorRoot = nLoc.charged_vehicle_operator || null;
-        nLoc.charged_vehicle_operator = hasOperatorRoot ? (nInc.charged_vehicle_operator || null) : (nLoc.charged_vehicle ? previousOperatorRoot : null);
       }
+      const meta = extractVehicleMeta(nInc);
+      nLoc.charged_vehicle_name = meta.vehicle ?? null;
+      nLoc.charged_vehicle_operator = meta.operator ?? null;
       (nInc.children||[]).forEach(recInc);
       applyGroupDelta(nLoc, nInc);
     }

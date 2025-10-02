@@ -1,119 +1,32 @@
-{% extends "base.html" %}
-{% set title = "Événement" %}
-{% block content %}
-
-<style>
-  .state-ok{
-    border-color: var(--success) !important;
-    background:
-      radial-gradient(600px 200px at top left, rgba(18,184,134,.15), transparent),
-      #0f1e2f;
-    box-shadow: 0 0 0 1px rgba(18,184,134,.35) inset, 0 0 18px rgba(18,184,134,.15);
-  }
-  .state-bad{
-    border-color: var(--danger) !important;
-    background:
-      radial-gradient(600px 200px at top left, rgba(255,107,107,.12), transparent),
-      #0f1a27;
-    box-shadow: 0 0 0 1px rgba(255,107,107,.30) inset, 0 0 18px rgba(255,107,107,.12);
-  }
-  .state-wait{
-    border-color: var(--border) !important;
-    background:
-      radial-gradient(600px 200px at top left, rgba(45,123,191,.08), transparent),
-      var(--bg-2);
-  }
-  .chip{padding:4px 8px;border-radius:999px;font-weight:800;font-size:12px;border:1px solid var(--border);}
-  .chip.ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
-  .chip.bad{background:#2a0e14;color:#ffd5dc;border-color:#75212f}
-  .chip.wait{background:#101c2e;color:#b7c7dc;border-color:#24344f}
-
-  .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
-  .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
-
-  .parents-card .title{display:flex;align-items:center;gap:10px}
-  .parents-bar{display:flex;gap:8px;overflow:auto;padding:8px 2px}
-  .parent-pill{
-    display:inline-flex;align-items:center;gap:8px;
-    padding:8px 12px;border-radius:999px;border:1px solid var(--border);cursor:pointer;
-    user-select:none;white-space:nowrap;transition:transform .08s ease, box-shadow .08s ease, border-color .08s ease;
-    background:#0f1a2a;color:var(--text)
-  }
-  .parent-pill:hover{transform:translateY(-1px)}
-  .pill-ok{border-color:#1d6e5d;background:#0e2a24;color:#bff3e7}
-  .pill-bad{border-color:#75212f;background:#2a0e14;color:#ffd5dc}
-  .pill-wait{border-color:#24344f;background:#101c2e;color:#b7c7dc}
-  .focus-ring{outline:2px solid var(--pc-orange); outline-offset:2px; transition:outline-color .6s ease}
-
-  .vehicle{font-size:12px; opacity:.9; padding:2px 6px; border-radius:6px; border:1px dashed var(--border); margin-left:8px}
-  .vehicle.on{background:#0e2a24; color:#bff3e7; border-color:#1d6e5d}
-  .vehicle.off{background:#101c2e; color:#b7c7dc; border-color:#24344f}
-</style>
-
-<div class="grid cols-2">
-  <div class="card">
-    <div class="row space-between">
-      <div>
-        <div class="title">{{ event.name }}</div>
-        <div class="muted">Date : {{ event.date or "—" }}</div>
-      </div>
-      <span class="badge" id="status-badge">Statut : {{ event.status }}</span>
-    </div>
-    <div class="row wrap" style="margin-top:10px;">
-      <a class="btn" target="_blank" href="/reports/event/{{ event.id }}/pdf">Exporter PDF</a>
-      <button class="btn primary" id="btn-share">Lien secouristes</button>
-      <button class="btn" id="btn-close">Clôturer l'événement</button>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="title">Progression</div>
-    <div class="row wrap" style="margin-top:8px;gap:10px;">
-      <span class="chip ok" id="stat-ok">OK : 0</span>
-      <span class="chip bad" id="stat-bad">Non conformes : 0</span>
-      <span class="chip wait" id="stat-wait">En attente : 0</span>
-    </div>
-    <div class="progress" style="margin-top:10px;"><div id="progress-bar" style="width:0%"></div></div>
-    <div class="muted" id="progress-text" style="margin-top:6px;">0 / 0 vérifiés</div>
-  </div>
-</div>
-
-<div class="card parents-card" style="margin-top:12px;">
-  <div class="title">Parents à vérifier</div>
-  <div id="parents-bar" class="parents-bar"></div>
-</div>
-
-<div class="card" style="margin-top:12px;">
-  <div class="row space-between">
-    <div class="title">Matériel à vérifier</div>
-    <div class="muted">Vert = tout OK • Rouge = au moins un non conforme • Bleu = en attente</div>
-  </div>
-  <div id="tree" class="tree" style="margin-top:10px;"></div>
-</div>
-
-<script>
-const EVENT_ID = {{ event.id }};
-let TREE = {{ (tree or [])|tojson }};
-const CURRENT_USER = "{{ (current_user.username if current_user is defined and current_user.is_authenticated else '')|e }}";
-let IS_OPEN = ("{{ event.status }}".toUpperCase() === "OPEN");
-
-// ❌ Pas de “Charger” ici (réservé à la page publique)
-const ALLOW_CHARGE = false;
-const HAS_SOCKET_IO = typeof io !== "undefined";
-
 const formatVehicleLabel = (vehicleName, operatorName) => {
   const vehicle = (vehicleName || "").trim();
   const operator = (operatorName || "").trim();
   if(vehicle && operator){
-    return `${vehicle} (par ${operator})`;
+    return `Chargé : ${vehicle} (par ${operator})`;
   }
   if(vehicle){
-    return vehicle;
+    return `Chargé : ${vehicle}`;
   }
   if(operator){
-    return `Par ${operator}`;
+    return `Chargé par ${operator}`;
   }
   return "Chargé";
+};
+
+const extractVehicleMeta = (source) => {
+  const result = {
+    vehicle: source?.charged_vehicle_name ?? null,
+    operator: source?.charged_vehicle_operator ?? null,
+  };
+  const rawComment = source && source.comment;
+  if((!result.vehicle || !result.operator) && rawComment){
+    try {
+      const data = typeof rawComment === 'string' ? JSON.parse(rawComment) : rawComment;
+      result.vehicle = result.vehicle || data?.vehicle_name || null;
+      result.operator = result.operator || data?.operator_name || data?.operator || null;
+    } catch (_) {}
+  }
+  return result;
 };
 
 let socketClient = null;
@@ -290,9 +203,13 @@ function renderItem(n){
 }
 
 function renderGroup(n){
+  const meta = extractVehicleMeta(n);
+  n.charged_vehicle_name = meta.vehicle ?? null;
+  n.charged_vehicle_operator = meta.operator ?? null;
+
   // Badge véhicule (affiché sur racines si présent dans le tree)
-  const vehLabel = n.charged_vehicle ? formatVehicleLabel(n.charged_vehicle_name, n.charged_vehicle_operator) : "Non chargé";
-  const veh = el("span", {class:"vehicle "+(n.charged_vehicle?"on":"off")}, vehLabel);
+  const vehLabel = n.charged_vehicle ? formatVehicleLabel(meta.vehicle, meta.operator) : "Non chargé";
+  const veh = el("span", {class:"vehicle "+(n.charged_vehicle?"on":"off")}, n.charged_vehicle ? vehLabel : "Non chargé");
   if(n.is_event_root){
     VEH_LABEL.set(n.id, veh);
   } else if(VEH_LABEL.has(n.id)){
@@ -353,12 +270,11 @@ function applyItemDelta(local, incoming){
 }
 
 function applyGroupDelta(local, incoming){
-  if(local.is_event_root && (typeof incoming.charged_vehicle !== "undefined")){
+  if(typeof incoming.charged_vehicle !== "undefined"){
     local.charged_vehicle = !!incoming.charged_vehicle;
-    local.charged_vehicle_name = incoming.charged_vehicle_name || null;
-    const hasOperator = Object.prototype.hasOwnProperty.call(incoming, "charged_vehicle_operator");
-    const previousOperator = local.charged_vehicle_operator || null;
-    local.charged_vehicle_operator = hasOperator ? (incoming.charged_vehicle_operator || null) : (local.charged_vehicle ? previousOperator : null);
+    const meta = extractVehicleMeta(incoming);
+    local.charged_vehicle_name = meta.vehicle ?? null;
+    local.charged_vehicle_operator = meta.operator ?? null;
     const lab = VEH_LABEL.get(local.id);
     if(lab){
       lab.classList.toggle("on", !!local.charged_vehicle);
@@ -389,13 +305,12 @@ function syncTreeIncoming(incomingRoots){
     if(isItem(nLoc)){
       applyItemDelta(nLoc, nInc);
     } else {
-      if(nLoc.is_event_root){
+      if(typeof nInc.charged_vehicle !== "undefined"){
         nLoc.charged_vehicle = !!nInc.charged_vehicle;
-        nLoc.charged_vehicle_name = nInc.charged_vehicle_name || null;
-        const hasOperatorRoot = Object.prototype.hasOwnProperty.call(nInc, "charged_vehicle_operator");
-        const previousOperatorRoot = nLoc.charged_vehicle_operator || null;
-        nLoc.charged_vehicle_operator = hasOperatorRoot ? (nInc.charged_vehicle_operator || null) : (nLoc.charged_vehicle ? previousOperatorRoot : null);
       }
+      const meta = extractVehicleMeta(nInc);
+      nLoc.charged_vehicle_name = meta.vehicle ?? null;
+      nLoc.charged_vehicle_operator = meta.operator ?? null;
       (nInc.children||[]).forEach(recInc);
       applyGroupDelta(nLoc, nInc);
     }
@@ -413,10 +328,12 @@ function buildParentsBar(){
   parents.forEach(p => {
     const s = groupStatus(p);
     const pillClass = s==="OK" ? "pill-ok" : (s==="BAD" ? "pill-bad" : "pill-wait");
+    const meta = extractVehicleMeta(p);
+    const label = formatVehicleLabel(meta.vehicle, meta.operator);
     const pill = el("div", {class:"parent-pill "+pillClass, onclick:()=>scrollToParent(p.id)},
       statusDot(s==="OK", s==="BAD"),
       el("span", {class:"strong"}, p.name),
-      p.charged_vehicle ? el("span", {class:"vehicle on"}, formatVehicleLabel(p.charged_vehicle_name, p.charged_vehicle_operator)) : null
+      p.charged_vehicle ? el("span", {class:"vehicle on"}, label) : null
     );
     holder.appendChild(pill);
   });
