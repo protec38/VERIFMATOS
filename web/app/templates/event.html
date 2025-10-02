@@ -127,7 +127,15 @@ function el(tag, attrs={}, ...children){
   return e;
 }
 const isUnique = n => !!(n && n.unique_item);
-const isItem = n => (n && ((n.type||"").toUpperCase()==="ITEM" || isUnique(n)));
+const isUniqueParent = n => !!(n && n.unique_parent);
+const targetNodeId = n => (n && (n.target_node_id || n.id));
+const domSafeId = id => String(id).replace(/[^a-zA-Z0-9_-]/g, "-");
+const isItem = n => {
+  if(!n) return false;
+  if(isUniqueParent(n)) return false;
+  const type = (n.type||"").toUpperCase();
+  return type === "ITEM" || (!!n.unique_item && !isUniqueParent(n));
+};
 const isGroup = n => !isItem(n);
 function normStatus(s){
   s = (s||"").toUpperCase();
@@ -234,6 +242,7 @@ function renderUniqueParentRow(n){
   const statusLbl = s==="OK" ? "✅ OK" : (s==="NOT_OK" ? "❌ Non conforme" : "⏳ En attente");
   const by = n.last_by ? ` (${n.last_by})` : "";
   const actionsEnabled = IS_OPEN;
+  const targetId = targetNodeId(n);
   const safeId = domSafeId(n.id);
   const qtyValue = (n.selected_quantity != null) ? n.selected_quantity : (n.quantity != null ? n.quantity : (n.unique_quantity != null ? n.unique_quantity : 1));
 
@@ -244,8 +253,8 @@ function renderUniqueParentRow(n){
   ITEM_STATUS_TXT.set(n.id, statusDiv);
 
   const right = el("div", {class:"row"},
-    el("button", {class:"btn success", disabled:!actionsEnabled, onclick:()=>verify(n.id,"OK")}, "OK"),
-    el("button", {class:"btn ghost", disabled:!actionsEnabled, onclick:()=>verify(n.id,"NOT_OK")}, "Non conforme"),
+    el("button", {class:"btn success", disabled:!actionsEnabled, onclick:()=>verify(targetId,"OK")}, "OK"),
+    el("button", {class:"btn ghost", disabled:!actionsEnabled, onclick:()=>verify(targetId,"NOT_OK")}, "Non conforme"),
   );
 
   const wrap = el("div", {class:`item unique-parent ${itemStateClass(n)}`, id:`item-${safeId}`},
