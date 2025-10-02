@@ -1,4 +1,4 @@
-# app/__init__.py
+﻿# app/__init__.py
 from __future__ import annotations
 
 import importlib
@@ -11,24 +11,24 @@ from flask_socketio import SocketIO
 from .config import get_config
 
 # -----------------
-# Extensions (déclarées au niveau module)
+# Extensions (dÃ©clarÃ©es au niveau module)
 # -----------------
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()  # ne rien passer au ctor
 
-# Socket.IO en local (AUCUN Redis) — instance non liée, on fera init_app(app) après
+# Socket.IO en local (AUCUN Redis) â€” instance non liÃ©e, on fera init_app(app) aprÃ¨s
 socketio = SocketIO(
     async_mode="eventlet",
     cors_allowed_origins="*",
-    message_queue=None,  # Redis désactivé
+    message_queue=None,  # Redis dÃ©sactivÃ©
 )
 
 
 def _register_bp_if_any(app: Flask, dotted_module: str, candidates: tuple[str, ...] = ("bp", "bp_events", "bp_public")) -> bool:
     """
-    Importe un module et enregistre le premier Blueprint trouvé parmi `candidates`.
-    Retourne True si un blueprint a été enregistré, False sinon.
+    Importe un module et enregistre le premier Blueprint trouvÃ© parmi `candidates`.
+    Retourne True si un blueprint a Ã©tÃ© enregistrÃ©, False sinon.
     """
     try:
         mod = importlib.import_module(dotted_module)
@@ -58,15 +58,15 @@ def create_app() -> Flask:
     except Exception:
         pass
 
-    # Lier Socket.IO à l'app (pas de Redis)
+    # Lier Socket.IO Ã  l'app (pas de Redis)
     try:
         socketio.init_app(app)
     except Exception:
-        # On ne casse pas l'app si SocketIO échoue
+        # On ne casse pas l'app si SocketIO Ã©choue
         pass
 
     # -----------------
-    # Blueprints (robuste : on tolère les absents, et plusieurs noms d'attribut)
+    # Blueprints (robuste : on tolÃ¨re les absents, et plusieurs noms d'attribut)
     # -----------------
     _register_bp_if_any(app, "app.auth.views")
     _register_bp_if_any(app, "app.admin.views")
@@ -77,19 +77,20 @@ def create_app() -> Flask:
 
     # Events API (POST /events, GET /events/<id>/tree, etc.)
     _register_bp_if_any(app, "app.events.views", candidates=("bp", "bp_events", "bp_public"))
+    _register_bp_if_any(app, "app.events.views", candidates=("bp_public",))
 
     # Optionnels
     _register_bp_if_any(app, "app.reports.views")
     _register_bp_if_any(app, "app.stats.views")
     _register_bp_if_any(app, "app.pwa.views")
 
-    # Péremption (nouveau)
+    # PÃ©remption (nouveau)
     _register_bp_if_any(app, "app.peremption.views", candidates=("bp_peremption", "bp"))
 
     # Pages HTML (public + dashboard)
     _register_bp_if_any(app, "app.views_html")
 
-    # Root → redirige vers dashboard (évite la page blanche)
+    # Root â†’ redirige vers dashboard (Ã©vite la page blanche)
     @app.get("/")
     def _root_redirect():
         return redirect(url_for("pages.dashboard"))
@@ -104,17 +105,17 @@ def create_app() -> Flask:
             db_ok = False
         return {"status": "healthy" if db_ok else "degraded"}
 
-    # Socket.IO handlers (si présents)
+    # Socket.IO handlers (si prÃ©sents)
     try:
         from .sockets import register_socketio_handlers
         register_socketio_handlers(socketio)
     except Exception:
         pass
 
-    # Flask-Login user loader (placé ici pour éviter les imports circulaires)
+    # Flask-Login user loader (placÃ© ici pour Ã©viter les imports circulaires)
     @login_manager.user_loader
     def load_user(user_id: str):
-        from .models import User  # import tardif : db déjà initialisé
+        from .models import User  # import tardif : db dÃ©jÃ  initialisÃ©
         try:
             return db.session.get(User, int(user_id))
         except Exception:
@@ -123,5 +124,7 @@ def create_app() -> Flask:
     return app
 
 
-# ⚠️ Pas de création d'instance globale ici (pas de `app = create_app()`)
+# âš ï¸ Pas de crÃ©ation d'instance globale ici (pas de `app = create_app()`)
 # Lancer via wsgi.py ou gunicorn : `from app import create_app; app = create_app()`
+
+
