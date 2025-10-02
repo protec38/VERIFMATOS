@@ -51,6 +51,12 @@ def create_app() -> Flask:
     # Init extensions
     db.init_app(app)
     migrate.init_app(app, db)
+    try:
+        from .schema_compat import ensure_schema_compatibility
+        with app.app_context():
+            ensure_schema_compatibility()
+    except Exception as exc:
+        app.logger.warning("Unable to ensure schema compatibility: %s", exc)
     login_manager.init_app(app)
     login_manager.login_view = "auth.login"
     try:
