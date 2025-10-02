@@ -1,0 +1,732 @@
+{% extends "base.html" %}
+{% set title = "Gestion des stocks" %}
+{% block content %}
+
+<style>
+  :root{ --col-left: 280px; }
+  .layout{display:grid;grid-template-columns:var(--col-left) 1fr;gap:16px}
+  @media (max-width: 1080px){ .layout{grid-template-columns:1fr} }
+
+  .card{border:1px solid var(--border);border-radius:12px;background:#0f1a2a}
+  .card .hd{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border)}
+  .card .bd{padding:12px 14px}
+
+  .btn{padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#0f1e2f;cursor:pointer}
+  .btn:hover{filter:brightness(1.08)}
+  .btn.primary{border-color:#f59f00}
+
+  /* Roots list */
+  .roots{display:flex;flex-direction:column;gap:8px}
+  .root{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#0f1e2f;cursor:pointer}
+  .root.active{outline:2px solid #37527a}
+  .root .name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .root .meta{opacity:.8;font-size:12px}
+
+  .empty{border:1px dashed var(--border);border-radius:12px;padding:20px;text-align:center;opacity:.9}
+
+  /* Tree */
+  .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  .toolbar input[type="search"]{padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#0f1e2f;color:var(--text);min-width:240px}
+  .selbar{position:sticky;top:0;z-index:5;background:#0f1a2a;border:1px solid var(--border);border-radius:10px;margin-bottom:10px;padding:10px;display:none;gap:8px;align-items:center}
+  .selbar.show{display:flex}
+  .selbar .count{font-weight:700}
+  .selbar .btn{padding:6px 10px}
+
+  .drop-root{border:1px dashed var(--border);border-radius:8px;padding:8px;text-align:center;margin:8px 0;opacity:.85}
+  .drop-root.drag-over{background:#0f1e2f;}
+
+  .node{border:1px solid var(--border);border-radius:12px;margin:6px 0;padding:8px;background:#0f1e2f}
+  .header{display:flex;align-items:center;gap:8px}
+  .name{font-weight:700}
+  .childs{margin-left:18px;margin-top:6px}
+
+  .badge{display:inline-flex;border:1px dashed var(--border);border-radius:999px;padding:2px 8px;font-size:12px;opacity:.9}
+  .b-expired{background:#2a1111;border-color:#a33;color:#ffdce1}
+  .b-j30{background:#2a1b0f;border-color:#b86b00;color:#ffd8a8}
+  .b-j60{background:#2a270f;border-color:#b3a100;color:#ffe566}
+  .b-later{background:#0f2a22;border-color:#17614f;color:#bff3e7}
+  .b-none{opacity:.6}
+
+  /* Dropdowns */
+  .dd{position:relative;display:inline-block}
+  .dd-menu{position:absolute;right:0;top:calc(100% + 6px);background:#0f1e2f;border:1px solid var(--border);border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.35);display:none;min-width:200px;z-index:15}
+  .dd.show .dd-menu{display:block}
+  .dd-menu button{display:block;width:100%;text-align:left;padding:10px 12px;border:0;background:transparent;color:var(--text);cursor:pointer}
+  .dd-menu button:hover{background:#11263a}
+
+  .dd-ops{position:relative;display:inline-block}
+  .dd-ops .dd-menu{right:0;left:auto}
+
+  /* Modal */
+  .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);z-index:50}
+  .modal.show{display:flex}
+  .modal .box{background:#0f1a2a;border:1px solid var(--border);border-radius:12px;padding:18px;max-width:600px;width:95%}
+  .modal .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .modal label{display:block;margin-top:8px;font-size:14px;opacity:.85}
+  .modal input, .modal select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#0f1e2f;color:var(--text)}
+  .modal .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+
+  .selbox{margin-right:8px}
+  .node.drag-over{outline:2px dashed #37527a; outline-offset: 4px}
+</style>
+
+<div class="layout">
+
+  <!-- LEFT: ROOTS -->
+  <div class="card">
+    <div class="hd">
+      <div style="font-weight:700">Parents racines</div>
+      <button class="btn primary" id="btn-root-add">➕ Parent racine</button>
+    </div>
+    <div class="bd">
+      <div id="roots-empty" class="empty" style="display:none">
+        Aucun parent racine. <br><br>
+        <button class="btn primary" onclick="openAddModal(null,'GROUP')">➕ Créer un parent racine</button>
+      </div>
+      <div id="roots" class="roots"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: TREE -->
+  <div class="card">
+    <div class="hd">
+      <div class="toolbar">
+        <a class="btn" href="/stock/export.json" download>⬇ Export JSON</a>
+        <label class="btn">📄 Choisir JSON…
+          <input type="file" id="import-file" accept="application/json" style="display:none">
+        </label>
+        <select id="import-mode">
+          <option value="merge" selected>Fusion (ajout)</option>
+          <option value="replace">Remplacer tout</option>
+        </select>
+        <button class="btn" id="btn-import">Importer</button>
+        <input id="global-search" type="search" placeholder="Rechercher (nom ou #ID)…">
+      </div>
+    </div>
+    <div class="bd">
+      <div id="selbar" class="selbar">
+        <span class="count"><span id="sel-count">0</span> sélectionné(s)</span>
+        <button class="btn" id="sel-move">Déplacer vers…</button>
+        <button class="btn" id="sel-dup">Dupliquer vers…</button>
+        <button class="btn" id="sel-del">Supprimer</button>
+        <div style="margin-left:auto;opacity:.8">Astuce: Ctrl/Cmd+clic pour multi-sélection</div>
+      </div>
+      <div id="drop-root" class="drop-root">Déposer ici pour mettre à la racine (GROUP uniquement)</div>
+      <div id="tree"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Modal: Ajouter -->
+<div id="addModal" class="modal" aria-hidden="true">
+  <div class="box">
+    <h3 style="margin-top:0">Ajouter</h3>
+    <div class="row">
+      <div style="flex:1;min-width:180px">
+        <label>Type</label>
+        <select id="add-type">
+          <option value="GROUP">Sous-parent</option>
+          <option value="ITEM">Item</option>
+        </select>
+      </div>
+      <div style="flex:2;min-width:220px">
+        <label>Nom</label>
+        <input id="add-name" type="text" placeholder="Nom…">
+      </div>
+    </div>
+    <div id="add-item-fields" style="display:none">
+      <div class="row" style="margin-top:8px">
+        <div style="flex:1;min-width:160px">
+          <label>Quantité</label>
+          <input id="add-qty" type="number" min="0" value="1">
+        </div>
+        <div style="flex:1;min-width:180px">
+          <label>Péremption (optionnel)</label>
+          <input id="add-expiry" type="date">
+        </div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn" onclick="closeAddModal()">Annuler</button>
+      <button class="btn primary" onclick="confirmAdd()">Ajouter</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Éditer -->
+<div id="editModal" class="modal" aria-hidden="true">
+  <div class="box">
+    <h3 style="margin-top:0">Éditer</h3>
+    <p class="muted" id="editTitle">—</p>
+    <div class="row">
+      <div style="flex:2;min-width:220px">
+        <label>Nom</label>
+        <input id="edit-name" type="text" placeholder="Nom…">
+      </div>
+      <div style="flex:1;min-width:160px" id="edit-qty-wrap">
+        <label>Quantité</label>
+        <input id="edit-qty" type="number" min="0" value="0">
+      </div>
+      <div style="flex:1;min-width:180px" id="edit-expiry-wrap">
+        <label>Péremption</label>
+        <input id="edit-expiry" type="date">
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn" onclick="closeEditModal()">Annuler</button>
+      <button class="btn primary" onclick="confirmEdit()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Déplacer -->
+<div id="moveModal" class="modal" aria-hidden="true">
+  <div class="box">
+    <h3 style="margin-top:0">Déplacer</h3>
+    <p class="muted" id="moveTitle">—</p>
+    <label>Nouveau parent</label>
+    <select id="move-parent"></select>
+    <div class="actions">
+      <button class="btn" onclick="closeMoveModal()">Annuler</button>
+      <button class="btn primary" onclick="confirmMove()">Déplacer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Dupliquer -->
+<div id="dupModal" class="modal" aria-hidden="true">
+  <div class="box">
+    <h3 style="margin-top:0">Dupliquer</h3>
+    <p class="muted" id="dupTitle">—</p>
+    <label>Nouveau nom</label>
+    <input id="dup-name" type="text" placeholder="Nouveau nom…">
+    <label style="margin-top:8px">Placer sous</label>
+    <select id="dup-parent"></select>
+    <div class="actions">
+      <button class="btn" onclick="closeDupModal()">Annuler</button>
+      <button class="btn primary" onclick="confirmDup()">Dupliquer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ------- API helper -------
+async function api(url, opts={}){
+  const r = await fetch(url, {credentials:'include', ...opts});
+  if(!r.ok){
+    const t = await r.text().catch(()=> '');
+    throw new Error(t || ('HTTP '+r.status));
+  }
+  try{ return await r.json(); }catch(_){ return {}; }
+}
+
+// ------- State -------
+let ROOTS = [];
+let CURRENT_ROOT_ID = null;
+let TREE = null;
+let ALL_NODES = [];
+const SEL = new Set();
+let MOVE_NODE_ID = null;
+let DUP_NODE_ID = null;
+let EDIT_NODE_ID = null;
+
+// ------- Roots -------
+function renderRoots(){
+  const wrap = document.getElementById('roots');
+  const empty = document.getElementById('roots-empty');
+  wrap.innerHTML = '';
+  if(!ROOTS.length){
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+  ROOTS.forEach(r=>{
+    const row = document.createElement('div');
+    row.className = 'root'+(r.id===CURRENT_ROOT_ID?' active':'');
+    row.onclick = ()=>{ CURRENT_ROOT_ID = r.id; loadTree(); renderRoots(); };
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = r.name;
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = `id ${r.id}`;
+    row.append(name, meta);
+    wrap.appendChild(row);
+  });
+}
+async function loadRoots(){
+  try{
+    const data = await api('/stock/roots');
+    ROOTS = Array.isArray(data) ? data : [];
+    if(!ROOTS.length){ CURRENT_ROOT_ID = null; renderRoots(); renderTreeEmpty(); return; }
+    if(!CURRENT_ROOT_ID || !ROOTS.some(r=>r.id==CURRENT_ROOT_ID)){
+      CURRENT_ROOT_ID = ROOTS[0].id;
+    }
+    renderRoots();
+  }catch(e){
+    alert('Erreur /stock/roots : '+(e.message||e));
+  }
+}
+
+// ------- Tree -------
+function buildIndex(n, arr){
+  arr.push(n);
+  (n.children||[]).forEach(c=>buildIndex(c,arr));
+}
+function findNode(id){
+  return ALL_NODES.find(n=>n.id===id);
+}
+function daysUntilISO(iso){
+  if(!iso) return null;
+  try{
+    const [y,m,d] = iso.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m-1, d));
+    const now = new Date();
+    const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    return Math.floor((dt.getTime() - today)/86400000);
+  }catch(_){ return null; }
+}
+function perempClass(iso){
+  const k = daysUntilISO(iso);
+  if(k===null) return 'b-none';
+  if(k<0) return 'b-expired';
+  if(k<=30) return 'b-j30';
+  if(k<=60) return 'b-j60';
+  return 'b-later';
+}
+function perempLabel(iso){
+  const k = daysUntilISO(iso);
+  if(k===null) return '—';
+  if(k<0) return 'Périmé';
+  if(k<=30) return '≤30j';
+  if(k<=60) return '≤60j';
+  return '>60j';
+}
+function h(tag, attrs={}, ...kids){
+  const el = document.createElement(tag);
+  for(const [k,v] of Object.entries(attrs||{})){
+    if(k==='class') el.className = v;
+    else if(k==='style') el.style = v;
+    else if(k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v);
+  }
+  kids.flat().forEach(k=>{
+    if(k==null) return;
+    if(typeof k === 'string' || typeof k === 'number') el.appendChild(document.createTextNode(String(k)));
+    else el.appendChild(k);
+  });
+  return el;
+}
+
+// ------- Node renderer -------
+function nodeEl(n){
+  const head = h('div', {class:'header'});
+
+  const sel = h('input', {type:'checkbox', class:'selbox'});
+  sel.checked = SEL.has(n.id);
+  sel.onchange = (e)=>{
+    const multi = e.shiftKey || e.ctrlKey || e.metaKey;
+    if(!multi) SEL.clear();
+    if(sel.checked) SEL.add(n.id); else SEL.delete(n.id);
+    updateSelbar();
+  };
+  head.append(sel);
+
+  const name = h('div', {class:'name'}, `${n.name}  (lvl ${n.level}, ${n.type})`);
+  name.style.cursor = 'pointer';
+  if(n.type==='ITEM'){
+    const b = h('span', {class:'badge '+perempClass(n.expiry_date), style:'margin-left:8px'}, perempLabel(n.expiry_date));
+    name.append(' ', b);
+  }
+  head.append(name);
+
+  // Actions
+  const right = h('div', {style:'margin-left:auto; display:flex; gap:6px; align-items:center'});
+
+  // Ajouter ▾ (GROUP)
+  if(n.type==='GROUP'){
+    const ddAdd = h('div', {class:'dd'});
+    const btnAdd = h('button', {class:'btn', onclick: (e)=>{ e.stopPropagation(); ddAdd.classList.toggle('show'); }}, 'Ajouter ▾');
+    const menuAdd = h('div', {class:'dd-menu'});
+    menuAdd.append(
+      h('button', {onclick: ()=>{ ddAdd.classList.remove('show'); openAddModal(n.id, 'GROUP'); }}, '➕ Sous-parent'),
+      h('button', {onclick: ()=>{ ddAdd.classList.remove('show'); openAddModal(n.id, 'ITEM'); }}, '➕ Item'),
+    );
+    ddAdd.append(btnAdd, menuAdd);
+    right.append(ddAdd);
+  }
+
+  // ⋯ Ops
+  const ddOps = h('div', {class:'dd dd-ops'});
+  const btnOps = h('button', {class:'btn', onclick: (e)=>{ e.stopPropagation(); ddOps.classList.toggle('show'); }}, '⋯');
+  const menuOps = h('div', {class:'dd-menu'});
+  menuOps.append(
+    h('button', {onclick: ()=>{ ddOps.classList.remove('show'); openEditModal(n.id); }}, 'Éditer…'),
+    h('button', {onclick: ()=>{ ddOps.classList.remove('show'); openDupModal(n.id); }}, 'Dupliquer…'),
+    h('button', {onclick: ()=>{ ddOps.classList.remove('show'); openMoveModal(n.id); }}, 'Déplacer…'),
+    h('button', {onclick: ()=>{ ddOps.classList.remove('show'); confirmDelete(n.id); }}, 'Supprimer…'),
+  );
+  ddOps.append(btnOps, menuOps);
+  right.append(ddOps);
+
+  head.append(right);
+
+  const box = h('div', {class:'node', 'data-id': String(n.id)});
+  box.append(head);
+
+  // Drag & drop (tous nœuds) -> dépôt permis seulement sur GROUP
+  bindDnDFor(head, n);
+
+  if((n.children||[]).length){
+    const childs = h('div', {class:'childs'});
+    (n.children||[]).forEach(c=> childs.append(nodeEl(c)));
+    box.append(childs);
+  }
+  return box;
+}
+
+function renderTree(){
+  const root = document.getElementById('tree');
+  root.innerHTML = '';
+  if(!TREE){ renderTreeEmpty(); return; }
+  updateSelbar();
+  root.append(nodeEl(TREE));
+  // filtre global (si présent)
+  const g = document.getElementById('global-search');
+  if(g && g.value.trim()){
+    const qraw = g.value.trim();
+    const q = qraw.toLowerCase();
+    const idQuery = qraw.startsWith('#') ? qraw.slice(1) : (/^\d+$/.test(qraw) ? qraw : null);
+    root.querySelectorAll('.node').forEach(node=>{
+      const nm = node.querySelector('.name')?.textContent?.toLowerCase() || '';
+      const nid = node.getAttribute('data-id') || '';
+      const match = idQuery ? (nid === idQuery) : (!q ? true : nm.includes(q));
+      node.style.display = match ? '' : 'none';
+    });
+  }
+}
+function renderTreeEmpty(){
+  const root = document.getElementById('tree');
+  root.innerHTML = '<div class="empty">Aucune racine sélectionnée.</div>';
+}
+
+async function loadTree(){
+  if(!CURRENT_ROOT_ID){ renderTreeEmpty(); return; }
+  try{
+    const data = await api('/stock/tree?root_id='+CURRENT_ROOT_ID);
+    TREE = data || null;
+    ALL_NODES = [];
+    if(TREE) buildIndex(TREE, ALL_NODES);
+    renderTree();
+  }catch(e){
+    alert('Erreur /stock/tree : '+(e.message||e));
+  }
+}
+
+// ------- Utilitaires communs -------
+function updateSelbar(){
+  const c = SEL.size;
+  document.getElementById('sel-count').textContent = c;
+  document.getElementById('selbar').classList.toggle('show', c>0);
+}
+function clearSelection(){ SEL.clear(); updateSelbar(); renderTree(); }
+
+function getDescendantIds(n){
+  const out = new Set([n.id]);
+  (function rec(x){ (x.children||[]).forEach(c=>{ out.add(c.id); rec(c); }); })(n);
+  return out;
+}
+function findParentId(targetId, n=TREE, parent=null){
+  if(!n) return null;
+  if(n.id === targetId) return parent ? parent.id : null;
+  for(const c of (n.children||[])){
+    const r = findParentId(targetId, c, n);
+    if(r !== undefined) return r;
+  }
+  return undefined;
+}
+function buildParentSelect(selectEl, currentNode, preselectId){
+  selectEl.innerHTML = '';
+  const optRoot = document.createElement('option');
+  optRoot.value = '';
+  optRoot.textContent = '— Racine —';
+  selectEl.appendChild(optRoot);
+  const forbid = getDescendantIds(currentNode);
+  (ALL_NODES||[]).forEach(n=>{
+    if(n.type !== 'GROUP') return;
+    if(forbid.has(n.id)) return;
+    const o = document.createElement('option');
+    o.value = String(n.id);
+    o.textContent = '• ' + '  '.repeat(n.level) + n.name;
+    if(preselectId && String(preselectId) === String(n.id)) o.selected = true;
+    selectEl.appendChild(o);
+  });
+}
+
+// ------- Drag & Drop -------
+let DRAG_ID = null;
+function canDrop(targetNode, dragId){
+  if(!targetNode || targetNode.type !== 'GROUP') return false;
+  if(targetNode.id === dragId) return false;
+  // éviter dépôt sur un descendant
+  function isDesc(n, targetId){
+    if(n.id === targetId) return true;
+    return (n.children||[]).some(c=>isDesc(c, targetId));
+  }
+  const dragNode = findNode(dragId);
+  return !isDesc(dragNode, targetNode.id);
+}
+function bindDnDFor(el, node){
+  el.draggable = true;
+  el.addEventListener('dragstart', (e)=>{
+    DRAG_ID = node.id;
+    e.dataTransfer.setData('text/plain', String(node.id));
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  el.addEventListener('dragover', (e)=>{
+    if(canDrop(node, DRAG_ID)){ e.preventDefault(); el.closest('.node')?.classList.add('drag-over'); }
+  });
+  el.addEventListener('dragleave', ()=> el.closest('.node')?.classList.remove('drag-over'));
+  el.addEventListener('drop', async (e)=>{
+    e.preventDefault();
+    el.closest('.node')?.classList.remove('drag-over');
+    if(!canDrop(node, DRAG_ID)) return;
+    try{
+      await api('/stock/'+DRAG_ID, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({parent_id: node.id})});
+      DRAG_ID = null;
+      await loadRoots(); await loadTree();
+    }catch(err){ alert('Échec déplacement: '+(err.message||err)); }
+  });
+}
+// Zone dépôt racine
+(function(){
+  const rootDZ = document.getElementById('drop-root');
+  rootDZ.addEventListener('dragover', (e)=>{ if(DRAG_ID){ e.preventDefault(); rootDZ.classList.add('drag-over'); } });
+  rootDZ.addEventListener('dragleave', ()=> rootDZ.classList.remove('drag-over'));
+  rootDZ.addEventListener('drop', async (e)=>{
+    e.preventDefault(); rootDZ.classList.remove('drag-over');
+    if(!DRAG_ID) return;
+    const node = findNode(DRAG_ID);
+    if(node && node.type !== 'GROUP'){ alert('Seuls les GROUP peuvent devenir racine.'); return; }
+    try{
+      await api('/stock/'+DRAG_ID, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({parent_id: null})});
+      DRAG_ID = null;
+      await loadRoots(); await loadTree();
+    }catch(err){ alert('Échec déplacement: '+(err.message||err)); }
+  });
+})();
+
+// ------- Actions nœud -------
+async function confirmDelete(nodeId){
+  const n = findNode(nodeId);
+  if(!n) return;
+  if(!confirm(`Supprimer "${n.name}" et tout son sous-arbre ?`)) return;
+  try{
+    await api('/stock/'+nodeId, {method:'DELETE'});
+    if(SEL.has(nodeId)) SEL.delete(nodeId);
+    await loadRoots(); await loadTree();
+  }catch(e){ alert('Échec suppression: '+(e.message||e)); }
+}
+
+// Move
+function openMoveModal(nodeId){
+  const n = findNode(nodeId);
+  if(!n){ alert('Nœud introuvable'); return; }
+  window.__moveBulk = false;
+  MOVE_NODE_ID = nodeId;
+  document.getElementById('moveTitle').textContent = n.name + ' (id '+n.id+')';
+  const parentId = findParentId(nodeId);
+  buildParentSelect(document.getElementById('move-parent'), n, parentId || '');
+  document.getElementById('moveModal').classList.add('show');
+}
+function closeMoveModal(){ document.getElementById('moveModal').classList.remove('show'); MOVE_NODE_ID = null; }
+async function confirmMove(){
+  const v = document.getElementById('move-parent').value;
+  const parent_id = v ? parseInt(v,10) : null;
+  const ids = (window.__moveBulk ? Array.from(SEL) : [MOVE_NODE_ID]).filter(Boolean);
+  try{
+    for(const id of ids){
+      await api('/stock/'+id, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({parent_id})});
+    }
+    closeMoveModal();
+    window.__moveBulk = false;
+    SEL.clear(); updateSelbar();
+    await loadRoots(); await loadTree();
+  }catch(e){ alert('Échec déplacement: '+(e.message||e)); }
+}
+
+// Duplicate
+function openDupModal(nodeId){
+  const n = findNode(nodeId);
+  if(!n){ alert('Nœud introuvable'); return; }
+  window.__dupBulk = false;
+  DUP_NODE_ID = nodeId;
+  document.getElementById('dupTitle').textContent = n.name + ' (id '+n.id+')';
+  document.getElementById('dup-name').value = n.name + ' (copie)';
+  const parentId = findParentId(nodeId);
+  buildParentSelect(document.getElementById('dup-parent'), n, parentId || '');
+  document.getElementById('dupModal').classList.add('show');
+}
+function closeDupModal(){ document.getElementById('dupModal').classList.remove('show'); DUP_NODE_ID = null; }
+async function confirmDup(){
+  const new_name_base = (document.getElementById('dup-name').value || '').trim();
+  const v = document.getElementById('dup-parent').value;
+  const new_parent_id = v ? parseInt(v,10) : null;
+  const ids = (window.__dupBulk ? Array.from(SEL) : [DUP_NODE_ID]).filter(Boolean);
+  try{
+    let i=0;
+    for(const id of ids){
+      const new_name = ids.length>1 ? `${new_name_base} (${++i})` : new_name_base;
+      await api('/stock/'+id+'/duplicate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({new_name, new_parent_id})});
+    }
+    closeDupModal();
+    window.__dupBulk = false;
+    SEL.clear(); updateSelbar();
+    await loadRoots(); await loadTree();
+  }catch(e){ alert('Échec duplication: '+(e.message||e)); }
+}
+
+// Edit
+function openEditModal(nodeId){
+  const n = findNode(nodeId);
+  if(!n){ alert('Nœud introuvable'); return; }
+  EDIT_NODE_ID = nodeId;
+  document.getElementById('editTitle').textContent = n.name + ' (id '+n.id+')';
+  document.getElementById('edit-name').value = n.name || '';
+  const qtyWrap = document.getElementById('edit-qty-wrap');
+  const expWrap = document.getElementById('edit-expiry-wrap');
+  if(n.type === 'ITEM'){
+    qtyWrap.style.display = '';
+    expWrap.style.display = '';
+    document.getElementById('edit-qty').value = n.quantity ?? 0;
+    document.getElementById('edit-expiry').value = n.expiry_date || '';
+  }else{
+    qtyWrap.style.display = 'none';
+    expWrap.style.display = 'none';
+  }
+  document.getElementById('editModal').classList.add('show');
+}
+function closeEditModal(){ document.getElementById('editModal').classList.remove('show'); EDIT_NODE_ID = null; }
+async function confirmEdit(){
+  const nodeId = EDIT_NODE_ID;
+  if(!nodeId) return;
+  const n = findNode(nodeId);
+  const name = (document.getElementById('edit-name').value || '').trim();
+  const payload = { name };
+  if(n.type==='ITEM'){
+    const q = parseInt(document.getElementById('edit-qty').value || '0', 10);
+    if(isNaN(q) || q<0){ alert('Quantité invalide'); return; }
+    payload.quantity = q;
+    const ex = document.getElementById('edit-expiry').value;
+    payload.expiry_date = ex || null;
+  }
+  try{
+    await api('/stock/'+nodeId, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    closeEditModal();
+    await loadRoots(); await loadTree();
+  }catch(e){ alert('Échec édition: '+(e.message||e)); }
+}
+
+// Add (root or child)
+let ADD_PARENT_ID = null;
+function openAddModal(parentId, defaultType){
+  ADD_PARENT_ID = parentId || null;
+  const typeSel = document.getElementById('add-type');
+  typeSel.value = (defaultType || 'GROUP');
+  document.getElementById('add-name').value = '';
+  document.getElementById('add-qty').value = 1;
+  document.getElementById('add-expiry').value = '';
+  document.getElementById('add-item-fields').style.display = (typeSel.value === 'ITEM') ? '' : 'none';
+  document.getElementById('addModal').classList.add('show');
+  document.getElementById('add-name').focus();
+}
+function closeAddModal(){ document.getElementById('addModal').classList.remove('show'); ADD_PARENT_ID = null; }
+document.addEventListener('change', (e)=>{
+  if(e.target && e.target.id === 'add-type'){
+    document.getElementById('add-item-fields').style.display = (e.target.value === 'ITEM') ? '' : 'none';
+  }
+});
+async function confirmAdd(){
+  const type = document.getElementById('add-type').value;
+  const name = (document.getElementById('add-name').value || '').trim();
+  if(!name){ alert('Nom requis'); return; }
+  const payload = { name, type, parent_id: ADD_PARENT_ID };
+  if(type === 'ITEM'){
+    let q = parseInt(document.getElementById('add-qty').value || '0', 10);
+    if(isNaN(q) || q < 0){ alert('Quantité invalide'); return; }
+    payload.quantity = q;
+    const ex = document.getElementById('add-expiry').value;
+    if(ex) payload.expiry_date = ex;
+  }
+  try{
+    const res = await api('/stock', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    closeAddModal();
+    await loadRoots();
+    if(ADD_PARENT_ID === null && res && res.id){ // nouvelle racine -> sélection immédiate
+      CURRENT_ROOT_ID = res.id;
+    }
+    await loadTree();
+  }catch(e){ alert('Échec création: '+(e.message||e)); }
+}
+
+// ------- Import -------
+async function doImport(){
+  const f = document.getElementById('import-file').files[0];
+  if(!f){ alert("Sélectionne un fichier JSON d'export de stock."); return; }
+  const mode = document.getElementById('import-mode').value || 'merge';
+  const fd = new FormData();
+  fd.append('file', f, f.name);
+  fd.append('mode', mode);
+  try{
+    await api('/stock/import', {method:'POST', body: fd});
+    document.getElementById('import-file').value = '';
+    await loadRoots(); await loadTree();
+    alert('Import effectué ('+mode+').');
+  }catch(e){ alert('Échec import: '+(e.message||e)); }
+}
+
+// ------- Multi-sélection (barre) -------
+document.addEventListener('DOMContentLoaded', ()=>{
+  document.getElementById('sel-del').onclick = async ()=>{
+    if(SEL.size===0) return;
+    if(!confirm('Supprimer '+SEL.size+' nœud(s) et leurs sous-arbres ?')) return;
+    for(const id of Array.from(SEL)){
+      try{ await api('/stock/'+id, {method:'DELETE'}); }catch(e){ alert('Échec suppression id '+id+': '+(e.message||e)); }
+    }
+    clearSelection();
+    await loadRoots(); await loadTree();
+  };
+  document.getElementById('sel-move').onclick = ()=>{
+    if(SEL.size===0) return;
+    openMoveModal(Array.from(SEL)[0]);
+    window.__moveBulk = true;
+  };
+  document.getElementById('sel-dup').onclick = ()=>{
+    if(SEL.size===0) return;
+    openDupModal(Array.from(SEL)[0]);
+    window.__dupBulk = true;
+  };
+});
+
+// ------- Global init -------
+document.addEventListener('DOMContentLoaded', ()=>{
+  // Buttons
+  document.getElementById('btn-import').onclick = doImport;
+  document.getElementById('btn-root-add').onclick = ()=> openAddModal(null,'GROUP');
+
+  // Close dropdowns on outside click
+  document.addEventListener('click', (e)=>{
+    document.querySelectorAll('.dd.show').forEach(dd=>{ if(!dd.contains(e.target)) dd.classList.remove('show'); });
+  });
+
+  // Global search
+  const g = document.getElementById('global-search');
+  g.addEventListener('input', renderTree);
+
+  // Start
+  loadRoots().then(loadTree);
+});
+</script>
+
+{% endblock %}
