@@ -1,95 +1,98 @@
 {% extends "base.html" %}
+{% set title = "Événement" %}
 {% set status_obj = event.status %}
 {% set status_name = status_obj.name if status_obj is not none and status_obj.__class__.__name__ != "str" else status_obj %}
 {% set status_upper = (status_name or "")|string|upper %}
-{% set status_readable = status_upper %}
-{% set event_date = event.date.strftime("%d/%m/%Y") if event.date else None %}
+{% set event_date = event.date.strftime("%d/%m/%Y") if event.date else "—" %}
 {% block content %}
 
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-
 <style>
-  .wrap{max-width:1100px;margin:0 auto;padding:14px}
-  .topbar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:14px;border:1px solid var(--border);border-radius:14px;background:var(--bg-2);box-shadow:var(--shadow);position:sticky;top:8px;z-index:10}
-  .topbar .left{display:flex;flex-direction:column;gap:6px}
-  .topbar .title{font-weight:800;font-size:20px}
-  .topbar .meta{display:flex;gap:12px;flex-wrap:wrap;color:var(--muted);font-size:14px}
-  .status-badge{border:1px solid var(--border);border-radius:999px;padding:6px 12px;font-weight:700;background:#101c2e;color:#cfe2ff}
-  .topbar .actions{display:flex;gap:8px;flex-wrap:wrap}
-  .card-like{margin-top:14px;padding:14px;border:1px solid var(--border);border-radius:16px;background:var(--bg-2);box-shadow:var(--shadow)}
-  .card-like .title{font-weight:700;font-size:18px}
-  .stats-chipbar{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
-  .chip{padding:4px 10px;border-radius:999px;font-weight:700;font-size:13px;border:1px solid var(--border)}
+  .state-ok{
+    border-color: var(--success) !important;
+    background:
+      radial-gradient(600px 200px at top left, rgba(18,184,134,.15), transparent),
+      #0f1e2f;
+    box-shadow: 0 0 0 1px rgba(18,184,134,.35) inset, 0 0 18px rgba(18,184,134,.15);
+  }
+  .state-bad{
+    border-color: var(--danger) !important;
+    background:
+      radial-gradient(600px 200px at top left, rgba(255,107,107,.12), transparent),
+      #0f1a27;
+    box-shadow: 0 0 0 1px rgba(255,107,107,.30) inset, 0 0 18px rgba(255,107,107,.12);
+  }
+  .state-wait{
+    border-color: var(--border) !important;
+    background:
+      radial-gradient(600px 200px at top left, rgba(45,123,191,.08), transparent),
+      var(--bg-2);
+  }
+  .chip{padding:4px 8px;border-radius:999px;font-weight:800;font-size:12px;border:1px solid var(--border);}
   .chip.ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
   .chip.bad{background:#2a0e14;color:#ffd5dc;border-color:#75212f}
   .chip.wait{background:#101c2e;color:#b7c7dc;border-color:#24344f}
-  .progress{height:8px;background:rgba(255,255,255,.08);border-radius:8px;overflow:hidden;margin-top:10px}
-  .progress > div{height:100%;width:0;background:var(--pc-orange);transition:width .25s ease}
-  .legend{color:var(--muted);font-size:13px}
-  .parents-bar{display:flex;gap:10px;overflow:auto;padding:4px 2px}
-  .parent-pill{display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:999px;border:1px solid var(--border);background:#0f1a2a;color:var(--text);white-space:nowrap;cursor:pointer;user-select:none;transition:transform .08s,border-color .08s,background .08s}
+
+  .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
+  .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
+
+  .parents-card .title{display:flex;align-items:center;gap:10px}
+  .parents-bar{display:flex;gap:8px;overflow:auto;padding:8px 2px}
+  .parent-pill{
+    display:inline-flex;align-items:center;gap:8px;
+    padding:8px 12px;border-radius:999px;border:1px solid var(--border);cursor:pointer;
+    user-select:none;white-space:nowrap;transition:transform .08s ease, box-shadow .08s ease, border-color .08s ease;
+    background:#0f1a2a;color:var(--text)
+  }
   .parent-pill:hover{transform:translateY(-1px)}
   .pill-ok{border-color:#1d6e5d;background:#0e2a24;color:#bff3e7}
   .pill-bad{border-color:#75212f;background:#2a0e14;color:#ffd5dc}
   .pill-wait{border-color:#24344f;background:#101c2e;color:#b7c7dc}
-  .node{border:1px solid var(--border);border-radius:12px;padding:12px;margin:12px 0;background:#0f1a2a}
-  .state-ok{border-color:var(--success)!important;background:radial-gradient(600px 200px at top left, rgba(18,184,134,.15), transparent),#0f1e2f;box-shadow:0 0 0 1px rgba(18,184,134,.35) inset,0 0 18px rgba(18,184,134,.15)}
-  .state-bad{border-color:var(--danger)!important;background:radial-gradient(600px 200px at top left, rgba(255,107,107,.12), transparent),#0f1a27;box-shadow:0 0 0 1px rgba(255,107,107,.30) inset,0 0 18px rgba(255,107,107,.12)}
-  .state-wait{border-color:var(--border)!important;background:radial-gradient(600px 200px at top left, rgba(45,123,191,.08), transparent),var(--bg-2)}
-  .header{display:flex;align-items:center;gap:12px;justify-content:space-between;padding:10px 12px;border-radius:10px}
-  .header .left{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-  .group-title{font-weight:800}
-  .vehicle{font-size:12px;padding:2px 8px;border-radius:8px;border:1px dashed var(--border)}
-  .vehicle.on{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
-  .vehicle.off{background:#101c2e;color:#b7c7dc;border-color:#24344f}
-  .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
-  .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
-  .childs{padding:10px 8px 6px 28px}
-  .item{display:flex;align-items:flex-start;gap:14px;justify-content:space-between;padding:14px;border-radius:12px;margin:12px 0;border:1px solid var(--border);background:#0f1726}
-  .item .name{font-weight:700}
-  .item .qty{opacity:.9;font-size:12px;border:1px dashed var(--border);border-radius:8px;padding:2px 8px}
-  .item .muted{font-size:13px;color:var(--muted)}
-  @media (max-width: 700px){.topbar{gap:12px}.topbar .left{width:100%}.topbar .actions{width:100%;justify-content:flex-start}.childs{padding-left:14px}}
+  .focus-ring{outline:2px solid var(--pc-orange); outline-offset:2px; transition:outline-color .6s ease}
+
+  .vehicle{font-size:12px; opacity:.9; padding:2px 6px; border-radius:6px; border:1px dashed var(--border); margin-left:8px}
+  .vehicle.on{background:#0e2a24; color:#bff3e7; border-color:#1d6e5d}
+  .vehicle.off{background:#101c2e; color:#b7c7dc; border-color:#24344f}
 </style>
 
-<div class="wrap">
-  <div class="topbar">
-    <div class="left">
-      <div class="title">{{ event.name }}</div>
-      <div class="meta">
-        {% if event_date %}<span>Le {{ event_date }}</span>{% endif %}
-        <span id="status-badge" class="status-badge">Statut : {{ status_readable }}</span>
+<div class="grid cols-2">
+  <div class="card">
+    <div class="row space-between">
+      <div>
+        <div class="title">{{ event.name }}</div>
+        <div class="muted">Date : {{ event_date }}</div>
       </div>
+      <span class="badge" id="status-badge">Statut : {{ status_upper }}</span>
     </div>
-    <div class="actions">
-      <button class="btn ghost" id="btn-share">Lien secouristes</button>
-      <button class="btn danger" id="btn-close" {% if status_readable != "OPEN" %}disabled{% endif %}>Cloturer</button>
+    <div class="row wrap" style="margin-top:10px;">
+      <a class="btn" target="_blank" href="/reports/event/{{ event.id }}/pdf">Exporter PDF</a>
+      <button class="btn primary" id="btn-share">Lien secouristes</button>
+      <button class="btn" id="btn-close">Clôturer l'événement</button>
     </div>
   </div>
 
-  <div class="card-like stats-card">
+  <div class="card">
     <div class="title">Progression</div>
-    <div class="stats-chipbar">
+    <div class="row wrap" style="margin-top:8px;gap:10px;">
       <span class="chip ok" id="stat-ok">OK : 0</span>
       <span class="chip bad" id="stat-bad">Non conformes : 0</span>
       <span class="chip wait" id="stat-wait">En attente : 0</span>
     </div>
-    <div class="progress"><div id="progress-bar"></div></div>
-    <div class="muted" id="progress-text" style="margin-top:6px;">0 / 0 vAcrifiAcs</div>
+    <div class="progress" style="margin-top:10px;"><div id="progress-bar" style="width:0%"></div></div>
+    <div class="muted" id="progress-text" style="margin-top:6px;">0 / 0 vérifiés</div>
   </div>
+</div>
 
-  <div class="card-like">
-    <div class="title">Parents</div>
-    <div id="parents-bar" class="parents-bar"></div>
-  </div>
+<div class="card parents-card" style="margin-top:12px;">
+  <div class="title">Parents à vérifier</div>
+  <div id="parents-bar" class="parents-bar"></div>
+</div>
 
-  <div class="card-like">
-    <div class="row space-between">
-      <div class="title">Materiel</div>
-      <div class="legend">Vert = tout OK, Rouge = non conforme, Bleu = en attente</div>
-    </div>
-    <div id="tree"></div>
+<div class="card" style="margin-top:12px;">
+  <div class="row space-between">
+    <div class="title">Matériel à vérifier</div>
+    <div class="muted">Vert = tout OK • Rouge = au moins un non conforme • Bleu = en attente</div>
   </div>
+  <div id="tree" class="tree" style="margin-top:10px;"></div>
 </div>
 
 <script>
@@ -104,13 +107,13 @@ const formatVehicleLabel = (vehicleName, operatorName) => {
   const vehicle = (vehicleName || "").trim();
   const operator = (operatorName || "").trim();
   if(vehicle && operator){
-    return `Chargé : ${vehicle} (par ${operator})`;
+    return `${vehicle} (par ${operator})`;
   }
   if(vehicle){
-    return `Chargé : ${vehicle}`;
+    return vehicle;
   }
   if(operator){
-    return `Chargé par ${operator}`;
+    return `Par ${operator}`;
   }
   return "Chargé";
 };
