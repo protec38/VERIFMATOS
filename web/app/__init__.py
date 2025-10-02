@@ -7,6 +7,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager
 from flask_socketio import SocketIO
+from .peremption.views import bp_peremption
 
 from .config import get_config
 
@@ -47,6 +48,7 @@ def create_app():
     app = Flask(__name__)
     cfg = get_config()
     app.config.from_object(cfg)
+    app.register_blueprint(bp_peremption)
 
     # Init extensions
     db.init_app(app)
