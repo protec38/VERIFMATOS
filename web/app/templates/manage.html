@@ -153,6 +153,18 @@
         </div>
       </div>
     </div>
+    <div id="add-group-fields" style="display:none;margin-top:8px">
+      <label style="display:flex;align-items:center;gap:8px">
+        <input id="add-unique" type="checkbox">
+        Objet unique (demande une quantité lors de l'ajout à un événement)
+      </label>
+      <div id="add-unique-qty-wrap" class="row" style="margin-top:8px;display:none">
+        <div style="flex:1;min-width:160px">
+          <label>Quantité maximale</label>
+          <input id="add-unique-qty" type="number" min="0" value="1">
+        </div>
+      </div>
+    </div>
     <div class="actions">
       <button class="btn" onclick="closeAddModal()">Annuler</button>
       <button class="btn primary" onclick="confirmAdd()">Ajouter</button>
@@ -177,6 +189,18 @@
       <div style="flex:1;min-width:180px" id="edit-expiry-wrap">
         <label>Péremption (résumé)</label>
         <input id="edit-expiry" type="date">
+      </div>
+    </div>
+    <div id="edit-group-fields" style="display:none;margin-top:8px">
+      <label style="display:flex;align-items:center;gap:8px">
+        <input id="edit-unique" type="checkbox">
+        Objet unique (demande une quantité lors de l'ajout à un événement)
+      </label>
+      <div id="edit-unique-qty-wrap" class="row" style="margin-top:8px;display:none">
+        <div style="flex:1;min-width:160px">
+          <label>Quantité maximale</label>
+          <input id="edit-unique-qty" type="number" min="0" value="1">
+        </div>
       </div>
     </div>
     <div id="edit-expiries-section" style="display:none;margin-top:12px">
@@ -377,6 +401,10 @@ function nodeEl(n){
 
   const name = h('div', {class:'name'}, `${n.name}  (lvl ${n.level}, ${n.type})`);
   name.style.cursor = 'pointer';
+  if(n.unique_item){
+    const maxTxt = (n.unique_quantity != null) ? `max ${n.unique_quantity}` : 'unique';
+    name.append(' ', h('span', {class:'badge', style:'margin-left:6px'}, `Objet unique (${maxTxt})`));
+  }
   if(n.type==='ITEM'){
     const b = h('span', {class:'badge '+perempClass(n.expiry_date), style:'margin-left:8px'}, perempLabel(n.expiry_date));
     name.append(' ', b);
@@ -698,9 +726,14 @@ function openEditModal(nodeId){
   const qtyWrap = document.getElementById('edit-qty-wrap');
   const expWrap = document.getElementById('edit-expiry-wrap');
   const expSection = document.getElementById('edit-expiries-section');
+  const groupFields = document.getElementById('edit-group-fields');
+  const uniqueCb = document.getElementById('edit-unique');
+  const uniqueQtyWrap = document.getElementById('edit-unique-qty-wrap');
+  const uniqueQtyInput = document.getElementById('edit-unique-qty');
   if(n.type === 'ITEM'){
     qtyWrap.style.display = '';
     expWrap.style.display = '';
+    if(groupFields) groupFields.style.display = 'none';
     document.getElementById('edit-qty').value = n.quantity ?? 0;
     document.getElementById('edit-expiry').value = n.expiry_date || '';
     if(expSection) expSection.style.display = '';
@@ -719,6 +752,18 @@ function openEditModal(nodeId){
     qtyWrap.style.display = 'none';
     expWrap.style.display = 'none';
     if(expSection) expSection.style.display = 'none';
+    if(groupFields){
+      groupFields.style.display = '';
+      if(uniqueCb){
+        uniqueCb.checked = !!n.unique_item;
+      }
+      if(uniqueQtyInput){
+        uniqueQtyInput.value = n.unique_quantity ?? 0;
+      }
+      if(uniqueQtyWrap){
+        uniqueQtyWrap.style.display = (uniqueCb && uniqueCb.checked) ? '' : 'none';
+      }
+    }
   }
   document.getElementById('editModal').classList.add('show');
 }
@@ -737,6 +782,12 @@ function closeEditModal(){
   if(info){ info.textContent = 'Ajoute une ligne par lot.'; }
   const openBtn = document.getElementById('edit-exp-open-page');
   if(openBtn){ openBtn.onclick = null; }
+  const groupFields = document.getElementById('edit-group-fields');
+  const uniqueQtyWrap = document.getElementById('edit-unique-qty-wrap');
+  const uniqueCb = document.getElementById('edit-unique');
+  if(groupFields) groupFields.style.display = 'none';
+  if(uniqueQtyWrap) uniqueQtyWrap.style.display = 'none';
+  if(uniqueCb) uniqueCb.checked = false;
   ['edit-exp-new-date','edit-exp-new-qty','edit-exp-new-lot','edit-exp-new-note'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.value = '';
@@ -754,6 +805,17 @@ async function confirmEdit(){
     payload.quantity = q;
     const ex = document.getElementById('edit-expiry').value;
     payload.expiry_date = ex || null;
+  }else{
+    const uniqueCb = document.getElementById('edit-unique');
+    const uniqueQtyInput = document.getElementById('edit-unique-qty');
+    if(uniqueCb){
+      payload.unique_item = !!uniqueCb.checked;
+      if(uniqueCb.checked){
+        const uq = parseInt((uniqueQtyInput?.value || '0'), 10);
+        if(isNaN(uq) || uq < 0){ alert('Quantité maximale invalide'); return; }
+        payload.unique_quantity = uq;
+      }
+    }
   }
   try{
     await api('/stock/'+nodeId, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
@@ -771,14 +833,35 @@ function openAddModal(parentId, defaultType){
   document.getElementById('add-name').value = '';
   document.getElementById('add-qty').value = 1;
   document.getElementById('add-expiry').value = '';
-  document.getElementById('add-item-fields').style.display = (typeSel.value === 'ITEM') ? '' : 'none';
+  const addItemFields = document.getElementById('add-item-fields');
+  const addGroupFields = document.getElementById('add-group-fields');
+  const uniqueCb = document.getElementById('add-unique');
+  const uniqueQtyWrap = document.getElementById('add-unique-qty-wrap');
+  const uniqueQtyInput = document.getElementById('add-unique-qty');
+  if(addItemFields) addItemFields.style.display = (typeSel.value === 'ITEM') ? '' : 'none';
+  if(addGroupFields) addGroupFields.style.display = (typeSel.value === 'GROUP') ? '' : 'none';
+  if(uniqueCb){ uniqueCb.checked = false; }
+  if(uniqueQtyInput){ uniqueQtyInput.value = 1; }
+  if(uniqueQtyWrap){ uniqueQtyWrap.style.display = 'none'; }
   document.getElementById('addModal').classList.add('show');
   document.getElementById('add-name').focus();
 }
 function closeAddModal(){ document.getElementById('addModal').classList.remove('show'); ADD_PARENT_ID = null; }
 document.addEventListener('change', (e)=>{
   if(e.target && e.target.id === 'add-type'){
-    document.getElementById('add-item-fields').style.display = (e.target.value === 'ITEM') ? '' : 'none';
+    const isItem = (e.target.value === 'ITEM');
+    const addItemFields = document.getElementById('add-item-fields');
+    const addGroupFields = document.getElementById('add-group-fields');
+    if(addItemFields) addItemFields.style.display = isItem ? '' : 'none';
+    if(addGroupFields) addGroupFields.style.display = isItem ? 'none' : '';
+  }
+  if(e.target && e.target.id === 'add-unique'){
+    const wrap = document.getElementById('add-unique-qty-wrap');
+    if(wrap) wrap.style.display = e.target.checked ? '' : 'none';
+  }
+  if(e.target && e.target.id === 'edit-unique'){
+    const wrap = document.getElementById('edit-unique-qty-wrap');
+    if(wrap) wrap.style.display = e.target.checked ? '' : 'none';
   }
 });
 async function confirmAdd(){
@@ -792,6 +875,14 @@ async function confirmAdd(){
     payload.quantity = q;
     const ex = document.getElementById('add-expiry').value;
     if(ex) payload.expiry_date = ex;
+  }else{
+    const uniqueCb = document.getElementById('add-unique');
+    if(uniqueCb && uniqueCb.checked){
+      const uq = parseInt((document.getElementById('add-unique-qty').value || '0'), 10);
+      if(isNaN(uq) || uq < 0){ alert('Quantité maximale invalide'); return; }
+      payload.unique_item = true;
+      payload.unique_quantity = uq;
+    }
   }
   try{
     const res = await api('/stock', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });

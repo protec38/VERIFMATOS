@@ -96,6 +96,10 @@ class StockNode(db.Model):
     # Quantité cible pour les ITEMS uniquement
     quantity = db.Column(db.Integer, nullable=True)
 
+    # Un parent peut être marqué comme "objet unique" (pas d'enfants, mais quantité max)
+    unique_item = db.Column(db.Boolean, nullable=False, default=False)
+    unique_quantity = db.Column(db.Integer, nullable=True)
+
     # (Legacy) Date de péremption simple. Gardée pour compatibilité ascendante.
     # Désormais on utilise StockItemExpiry pour plusieurs dates.
     expiry_date = db.Column(db.Date, nullable=True)
@@ -111,6 +115,10 @@ class StockNode(db.Model):
     __table_args__ = (
         CheckConstraint("level >= 0 AND level <= 5", name="ck_stocknode_level_0_5"),
         CheckConstraint("(quantity IS NULL) OR (quantity >= 0)", name="ck_stocknode_qty_nonneg"),
+        CheckConstraint(
+            "(unique_quantity IS NULL) OR (unique_quantity >= 0)",
+            name="ck_stocknode_unique_qty_nonneg",
+        ),
     )
 
     def is_leaf(self) -> bool:
@@ -137,6 +145,7 @@ event_stock = db.Table(
     "event_stock",
     db.Column("event_id", db.Integer, db.ForeignKey("events.id"), primary_key=True),
     db.Column("node_id", db.Integer, db.ForeignKey("stock_nodes.id"), primary_key=True),
+    db.Column("selected_quantity", db.Integer, nullable=True),
 )
 
 # -------------------------------------------------------------------
