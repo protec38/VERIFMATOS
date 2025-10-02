@@ -105,13 +105,13 @@ const formatVehicleLabel = (vehicleName, operatorName) => {
   const vehicle = (vehicleName || "").trim();
   const operator = (operatorName || "").trim();
   if(vehicle && operator){
-    return `Chargé : ${vehicle} - ${operator}`;
+    return `${vehicle} (par ${operator})`;
   }
   if(vehicle){
-    return `Chargé : ${vehicle}`;
+    return vehicle;
   }
   if(operator){
-    return `Chargé : ${operator}`;
+    return `Par ${operator}`;
   }
   return "Chargé";
 };

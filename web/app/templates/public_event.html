@@ -153,13 +153,13 @@ const formatVehicleLabel = (vehicleName, operatorName) => {
   const vehicle = (vehicleName || "").trim();
   const operator = (operatorName || "").trim();
   if(vehicle && operator){
-    return `Chargé : ${vehicle} - ${operator}`;
+    return `${vehicle} (par ${operator})`;
   }
   if(vehicle){
-    return `Chargé : ${vehicle}`;
+    return vehicle;
   }
   if(operator){
-    return `Chargé : ${operator}`;
+    return `Par ${operator}`;
   }
   return "Chargé";
 };
@@ -574,6 +574,13 @@ function syncTreeIncoming(incomingRoots){
     if(isItem(nLoc)){
       applyItemDelta(nLoc, nInc);
     }else{
+      if(nLoc.is_event_root){
+        nLoc.charged_vehicle = !!nInc.charged_vehicle;
+        nLoc.charged_vehicle_name = nInc.charged_vehicle_name || null;
+        const hasOperatorRoot = Object.prototype.hasOwnProperty.call(nInc, "charged_vehicle_operator");
+        const previousOperatorRoot = nLoc.charged_vehicle_operator || null;
+        nLoc.charged_vehicle_operator = hasOperatorRoot ? (nInc.charged_vehicle_operator || null) : (nLoc.charged_vehicle ? previousOperatorRoot : null);
+      }
       (nInc.children||[]).forEach(recInc);
       applyGroupDelta(nLoc, nInc);
     }
