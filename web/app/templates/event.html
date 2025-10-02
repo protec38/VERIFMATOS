@@ -461,7 +461,7 @@ async function refreshTree(){
   }
   refreshInFlight = true;
   try{
-    const r = await fetch(`/events/${EVENT_ID}/tree`, {credentials:"include"});
+    const r = await fetch(`/events/${EVENT_ID}/tree?ts=${Date.now()}`, {credentials:"include", cache:'no-store'});
     if(!r.ok) return;
     const latest = await r.json();
     syncTreeIncoming(latest);
