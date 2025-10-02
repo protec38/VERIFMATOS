@@ -1,68 +1,81 @@
-# app/reports/views.py — endpoints d'export CSV/PDF
+# app/reports/views.py
 from __future__ import annotations
-from io import BytesIO, StringIO
-import csv
-from flask import Blueprint, jsonify, send_file, Response
+
+from io import BytesIO
+from flask import Blueprint, abort, send_file, jsonify
 from flask_login import login_required, current_user
+
 from .. import db
-from ..models import Event, Role
-from .utils import compute_summary, rows_for_csv
-from .pdfgen import build_pdf
 
-bp = Blueprint("reports", __name__)
+bp = Blueprint("reports", __name__, url_prefix="/reports")
 
-def require_manager() -> bool:
-    return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF)
 
-# ------------------------------------------------------------------
-# Export CSV par événement
-# ------------------------------------------------------------------
-@bp.get("/events/<int:event_id>/report.csv")
+def _can_view_reports() -> bool:
+    """Autorise ADMIN, CHEF, VIEWER (comme tes autres pages chef)."""
+    try:
+        from ..models import Role  # import local pour éviter cycles
+        return (
+            current_user.is_authenticated
+            and getattr(current_user, "role", None) in (Role.ADMIN, Role.CHEF, Role.VIEWER)
+        )
+    except Exception:
+        # Si on ne peut pas importer, on restreint aux utilisateurs authentifiés
+        return current_user.is_authenticated
+
+
+@bp.get("/event/<int:event_id>/pdf")
 @login_required
-def export_csv(event_id: int):
-    if not require_manager():
-        return jsonify(error="Forbidden"), 403
+def event_pdf(event_id: int):
+    """Génère le PDF de l’événement (lien: /reports/event/<id>/pdf)."""
+    if not _can_view_reports():
+        abort(403)
 
-    ev = db.session.get(Event, event_id)
+    # Récupère l'événement
+    try:
+        from ..models import Event
+    except Exception as e:
+        abort(500, description=f"Models indisponibles: {e}")
+
+    ev = db.session.get(Event, int(event_id))
     if not ev:
-        return jsonify(error="Not found"), 404
+        abort(404, description="Événement introuvable.")
 
-    data = rows_for_csv(event_id)  # première ligne = headers
-    # Génération en mémoire
-    sio = StringIO(newline="")
-    writer = csv.writer(sio, delimiter=";", quoting=csv.QUOTE_MINIMAL)
-    for row in data:
-        writer.writerow(row)
-    payload = sio.getvalue().encode("utf-8-sig")  # BOM pour Excel FR
+    # Imports *dans* la fonction pour éviter les erreurs d'import au démarrage
+    try:
+        # Utils de construction des données
+        from .utils import compute_summary, rows_for_csv
+    except Exception as e:
+        abort(500, description=f"Utils d'export indisponibles: {e}")
 
-    return Response(
-        payload,
-        mimetype="text/csv; charset=utf-8",
-        headers={
-            "Content-Disposition": f'attachment; filename="rapport_event_{event_id}.csv"'
-        },
-    )
+    try:
+        # Générateur PDF (reportlab)
+        from .pdfgen import build_pdf
+    except Exception as e:
+        # Erreur fréquente: reportlab non installé
+        return jsonify({
+            "error": "Le moteur PDF n'est pas disponible.",
+            "detail": str(e),
+            "hint": "Ajoute reportlab à requirements.txt (ex: reportlab==3.6.12) puis rebuild."
+        }), 500
 
-# ------------------------------------------------------------------
-# Export PDF par événement
-# ------------------------------------------------------------------
-@bp.get("/events/<int:event_id>/report.pdf")
-@login_required
-def export_pdf(event_id: int):
-    if not require_manager():
-        return jsonify(error="Forbidden"), 403
+    # Données
+    summary = compute_summary(ev.id)       # dict: total / ok / not_ok / todo
+    csv_rows = rows_for_csv(ev.id)         # liste de lignes à plat (Parent, Item, Statut, ...)
 
-    ev = db.session.get(Event, event_id)
-    if not ev:
-        return jsonify(error="Not found"), 404
+    # Construction PDF
+    try:
+        pdf_bytes = build_pdf(ev, summary, csv_rows)
+    except Exception as e:
+        return jsonify({"error": "Échec génération PDF", "detail": str(e)}), 500
 
-    summary = compute_summary(event_id)
-    rows = rows_for_csv(event_id)
-    pdf_bytes = build_pdf(ev, summary, rows)
-
+    # Retourne en inline (affichage dans le navigateur)
+    filename = f"rapport_event_{ev.id}.pdf"
     return send_file(
         BytesIO(pdf_bytes),
         mimetype="application/pdf",
-        as_attachment=True,
-        download_name=f"rapport_event_{event_id}.pdf",
+        as_attachment=False,
+        download_name=filename,
+        max_age=0,  # pas de cache
+        conditional=False,
+        etag=False,
     )
