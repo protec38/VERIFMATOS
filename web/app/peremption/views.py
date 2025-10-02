@@ -6,7 +6,7 @@ from typing import Dict, Any, List, Optional
 from flask import Blueprint, render_template, request, jsonify, abort
 from flask_login import login_required, current_user
 
-from .. import db
+# ⚠️ IMPORTANT : pas d'import de "db" depuis app/__init__.py pour éviter le circular import
 from ..models import StockNode, NodeType, Role
 
 bp_peremption = Blueprint("peremption", __name__)
@@ -17,10 +17,9 @@ def _can_view() -> bool:
 
 # ---------------- Helpers data ----------------
 def _build_path(n: StockNode) -> str:
-    """Remonte les parents pour afficher un chemin joli: Racine › Sous-groupe › ..."""
+    """Chemin lisible: Racine › Sous-groupe › ... (sans l'item lui-même)."""
     parts: List[str] = []
     cur: Optional[StockNode] = n
-    # on veut le chemin sans l'item lui-même (juste les groupes parents)
     while cur and cur.parent is not None:
         cur = cur.parent
         if cur:
@@ -89,7 +88,6 @@ def peremption_api():
 
     items: List[Dict[str, Any]] = [_row(n, today) for n in q.all()]
 
-    # Optionnel: on peut aussi renvoyer le nombre total d'items concernés
     return jsonify({
         "count": len(items),
         "items": items,
