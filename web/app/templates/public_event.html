@@ -297,7 +297,7 @@ function groupStateClass(n){
 function renderItem(n){
   const s = normStatus(n.last_status);
   const dl = nextExpiryDaysFromNode(n);
-  const qty = (n.quantity != null ? n.quantity : 1);
+  const qty = (n.quantity != null ? n.quantity : (n.selected_quantity != null ? n.selected_quantity : 1));
   const showWarn = (dl!=null && dl<=30);
 
   // petit résumé des dates (ex: 12/10, 28/10…)
@@ -372,9 +372,14 @@ function renderGroup(n){
   header.addEventListener("click", ()=>toggleCollapse(n.id));
 
   const gstats = renderGroupStats(n);
+  const childNodes = [];
+  if(isUnique(n)){
+    childNodes.push(renderUniqueParentRow(n));
+  }
+  childNodes.push(gstats);
+  (n.children||[]).forEach(child => childNodes.push(renderNode(child)));
   const childs = el("div",{class:"childs "+(COLLAPSED.get(n.id)?"collapsed":""), id:`childs-${n.id}`},
-    gstats,
-    ...(n.children||[]).map(renderNode)
+    ...childNodes
   );
 
   const box = el("div",{class:`node ${groupStateClass(n)}`, id:`node-${n.id}`}, header, childs);
@@ -518,7 +523,11 @@ function syncTreeIncoming(incomingRoots){
   (incomingRoots||[]).forEach(function recInc(nInc){
     const nLoc = NODE_MAP.get(nInc.id);
     if(!nLoc) return;
-    if(isItem(nLoc)){
+    if(isUnique(nLoc)){
+      applyItemDelta(nLoc, nInc);
+      (nInc.children||[]).forEach(recInc);
+      applyGroupDelta(nLoc, nInc);
+    } else if(isItem(nLoc)){
       applyItemDelta(nLoc, nInc);
     }else{
       (nInc.children||[]).forEach(recInc);

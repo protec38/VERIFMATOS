@@ -229,6 +229,36 @@ function renderItem(n){
   return wrap;
 }
 
+function renderUniqueParentRow(n){
+  const s = normStatus(n.last_status);
+  const statusLbl = s==="OK" ? "✅ OK" : (s==="NOT_OK" ? "❌ Non conforme" : "⏳ En attente");
+  const by = n.last_by ? ` (${n.last_by})` : "";
+  const actionsEnabled = IS_OPEN;
+  const safeId = domSafeId(n.id);
+  const qtyValue = (n.selected_quantity != null) ? n.selected_quantity : (n.quantity != null ? n.quantity : (n.unique_quantity != null ? n.unique_quantity : 1));
+
+  const qtySpan = el("span", {class:"qty", id:`qty-${safeId}`}, `Qté: ${qtyValue}`);
+  ITEM_QTY_TXT.set(n.id, qtySpan);
+
+  const statusDiv = el("div", {class:"muted", id:`status-${safeId}`}, `Dernier statut: ${statusLbl}${by}`);
+  ITEM_STATUS_TXT.set(n.id, statusDiv);
+
+  const right = el("div", {class:"row"},
+    el("button", {class:"btn success", disabled:!actionsEnabled, onclick:()=>verify(n.id,"OK")}, "OK"),
+    el("button", {class:"btn ghost", disabled:!actionsEnabled, onclick:()=>verify(n.id,"NOT_OK")}, "Non conforme"),
+  );
+
+  const wrap = el("div", {class:`item unique-parent ${itemStateClass(n)}`, id:`item-${safeId}`},
+    el("div", {class:"unique-info"},
+      el("div", {class:"name"}, statusDot(s==="OK", s==="NOT_OK"), " Qté: ", qtySpan),
+      statusDiv
+    ),
+    right
+  );
+  ITEM_EL.set(n.id, wrap);
+  return wrap;
+}
+
 function renderGroup(n){
   // Badge véhicule (affiché sur racines si présent dans le tree)
   const veh = el("span", {class:"vehicle "+(n.charged_vehicle?'on':'off')},
@@ -244,7 +274,14 @@ function renderGroup(n){
   const header = el("div", {class:"header"}, headerLeft);
 
   // ❌ Aucun bouton “Charger” ici (réservé à la page publique)
-  const children = el("div", {class:"childs"}, ...(n.children||[]).map(renderNode));
+  const bodyChildren = [];
+  if(isUnique(n)){
+    bodyChildren.push(renderUniqueParentRow(n));
+  }
+  (n.children||[]).forEach(child => {
+    bodyChildren.push(renderNode(child));
+  });
+  const children = el("div", {class:"childs"}, ...bodyChildren);
   const box = el("div", {class:`node ${groupStateClass(n)}`, id:`node-${n.id}`}, header, children);
   GROUP_EL.set(n.id, box);
   return box;
@@ -323,7 +360,15 @@ function syncTreeIncoming(incomingRoots){
   (incomingRoots||[]).forEach(function recInc(nInc){
     const nLoc = NODE_MAP.get(nInc.id);
     if(!nLoc) return;
-    if(isItem(nLoc)){
+    if(isUnique(nLoc)){
+      applyItemDelta(nLoc, nInc);
+      if(nLoc.is_event_root){
+        nLoc.charged_vehicle = !!nInc.charged_vehicle;
+        nLoc.charged_vehicle_name = nInc.charged_vehicle_name || null;
+      }
+      applyGroupDelta(nLoc, nInc);
+      (nInc.children||[]).forEach(recInc);
+    } else if(isItem(nLoc)){
       applyItemDelta(nLoc, nInc);
     } else {
       if(nLoc.is_event_root){
