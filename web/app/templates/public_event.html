@@ -205,8 +205,16 @@ function el(tag, attrs={}, ...children){
   for(const c of children){ if(c!=null) e.append(c.nodeType?c:document.createTextNode(c)); }
   return e;
 }
-const isItem  = n => (n.type||"").toUpperCase()==="ITEM";
-const isGroup = n => (n.type||"").toUpperCase()==="GROUP";
+const isUnique = n => !!(n && n.unique_item);
+const isUniqueParent = n => !!(n && n.unique_parent);
+const targetNodeId = n => (n && (n.target_node_id || n.id));
+const domSafeId = id => String(id).replace(/[^a-zA-Z0-9_-]/g, '-');
+const isItem  = n => {
+  if(!n) return false;
+  if(isUniqueParent(n)) return false;
+  return ((n.type||"").toUpperCase()==="ITEM") || (!!n.unique_item && !isUniqueParent(n));
+};
+const isGroup = n => !isItem(n);
 function normStatus(s){
   s = (s||"").toUpperCase();
   if(s==="OK") return "OK";
@@ -317,12 +325,15 @@ function renderItem(n){
     expSummary,
     showWarn ? el("span",{class:"warn", title:`Péremption dans ${dl} jour(s)`},"⚠️ Péremption") : null
   );
+  const targetId = targetNodeId(n);
+  const safeId = domSafeId(n.id);
+
   const right = el("div",{class:"right"},
-    el("button",{class:"btn xs success", onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(n.id,"OK"); }},"OK"),
-    el("button",{class:"btn xs ghost",   onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(n.id,"NOT_OK"); }},"Non conforme")
+    el("button",{class:"btn xs success", onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(targetId,"OK"); }},"OK"),
+    el("button",{class:"btn xs ghost",   onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(targetId,"NOT_OK"); }},"Non conforme")
   );
 
-  const wrap = el("div",{class:"item "+(s==="OK"?"state-ok":(s==="NOT_OK"?"state-bad":"state-wait")), id:`item-${n.id}`}, left, right);
+  const wrap = el("div",{class:"item "+(s==="OK"?"state-ok":(s==="NOT_OK"?"state-bad":"state-wait")), id:`item-${safeId}`}, left, right);
   ITEM_EL.set(n.id, wrap);
   return wrap;
 }
@@ -419,6 +430,8 @@ function applyItemDelta(local, incoming){
   local.last_status = normStatus(incoming.last_status || "PENDING");
   local.quantity    = (incoming.quantity!=null)?incoming.quantity:local.quantity;
   local.last_by     = (incoming.last_by!=null)?incoming.last_by:local.last_by;
+  if(typeof incoming.target_node_id !== "undefined") local.target_node_id = incoming.target_node_id;
+  if(typeof incoming.unique_from_parent !== "undefined") local.unique_from_parent = incoming.unique_from_parent;
 
   // ⬇️ support nouveaux champs
   if (Array.isArray(incoming.expiries)) local.expiries = incoming.expiries;
