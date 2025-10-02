@@ -1,259 +1,152 @@
 {% extends "base.html" %}
-{% set title = "Péremptions" %}
+{% set title = "Péremption" %}
 {% block content %}
 
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
 <style>
-  .cards {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
-  @media (max-width: 980px){ .cards{grid-template-columns:1fr} }
+  :root{
+    --radius: 14px;
+    --shadow: 0 6px 22px rgba(0,0,0,.25);
+    --bg-card: #0f1726;
+  }
+  .wrap{max-width:1100px;margin:0 auto;padding:14px}
+  .card{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px;margin-bottom:14px}
 
-  .card{border:1px solid var(--border);border-radius:12px;padding:16px;background:#0f1a2a}
-  .row{display:flex;align-items:center;justify-content:space-between;gap:10px}
-  .wrap{flex-wrap:wrap}
-  .title{font-weight:700;font-size:18px}
-  .muted{opacity:.8}
+  .filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .filters input, .filters select{
+    background:#0b1120;border:1px solid var(--border);border-radius:10px;color:var(--text);
+    padding:10px 12px;min-width:120px
+  }
+  .filters .btn{padding:10px 12px;border-radius:10px}
 
-  .chip{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:999px;padding:6px 10px}
-  .chip span{font-weight:700}
-  .chip-btn{cursor:pointer;user-select:none}
-  .chip.active{box-shadow:0 0 0 1px var(--text) inset}
-  .chip.expired{border-color:#a33;background:#2a1111}
-  .chip.j30{border-color:#b86b00;background:#2a1b0f}
-  .chip.j60{border-color:#b3a100;background:#2a270f}
-  .chip.later{border-color:#17614f;background:#0f2a22}
-  .chip.no_date{border-color:#3b4a63;background:#0f1e2f}
+  .table{width:100%;border-collapse:separate;border-spacing:0 8px}
+  .table th{font-weight:800;text-align:left;color:#b7c7dc;padding:6px 10px}
+  .row{
+    display:grid;grid-template-columns: 1fr 1fr 140px 120px 110px;
+    gap:10px;align-items:center;background:#0f1726;border:1px solid var(--border);
+    border-radius:12px;padding:10px
+  }
+  .row.expired{border-color:#7a2330;background:#2a0e14}
+  .row.soon{border-color:#7a5d1e;background:#221a07}
+  .row.ok{opacity:.95}
 
-  .btn{padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#0f1e2f;cursor:pointer}
-  .btn:hover{filter:brightness(1.1)}
-  .btn.primary{border-color:var(--pc-orange)}
-  .search{flex:1;display:flex;gap:8px}
-  .search input{flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#0f1e2f;color:var(--text)}
+  .status-badge{padding:4px 8px;border-radius:999px;border:1px solid var(--border);font-weight:800;font-size:12px;display:inline-block;text-align:center}
+  .badge-exp{background:#2a0e14;color:#ffd5dc;border-color:#75212f}
+  .badge-soon{background:#221a07;color:#ffd679;border-color:#7a5d1e}
+  .badge-ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
 
-  table{width:100%;border-collapse:separate;border-spacing:0 8px}
-  thead th{font-size:12px;opacity:.8;text-align:left;padding:0 10px}
-  tbody td{background:#0f1e2f;border:1px solid var(--border);padding:10px}
-  tbody tr td:first-child{border-radius:10px 0 0 10px}
-  tbody tr td:last-child{border-radius:0 10px 10px 0}
-  .tag{display:inline-flex;border:1px dashed var(--border);border-radius:999px;padding:2px 8px;font-size:12px;opacity:.9}
-
-  .badge{display:inline-flex;padding:2px 8px;border-radius:999px;border:1px dashed var(--border);font-size:12px;opacity:.9}
-  .badge.today{border-color:#37527a}
-
-  .cat-pill{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:999px;border:1px solid var(--border);font-size:12px}
-  .cat-expired{border-color:#a33;background:#2a1111}
-  .cat-j30{border-color:#b86b00;background:#2a1b0f}
-  .cat-j60{border-color:#b3a100;background:#2a270f}
-  .cat-later{border-color:#17614f;background:#0f2a22}
-  .cat-no_date{border-color:#3b4a63;background:#0f1e2f}
-
-  .sortable{cursor:pointer;user-select:none}
-  .sortable:hover{text-decoration:underline}
+  .muted{color:#9fb0c6}
+  .qty{opacity:.9;font-size:12px;border:1px dashed var(--border);border-radius:8px;padding:2px 8px;margin-left:6px}
+  .search{flex:1}
+  @media (max-width: 820px){
+    .row{grid-template-columns: 1fr 140px 100px;gap:8px}
+    .col-path{grid-column: 1 / -1; order: 3}
+    .col-date{order: 4}
+    .col-days{order: 5}
+  }
 </style>
 
-<div class="cards">
+<div class="wrap">
   <div class="card">
-    <div class="row">
-      <div>
-        <div class="title">Péremptions</div>
-        <div class="muted">Suivi des dates de péremption des ITEMS (pharma, consommables…)</div>
-      </div>
-      <span id="todayBadge" class="badge today">Aujourd'hui : —</span>
+    <div class="row space-between" style="margin-bottom:10px">
+      <div class="title">Articles à surveiller</div>
+      <div class="muted" id="summary">—</div>
     </div>
-
-    <div class="row wrap" style="gap:8px;margin-top:10px">
-      <div id="chip-all"     class="chip chip-btn active"><span>Tout</span> <small id="c_all">0</small></div>
-      <div id="chip-expired" class="chip chip-btn expired"><span>Périmé</span> <small id="c_expired">0</small></div>
-      <div id="chip-j30"     class="chip chip-btn j30"><span>≤ 30 j</span> <small id="c_j30">0</small></div>
-      <div id="chip-j60"     class="chip chip-btn j60"><span>≤ 60 j</span> <small id="c_j60">0</small></div>
-      <div id="chip-later"   class="chip chip-btn later"><span>> 60 j</span> <small id="c_later">0</small></div>
-      <div id="chip-no_date" class="chip chip-btn no_date"><span>Sans date</span> <small id="c_no_date">0</small></div>
-
-      <div class="search" style="margin-left:auto;min-width:260px">
-        <input id="q" type="search" placeholder="Rechercher un item…" />
-        <button class="btn" id="btn-export">Exporter CSV</button>
-      </div>
+    <div class="filters">
+      <label for="days" class="muted">Fenêtre (jours) :</label>
+      <input id="days" type="number" value="30" min="0" step="1" />
+      <input id="q" class="search" placeholder="Rechercher par nom / chemin…" />
+      <button class="btn" id="refresh">Actualiser</button>
     </div>
   </div>
 
   <div class="card">
-    <div class="row">
-      <div class="title">Liste</div>
-      <div class="muted" id="resultCount">0 éléments</div>
-    </div>
-
-    <div style="overflow:auto;margin-top:10px">
-      <table>
-        <thead>
-          <tr>
-            <th class="sortable" data-sort="name">Item</th>
-            <th style="min-width:90px">Quantité</th>
-            <th class="sortable" data-sort="expiry_date" style="min-width:140px">Péremption</th>
-            <th style="min-width:100px">Catégorie</th>
-            <th class="sortable" data-sort="id" style="min-width:90px">ID</th>
-          </tr>
-        </thead>
-        <tbody id="tbody"></tbody>
-      </table>
-    </div>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Article</th>
+          <th class="col-path">Chemin</th>
+          <th class="col-date">Péremption</th>
+          <th class="col-days">Jours restants</th>
+          <th>Statut</th>
+        </tr>
+      </thead>
+    </table>
+    <div id="list" style="margin-top:6px"></div>
+    <div id="empty" class="muted" style="display:none;margin-top:8px">Aucun article dans la fenêtre choisie.</div>
   </div>
 </div>
 
 <script>
-let RAW = {expired:[], j30:[], j60:[], later:[], no_date:[], today:null};
-let FILTER = "all";
-let SEARCH = "";
-let SORT = {key:"expiry_date", dir:1}; // 1 asc, -1 desc
-
-const $$ = (s,p=document)=>p.querySelector(s);
-const $$$ = (s,p=document)=>Array.from(p.querySelectorAll(s));
-
-function fmtDate(d){ return d ? d : "—"; }
-function catLabel(c){
-  if(c==="expired") return "Périmé";
-  if(c==="j30") return "≤ 30 j";
-  if(c==="j60") return "≤ 60 j";
-  if(c==="later") return "> 60 j";
-  return "Sans date";
-}
-function catClass(c){
-  return c==="expired" ? "cat-expired" :
-         c==="j30" ? "cat-j30" :
-         c==="j60" ? "cat-j60" :
-         c==="later" ? "cat-later" : "cat-no_date";
-}
-function rowHTML(it, cat){
-  return `
-    <tr>
-      <td>${it.name}</td>
-      <td>${it.quantity ?? 0}</td>
-      <td>${fmtDate(it.expiry_date)}</td>
-      <td><span class="cat-pill ${catClass(cat)}">${catLabel(cat)}</span></td>
-      <td>${it.id}</td>
-    </tr>
-  `;
-}
-
-function normalize(items, cat){ return (items||[]).map(x=>({...x, __cat:cat})); }
-
-function filtered(){
-  let all = [
-    ...normalize(RAW.expired,"expired"),
-    ...normalize(RAW.j30,"j30"),
-    ...normalize(RAW.j60,"j60"),
-    ...normalize(RAW.later,"later"),
-    ...normalize(RAW.no_date,"no_date"),
-  ];
-  if(FILTER!=="all"){ all = all.filter(x=>x.__cat===FILTER); }
-  if(SEARCH){
-    const q = SEARCH.toLowerCase();
-    all = all.filter(x=> (x.name||"").toLowerCase().includes(q));
+function el(tag, attrs={}, ...children){
+  const e = document.createElement(tag);
+  for(const [k,v] of Object.entries(attrs||{})){
+    if(k==="class") e.className = v;
+    else if(k==="html") e.innerHTML = v;
+    else e.setAttribute(k, v);
   }
-  // sort
-  all.sort((a,b)=>{
-    const k = SORT.key;
-    let av = a[k], bv = b[k];
-    if(k==="expiry_date"){
-      // nulls last
-      av = av || "9999-12-31";
-      bv = bv || "9999-12-31";
-    }
-    if(typeof av === "string") av = av.toLowerCase();
-    if(typeof bv === "string") bv = bv.toLowerCase();
-    if(av < bv) return -1*SORT.dir;
-    if(av > bv) return  1*SORT.dir;
-    return 0;
-  });
-  return all;
+  for(const c of children){ if(c!=null) e.append(c.nodeType?c:document.createTextNode(c)); }
+  return e;
+}
+function badge(status){
+  if(status==="EXPIRED") return el("span",{class:"status-badge badge-exp"},"Périmé");
+  if(status==="SOON") return el("span",{class:"status-badge badge-soon"},"Bientôt");
+  return el("span",{class:"status-badge badge-ok"},"OK");
 }
 
-function render(){
-  // counters
-  $$("#c_expired").textContent = (RAW.expired||[]).length;
-  $$("#c_j30").textContent = (RAW.j30||[]).length;
-  $$("#c_j60").textContent = (RAW.j60||[]).length;
-  $$("#c_later").textContent = (RAW.later||[]).length;
-  $$("#c_no_date").textContent = (RAW.no_date||[]).length;
-  const allCount = ["expired","j30","j60","later","no_date"].reduce((s,k)=>s+(RAW[k]?.length||0),0);
-  $$("#c_all").textContent = allCount;
-
-  // today
-  $$("#todayBadge").textContent = "Aujourd'hui : " + (RAW.today || "—");
-
-  // list
-  const rows = filtered();
-  $$("#resultCount").textContent = rows.length + " élément" + (rows.length>1?"s":"");
-  $$("#tbody").innerHTML = rows.map(r=>rowHTML(r, r.__cat)).join("");
-}
-
-async function fetchAll(){
+function fmtDate(iso){
+  if(!iso) return "—";
   try{
-    const resp = await fetch("/stats/stock/expiry");
-    if(!resp.ok) return;
-    const data = await resp.json();
-    RAW = data || {};
-    render();
-  }catch(e){}
+    const d = new Date(iso+"T00:00:00");
+    return d.toLocaleDateString();
+  }catch(_){ return iso; }
 }
 
-function setFilter(f){
-  FILTER = f;
-  $$$(".chip").forEach(c => c.classList.remove("active"));
-  $$("#chip-"+(f==="all"?"all":f)).classList.add("active");
-  render();
-}
+function renderRows(items){
+  const holder = document.getElementById("list");
+  holder.innerHTML = "";
+  const q = (document.getElementById("q").value || "").toLowerCase().trim();
 
-function bindUI(){
-  // chips
-  $$("#chip-all").onclick = ()=>setFilter("all");
-  $$("#chip-expired").onclick = ()=>setFilter("expired");
-  $$("#chip-j30").onclick = ()=>setFilter("j30");
-  $$("#chip-j60").onclick = ()=>setFilter("j60");
-  $$("#chip-later").onclick = ()=>setFilter("later");
-  $$("#chip-no_date").onclick = ()=>setFilter("no_date");
+  let shown = 0;
+  for(const it of items){
+    const hay = (it.name + " " + (it.path||"")).toLowerCase();
+    if(q && !hay.includes(q)) continue;
 
-  // search
-  $$("#q").addEventListener("input", (e)=>{
-    SEARCH = (e.target.value||"").trim();
-    render();
-  });
-
-  // sorting
-  $$$("th.sortable").forEach(th=>{
-    th.addEventListener("click", ()=>{
-      const key = th.dataset.sort;
-      if(SORT.key === key){ SORT.dir *= -1; } else { SORT.key = key; SORT.dir = 1; }
-      render();
-    });
-  });
-
-  // export
-  $$("#btn-export").onclick = ()=>{
-    const rows = filtered();
-    const headers = ["Item","Quantité","Péremption","Catégorie","ID"];
-    const lines = [headers.join(";")].concat(
-      rows.map(r => [
-        (r.name||"").replace(/;/g, ","),
-        String(r.quantity ?? 0),
-        r.expiry_date || "",
-        catLabel(r.__cat),
-        String(r.id),
-      ].join(";"))
+    const cls = it.status==="EXPIRED" ? "expired" : (it.status==="SOON" ? "soon" : "ok");
+    const row = el("div",{class:"row "+cls},
+      el("div", null,
+        el("div",{class:"strong"}, it.name),
+        el("div",{class:"muted"}, "Qté : ", (it.quantity!=null?it.quantity:1))
+      ),
+      el("div",{class:"col-path muted"}, it.path || "—"),
+      el("div",{class:"col-date"}, fmtDate(it.expiry_date)),
+      el("div",{class:"col-days"}, it.days_left!=null ? it.days_left+" j" : "—"),
+      el("div", null, badge(it.status))
     );
-    const blob = new Blob(["\ufeff" + lines.join("\n")], {type:"text/csv;charset=utf-8"}); // BOM UTF-8
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "peremptions.csv";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  };
+    holder.appendChild(row);
+    shown++;
+  }
+
+  document.getElementById("empty").style.display = shown ? "none" : "block";
 }
 
-document.addEventListener("DOMContentLoaded", ()=>{
-  bindUI();
-  fetchAll();
-  // refresh doux toutes les 2 min
-  setInterval(fetchAll, 120000);
-});
+async function loadData(){
+  const days = parseInt(document.getElementById("days").value||"30", 10);
+  const r = await fetch(`/api/peremption?days=${isNaN(days)?30:days}`, {credentials:"include"});
+  if(!r.ok){ document.getElementById("summary").textContent = "Erreur de chargement"; return; }
+  const data = await r.json();
+  const items = data.items || [];
+  document.getElementById("summary").textContent = `${items.length} article(s) • fenêtre ${data.window_days} j`;
+  renderRows(items);
+}
+
+document.getElementById("refresh").addEventListener("click", loadData);
+document.getElementById("q").addEventListener("input", ()=>loadData());
+
+(function init(){
+  loadData();
+})();
 </script>
 
 {% endblock %}
