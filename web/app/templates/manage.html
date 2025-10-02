@@ -65,6 +65,12 @@
   .modal label{display:block;margin-top:8px;font-size:14px;opacity:.85}
   .modal input, .modal select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#0f1e2f;color:var(--text)}
   .modal .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+  .modal .btn.danger{background:#5b1220;border-color:#75212f;color:#ffd5dc}
+  .modal table.table-expiries{width:100%;border-collapse:collapse;margin-top:6px}
+  .modal table.table-expiries th,
+  .modal table.table-expiries td{border-bottom:1px solid var(--border);padding:6px 6px;text-align:left;font-size:13px}
+  .modal table.table-expiries th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;opacity:.75}
+  .modal table.table-expiries td:last-child{text-align:right;white-space:nowrap}
 
   .selbox{margin-right:8px}
   .node.drag-over{outline:2px dashed #37527a; outline-offset: 4px}
@@ -169,8 +175,38 @@
         <input id="edit-qty" type="number" min="0" value="0">
       </div>
       <div style="flex:1;min-width:180px" id="edit-expiry-wrap">
-        <label>Péremption</label>
+        <label>Péremption (résumé)</label>
         <input id="edit-expiry" type="date">
+      </div>
+    </div>
+    <div id="edit-expiries-section" style="display:none;margin-top:12px">
+      <div class="row" style="justify-content:space-between;align-items:flex-end;margin-bottom:6px">
+        <div style="flex:1">
+          <label style="margin-top:0">Lots de péremption</label>
+          <div class="muted" id="edit-expiries-info">Ajoute une ligne par lot.</div>
+        </div>
+        <button class="btn" type="button" id="edit-exp-open-page">↗ Page détaillée</button>
+      </div>
+      <table class="table-expiries">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Quantité</th>
+            <th>Lot</th>
+            <th>Note</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="edit-expiries-body">
+          <tr><td colspan="5" class="muted">Aucun lot suivi.</td></tr>
+        </tbody>
+      </table>
+      <div class="row" style="margin-top:8px">
+        <input id="edit-exp-new-date" type="date" style="min-width:150px">
+        <input id="edit-exp-new-qty" type="number" min="0" placeholder="Quantité (optionnel)" style="min-width:140px">
+        <input id="edit-exp-new-lot" type="text" placeholder="Lot (optionnel)" style="min-width:140px">
+        <input id="edit-exp-new-note" type="text" placeholder="Note (optionnel)" style="flex:1;min-width:200px">
+        <button class="btn primary" type="button" id="edit-exp-add">Ajouter</button>
       </div>
     </div>
     <div class="actions">
@@ -302,6 +338,12 @@ function perempLabel(iso){
   if(k<=30) return '≤30j';
   if(k<=60) return '≤60j';
   return '>60j';
+}
+function formatISODate(iso){
+  if(!iso) return '—';
+  try{
+    return new Date(iso+'T00:00:00').toLocaleDateString();
+  }catch(_){ return iso; }
 }
 function h(tag, attrs={}, ...kids){
   const el = document.createElement(tag);
@@ -588,6 +630,65 @@ async function confirmDup(){
 }
 
 // Edit
+async function refreshEditExpiries(nodeId){
+  if(!nodeId) return;
+  const section = document.getElementById('edit-expiries-section');
+  if(!section || section.style.display === 'none') return;
+  const tbody = document.getElementById('edit-expiries-body');
+  const info = document.getElementById('edit-expiries-info');
+  tbody.innerHTML = '<tr><td colspan="5" class="muted">Chargement…</td></tr>';
+  if(info) info.textContent = 'Chargement…';
+  try{
+    const data = await api(`/stock/api/item/${nodeId}/expiries`);
+    if(EDIT_NODE_ID !== nodeId) return;
+    if(!Array.isArray(data) || !data.length){
+      tbody.innerHTML = '<tr><td colspan="5" class="muted">Aucun lot suivi.</td></tr>';
+      if(info) info.textContent = 'Aucun lot suivi. Ajoute un lot ci-dessous.';
+      const legacyInput = document.getElementById('edit-expiry');
+      if(legacyInput && EDIT_NODE_ID === nodeId){
+        legacyInput.value = '';
+      }
+      return;
+    }
+    tbody.innerHTML = '';
+    data.forEach(exp=>{
+      const tr = document.createElement('tr');
+      tr.appendChild(h('td', {}, formatISODate(exp.expiry_date)));
+      tr.appendChild(h('td', {}, exp.quantity ?? ''));
+      tr.appendChild(h('td', {}, exp.lot ?? ''));
+      tr.appendChild(h('td', {}, exp.note ?? ''));
+      const delBtn = h('button', {class:'btn danger', type:'button'}, 'Supprimer');
+      delBtn.onclick = async ()=>{
+        if(!confirm('Supprimer cette date ?')) return;
+        try{
+          const res = await api(`/stock/api/expiry/${exp.id}`, {method:'DELETE'});
+          if(res && typeof res === 'object' && 'next_expiry' in res){
+            document.getElementById('edit-expiry').value = res.next_expiry || '';
+          }
+          await refreshEditExpiries(nodeId);
+          await loadTree();
+        }catch(err){
+          alert('Suppression refusée: '+(err.message||err));
+        }
+      };
+      tr.appendChild(h('td', {}, delBtn));
+      tbody.appendChild(tr);
+    });
+    const first = data[0]?.expiry_date || null;
+    let txt = `${data.length} lot${data.length>1?'s':''} suivi${data.length>1?'s':''}`;
+    if(first) txt += ` • Prochaine: ${formatISODate(first)}`;
+    if(info) info.textContent = txt;
+    const legacyInput = document.getElementById('edit-expiry');
+    if(legacyInput && EDIT_NODE_ID === nodeId){
+      legacyInput.value = first || '';
+    }
+  }catch(e){
+    if(EDIT_NODE_ID !== nodeId) return;
+    tbody.innerHTML = '<tr><td colspan="5" class="muted">Impossible de charger les lots.</td></tr>';
+    if(info) info.textContent = 'Erreur: '+(e.message||e);
+  }
+}
+
 function openEditModal(nodeId){
   const n = findNode(nodeId);
   if(!n){ alert('Nœud introuvable'); return; }
@@ -596,18 +697,51 @@ function openEditModal(nodeId){
   document.getElementById('edit-name').value = n.name || '';
   const qtyWrap = document.getElementById('edit-qty-wrap');
   const expWrap = document.getElementById('edit-expiry-wrap');
+  const expSection = document.getElementById('edit-expiries-section');
   if(n.type === 'ITEM'){
     qtyWrap.style.display = '';
     expWrap.style.display = '';
     document.getElementById('edit-qty').value = n.quantity ?? 0;
     document.getElementById('edit-expiry').value = n.expiry_date || '';
+    if(expSection) expSection.style.display = '';
+    document.getElementById('edit-exp-new-date').value = '';
+    document.getElementById('edit-exp-new-qty').value = '';
+    document.getElementById('edit-exp-new-lot').value = '';
+    document.getElementById('edit-exp-new-note').value = '';
+    const infoEl = document.getElementById('edit-expiries-info');
+    if(infoEl) infoEl.textContent = 'Chargement…';
+    const openBtn = document.getElementById('edit-exp-open-page');
+    if(openBtn){
+      openBtn.onclick = ()=> window.open(`/stock/item/${n.id}/expiries`, '_blank');
+    }
+    refreshEditExpiries(n.id);
   }else{
     qtyWrap.style.display = 'none';
     expWrap.style.display = 'none';
+    if(expSection) expSection.style.display = 'none';
   }
   document.getElementById('editModal').classList.add('show');
 }
-function closeEditModal(){ document.getElementById('editModal').classList.remove('show'); EDIT_NODE_ID = null; }
+function closeEditModal(){
+  document.getElementById('editModal').classList.remove('show');
+  EDIT_NODE_ID = null;
+  const section = document.getElementById('edit-expiries-section');
+  if(section){
+    section.style.display = 'none';
+  }
+  const tbody = document.getElementById('edit-expiries-body');
+  if(tbody){
+    tbody.innerHTML = '<tr><td colspan="5" class="muted">Aucun lot suivi.</td></tr>';
+  }
+  const info = document.getElementById('edit-expiries-info');
+  if(info){ info.textContent = 'Ajoute une ligne par lot.'; }
+  const openBtn = document.getElementById('edit-exp-open-page');
+  if(openBtn){ openBtn.onclick = null; }
+  ['edit-exp-new-date','edit-exp-new-qty','edit-exp-new-lot','edit-exp-new-note'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.value = '';
+  });
+}
 async function confirmEdit(){
   const nodeId = EDIT_NODE_ID;
   if(!nodeId) return;
@@ -714,6 +848,44 @@ document.addEventListener('DOMContentLoaded', ()=>{
   // Buttons
   document.getElementById('btn-import').onclick = doImport;
   document.getElementById('btn-root-add').onclick = ()=> openAddModal(null,'GROUP');
+  const expAddBtn = document.getElementById('edit-exp-add');
+  if(expAddBtn){
+    expAddBtn.addEventListener('click', async ()=>{
+      const nodeId = EDIT_NODE_ID;
+      if(!nodeId){ alert('Ouvre un item à éditer avant d’ajouter une péremption.'); return; }
+      const dateValue = (document.getElementById('edit-exp-new-date').value || '').trim();
+      if(!dateValue){ alert('Merci de renseigner une date de péremption.'); return; }
+      const qtyRaw = (document.getElementById('edit-exp-new-qty').value || '').trim();
+      const lot = (document.getElementById('edit-exp-new-lot').value || '').trim();
+      const note = (document.getElementById('edit-exp-new-note').value || '').trim();
+      const payload = { expiry_date: dateValue };
+      if(qtyRaw !== ''){
+        const qtyNum = Number(qtyRaw);
+        if(!Number.isFinite(qtyNum) || qtyNum < 0){ alert('Quantité invalide'); return; }
+        payload.quantity = qtyNum;
+      }
+      if(lot) payload.lot = lot;
+      if(note) payload.note = note;
+      try{
+        const res = await api(`/stock/api/item/${nodeId}/expiries`, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(payload)
+        });
+        document.getElementById('edit-exp-new-date').value = '';
+        document.getElementById('edit-exp-new-qty').value = '';
+        document.getElementById('edit-exp-new-lot').value = '';
+        document.getElementById('edit-exp-new-note').value = '';
+        if(res && typeof res === 'object' && 'next_expiry' in res){
+          document.getElementById('edit-expiry').value = res.next_expiry || '';
+        }
+        await refreshEditExpiries(nodeId);
+        await loadTree();
+      }catch(e){
+        alert('Ajout refusé: '+(e.message||e));
+      }
+    });
+  }
 
   // Close dropdowns on outside click
   document.addEventListener('click', (e)=>{
