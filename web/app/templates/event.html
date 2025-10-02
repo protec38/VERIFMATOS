@@ -105,15 +105,15 @@ const formatVehicleLabel = (vehicleName, operatorName) => {
   const vehicle = (vehicleName || "").trim();
   const operator = (operatorName || "").trim();
   if(vehicle && operator){
-    return `Charge : ${vehicle} - ${operator}`;
+    return `Chargé : ${vehicle} - ${operator}`;
   }
   if(vehicle){
-    return `Charge : ${vehicle}`;
+    return `Chargé : ${vehicle}`;
   }
   if(operator){
-    return `Charge : ${operator}`;
+    return `Chargé : ${operator}`;
   }
-  return "Charge";
+  return "Chargé";
 };
 
 let socketClient = null;
@@ -291,7 +291,7 @@ function renderItem(n){
 
 function renderGroup(n){
   // Badge véhicule (affiché sur racines si présent dans le tree)
-  const vehLabel = n.charged_vehicle ? formatVehicleLabel(n.charged_vehicle_name, n.charged_vehicle_operator) : "Non charge";
+  const vehLabel = n.charged_vehicle ? formatVehicleLabel(n.charged_vehicle_name, n.charged_vehicle_operator) : "Non chargé";
   const veh = el("span", {class:"vehicle "+(n.charged_vehicle?"on":"off")}, vehLabel);
   if(n.is_event_root){
     VEH_LABEL.set(n.id, veh);
@@ -363,7 +363,7 @@ function applyGroupDelta(local, incoming){
     if(lab){
       lab.classList.toggle("on", !!local.charged_vehicle);
       lab.classList.toggle("off", !local.charged_vehicle);
-      lab.textContent = local.charged_vehicle ? formatVehicleLabel(local.charged_vehicle_name, local.charged_vehicle_operator) : "Non charge";
+      lab.textContent = local.charged_vehicle ? formatVehicleLabel(local.charged_vehicle_name, local.charged_vehicle_operator) : "Non chargé";
     }
   }
   const box = GROUP_EL.get(local.id);

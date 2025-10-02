@@ -153,15 +153,15 @@ const formatVehicleLabel = (vehicleName, operatorName) => {
   const vehicle = (vehicleName || "").trim();
   const operator = (operatorName || "").trim();
   if(vehicle && operator){
-    return `Charge : ${vehicle} - ${operator}`;
+    return `Chargé : ${vehicle} - ${operator}`;
   }
   if(vehicle){
-    return `Charge : ${vehicle}`;
+    return `Chargé : ${vehicle}`;
   }
   if(operator){
-    return `Charge : ${operator}`;
+    return `Chargé : ${operator}`;
   }
-  return "Charge";
+  return "Chargé";
 };
 
 let TREE = [];
@@ -402,9 +402,9 @@ function renderGroup(n){
   const chev = el("span",{class:"chev", id:`chev-${n.id}`}, COLLAPSED.get(n.id) ? "▸" : "▾");
   const dot  = statusDot(groupStatus(n)==="OK", groupStatus(n)==="BAD");
 
-  const vehicleLabel = isRoot && n.charged_vehicle ? formatVehicleLabel(n.charged_vehicle_name, n.charged_vehicle_operator) : "Non charge";
+  const vehicleLabel = isRoot && n.charged_vehicle ? formatVehicleLabel(n.charged_vehicle_name, n.charged_vehicle_operator) : "Non chargé";
   const veh  = isRoot
-    ? el("span",{class:"veh "+(n.charged_vehicle?"on":"off")}, n.charged_vehicle ? vehicleLabel : "Non charge")
+    ? el("span",{class:"veh "+(n.charged_vehicle?"on":"off")}, n.charged_vehicle ? vehicleLabel : "Non chargé")
     : null;
   if(isRoot){
     VEH_LABEL.set(n.id, veh);
@@ -546,7 +546,7 @@ function applyGroupDelta(local, incoming){
     if(lab){
       lab.classList.toggle("on", !!local.charged_vehicle);
       lab.classList.toggle("off", !local.charged_vehicle);
-      lab.textContent = local.charged_vehicle ? formatVehicleLabel(local.charged_vehicle_name, local.charged_vehicle_operator) : "Non charge";
+      lab.textContent = local.charged_vehicle ? formatVehicleLabel(local.charged_vehicle_name, local.charged_vehicle_operator) : "Non chargé";
     }
   }
 
