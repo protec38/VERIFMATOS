@@ -85,11 +85,15 @@ def _build_subtree(node: StockNode,
         status = info.get("status", "TODO")
         ok = 1 if status == "OK" else 0
         total = 1
-        qty_selected = selected_quantities.get(node.id) if is_unique else getattr(node, "quantity", None)
-        if is_unique and qty_selected is None:
-            qty_selected = getattr(node, "unique_quantity", None)
-
-        leaf_payload = {
+        if is_unique:
+            qty_selected = selected_quantities.get(node.id)
+            if qty_selected is None:
+                qty_selected = getattr(node, "unique_quantity", None)
+            data["unique_item"] = True
+            data["unique_quantity"] = getattr(node, "unique_quantity", None)
+            data["quantity"] = qty_selected
+            data["selected_quantity"] = qty_selected
+        data.update({
             "last_status": status,
             "last_by": info.get("verifier_name"),
             "last_at": info.get("created_at"),
@@ -99,14 +103,32 @@ def _build_subtree(node: StockNode,
             "missing_qty": info.get("missing_qty"),
         }
 
-        data.update(leaf_payload)
-        if is_unique:
-            data.update({
-                "unique_item": True,
-                "unique_quantity": getattr(node, "unique_quantity", None),
-                "quantity": qty_selected,
-                "selected_quantity": qty_selected,
-            })
+        if node.type == NodeType.ITEM:
+            data.update(leaf_payload)
+            return data, ok, total
+
+        # unique parent behaving like a group -> attach synthetic child
+        data.update({
+            "unique_item": True,
+            "unique_parent": True,
+            "unique_quantity": getattr(node, "unique_quantity", None),
+            "quantity": qty_selected,
+            "selected_quantity": qty_selected,
+        })
+
+        child = {
+            "id": f"unique-{node.id}",
+            "name": node.name,
+            "type": NodeType.ITEM.name,
+            "level": node.level + 1,
+            "quantity": qty_selected,
+            "unique_item": True,
+            "unique_from_parent": True,
+            "unique_parent_id": node.id,
+            "target_node_id": node.id,
+            **leaf_payload,
+        }
+        data["children"].append(child)
         return data, ok, total
 
     # Groupe = GROUP

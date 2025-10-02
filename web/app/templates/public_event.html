@@ -206,13 +206,8 @@ function el(tag, attrs={}, ...children){
   return e;
 }
 const isUnique = n => !!(n && n.unique_item);
-const domSafeId = id => String(id).replace(/[^a-zA-Z0-9_-]/g, '-');
-const isItem  = n => {
-  if(!n) return false;
-  if((n.type||"").toUpperCase()==="ITEM") return true;
-  return isUnique(n);
-};
-const isGroup = n => (n && (n.type||"").toUpperCase()==="GROUP");
+const isItem  = n => (n && ((n.type||"").toUpperCase()==="ITEM" || isUnique(n)));
+const isGroup = n => !isItem(n);
 function normStatus(s){
   s = (s||"").toUpperCase();
   if(s==="OK") return "OK";
@@ -323,37 +318,15 @@ function renderItem(n){
     expSummary,
     showWarn ? el("span",{class:"warn", title:`Péremption dans ${dl} jour(s)`},"⚠️ Péremption") : null
   );
+  const targetId = targetNodeId(n);
   const safeId = domSafeId(n.id);
 
   const right = el("div",{class:"right"},
-    el("button",{class:"btn xs success", onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(n.id,"OK"); }},"OK"),
-    el("button",{class:"btn xs ghost",   onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(n.id,"NOT_OK"); }},"Non conforme")
+    el("button",{class:"btn xs success", onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(targetId,"OK"); }},"OK"),
+    el("button",{class:"btn xs ghost",   onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(targetId,"NOT_OK"); }},"Non conforme")
   );
 
   const wrap = el("div",{class:"item "+(s==="OK"?"state-ok":(s==="NOT_OK"?"state-bad":"state-wait")), id:`item-${safeId}`}, left, right);
-  ITEM_EL.set(n.id, wrap);
-  return wrap;
-}
-
-function renderUniqueParentRow(n){
-  const s = normStatus(n.last_status);
-  const qtyValue = (n.selected_quantity != null) ? n.selected_quantity : (n.quantity != null ? n.quantity : (n.unique_quantity != null ? n.unique_quantity : 1));
-  const safeId = domSafeId(n.id);
-
-  const left = el("div",{class:"left"},
-    el("span",{class:"status-dot "+(s==="OK"?"dot-ok":(s==="NOT_OK"?"dot-bad":"dot-wait"))}),
-    el("span",{class:"label"}, "Qté sélectionnée"),
-    el("span",{class:"qty"}, `Qté: ${qtyValue}`),
-    statusChip(s),
-    n.last_by ? el("span",{class:"meta"}, `• par ${n.last_by}`) : null
-  );
-
-  const right = el("div",{class:"right"},
-    el("button",{class:"btn xs success", onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(n.id,"OK"); }},"OK"),
-    el("button",{class:"btn xs ghost",   onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(n.id,"NOT_OK"); }},"Non conforme")
-  );
-
-  const wrap = el("div",{class:`item unique-parent ${s==="OK"?"state-ok":(s==="NOT_OK"?"state-bad":"state-wait")}`, id:`item-${safeId}`}, left, right);
   ITEM_EL.set(n.id, wrap);
   return wrap;
 }
@@ -455,10 +428,6 @@ function applyItemDelta(local, incoming){
   local.last_status = normStatus(incoming.last_status || "PENDING");
   local.quantity    = (incoming.quantity!=null)?incoming.quantity:local.quantity;
   local.last_by     = (incoming.last_by!=null)?incoming.last_by:local.last_by;
-  if(typeof incoming.selected_quantity !== "undefined"){
-    local.selected_quantity = incoming.selected_quantity;
-    if(incoming.quantity == null) local.quantity = incoming.selected_quantity;
-  }
   if(typeof incoming.target_node_id !== "undefined") local.target_node_id = incoming.target_node_id;
   if(typeof incoming.unique_from_parent !== "undefined") local.unique_from_parent = incoming.unique_from_parent;
 

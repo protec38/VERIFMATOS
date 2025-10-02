@@ -128,6 +128,29 @@ def _serialize(node: StockNode,
         base["children"] = []
         return base
 
+    # GROUP
+    is_unique = bool(getattr(node, "unique_item", False))
+    if is_unique:
+        info = latest.get(int(node.id), {})
+        qty_selected = selected_quantities.get(int(node.id))
+        if qty_selected is None:
+            qty_selected = getattr(node, "unique_quantity", None)
+        base.update({
+            "unique_item": True,
+            "unique_quantity": getattr(node, "unique_quantity", None),
+            "quantity": qty_selected,
+            "selected_quantity": qty_selected,
+            "last_status": info.get("status", "TODO"),
+            "last_by": info.get("by"),
+            "last_at": info.get("at"),
+            "comment": info.get("comment"),
+            "issue_code": info.get("issue_code"),
+            "observed_qty": info.get("observed_qty"),
+            "missing_qty": info.get("missing_qty"),
+        })
+        base["children"] = []
+        return base
+
     children = []
     # relation ORM “children” ou requête fallback
     if hasattr(node, "children"):
@@ -149,26 +172,9 @@ def _serialize(node: StockNode,
         if getattr(ens, "comment", None):
             base["comment"] = ens.comment
 
-    is_unique = bool(getattr(node, "unique_item", False))
     base["unique_item"] = is_unique
     if is_unique:
-        info = latest.get(int(node.id), {})
-        qty_selected = selected_quantities.get(int(node.id))
-        if qty_selected is None:
-            qty_selected = getattr(node, "unique_quantity", None)
-
-        base.update({
-            "unique_quantity": getattr(node, "unique_quantity", None),
-            "quantity": qty_selected,
-            "selected_quantity": qty_selected,
-            "last_status": info.get("status", "TODO"),
-            "last_by": info.get("by"),
-            "last_at": info.get("at"),
-            "comment": info.get("comment"),
-            "issue_code": info.get("issue_code"),
-            "observed_qty": info.get("observed_qty"),
-            "missing_qty": info.get("missing_qty"),
-        })
+        base["unique_quantity"] = getattr(node, "unique_quantity", None)
     return base
 
 def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
@@ -207,6 +213,9 @@ def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
 def tree_stats(tree: List[Dict[str, Any]]) -> Dict[str, int]:
     """Calcule un petit récapitulatif OK / NOT_OK / TODO."""
     items: List[Dict[str, Any]] = []
+
+    def _is_unique_parent(n: Dict[str, Any]) -> bool:
+        return bool(n.get("unique_parent"))
 
     def collect(n: Dict[str, Any]):
         if ((n.get("type") or "").upper() == "ITEM") or n.get("unique_item"):
