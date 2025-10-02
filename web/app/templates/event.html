@@ -126,8 +126,9 @@ function el(tag, attrs={}, ...children){
   for(const c of children){ if(c!=null) e.append(c.nodeType?c:document.createTextNode(c)); }
   return e;
 }
-const isItem = n => (n.type||"").toUpperCase()==="ITEM";
-const isGroup = n => (n.type||"").toUpperCase()==="GROUP";
+const isUnique = n => !!(n && n.unique_item);
+const isItem = n => (n && ((n.type||"").toUpperCase()==="ITEM" || isUnique(n)));
+const isGroup = n => !isItem(n);
 function normStatus(s){
   s = (s||"").toUpperCase();
   if(s==="OK") return "OK";

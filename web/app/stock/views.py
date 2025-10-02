@@ -88,6 +88,22 @@ def _parse_iso_date(s: Optional[str]) -> Optional[date]:
     return date.fromisoformat(s)
 
 
+def _parse_bool(val: Any) -> Optional[bool]:
+    if val is None:
+        return None
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        return bool(val)
+    if isinstance(val, str):
+        v = val.strip().lower()
+        if v in ("1", "true", "yes", "on", "oui"):
+            return True
+        if v in ("0", "false", "no", "off", "non"):
+            return False
+    return bool(val)
+
+
 # -------------------------------------------------
 # Sécurité: créer la table des péremptions si manquante (lors 1er accès)
 # -------------------------------------------------
@@ -180,6 +196,13 @@ def create_node_api():
     type_str = (data.get("type") or "").strip()
     parent_id = data.get("parent_id")
     quantity = data.get("quantity")
+    unique_item_raw = data.get("unique_item")
+    if unique_item_raw is None and "single_object" in data:
+        unique_item_raw = data.get("single_object")
+    if unique_item_raw is None and "is_unique_item" in data:
+        unique_item_raw = data.get("is_unique_item")
+    unique_item = bool(_parse_bool(unique_item_raw)) if unique_item_raw is not None else False
+    unique_quantity = data.get("unique_quantity")
 
     if not name:
         return _bad_request("name required")
@@ -192,7 +215,27 @@ def create_node_api():
         else:
             quantity = None
 
-        node = create_node(name=name, type_=type_, parent_id=parent_id, quantity=quantity)
+        if type_ == NodeType.GROUP:
+            if unique_item:
+                try:
+                    fallback_val = data.get("unique_max")
+                    if unique_quantity is None and fallback_val is not None:
+                        unique_quantity = fallback_val
+                    if unique_quantity is None:
+                        raise ValueError
+                    unique_quantity = int(unique_quantity)
+                except Exception:
+                    return _bad_request("unique_quantity invalid")
+            else:
+                unique_quantity = None
+        node = create_node(
+            name=name,
+            type_=type_,
+            parent_id=parent_id,
+            quantity=quantity,
+            unique_item=unique_item if type_ == NodeType.GROUP else False,
+            unique_quantity=unique_quantity if type_ == NodeType.GROUP else None,
+        )
         node = db.session.get(StockNode, node.id)
 
         needs_commit = False
@@ -258,12 +301,36 @@ def update_node_api(node_id: int):
 
         # qty only for ITEM
         qty = data.get("quantity", node.quantity)
+        unique_item_raw = data.get("unique_item")
+        if unique_item_raw is None and "single_object" in data:
+            unique_item_raw = data.get("single_object")
+        if unique_item_raw is None and "is_unique_item" in data:
+            unique_item_raw = data.get("is_unique_item")
+        unique_item_bool = _parse_bool(unique_item_raw)
+        unique_quantity = data.get("unique_quantity")
+        if unique_quantity is None and "unique_max" in data:
+            unique_quantity = data.get("unique_max")
         if node.type == NodeType.ITEM and qty is not None:
             qty = int(qty)
         else:
             qty = None if node.type != NodeType.ITEM else node.quantity
 
-        node = update_node(node_id=node_id, name=name, parent_id=parent_id, quantity=qty)
+        if node.type == NodeType.GROUP:
+            if unique_item_raw is not None and not unique_item_bool:
+                unique_quantity = None
+            if unique_quantity is not None:
+                try:
+                    unique_quantity = int(unique_quantity)
+                except Exception:
+                    return _bad_request("unique_quantity invalid")
+        node = update_node(
+            node_id=node_id,
+            name=name,
+            parent_id=parent_id,
+            quantity=qty,
+            unique_item=unique_item_bool if unique_item_raw is not None else None,
+            unique_quantity=unique_quantity if node.type == NodeType.GROUP else None,
+        )
 
         needs_commit = False
 
@@ -366,6 +433,8 @@ def export_stock_json():
             "name": n.name,
             "type": n.type.name,
             "quantity": n.quantity if n.type == NodeType.ITEM else None,
+            "unique_item": bool(getattr(n, "unique_item", False)),
+            "unique_quantity": getattr(n, "unique_quantity", None) if getattr(n, "unique_item", False) else None,
             # rétro compat: garde l’ancienne colonne si elle existe
             "expiry_date": n.expiry_date.isoformat() if getattr(n, "expiry_date", None) else None,
             "children": [],
@@ -435,7 +504,24 @@ def import_stock():
             quantity = None
             if type_ == NodeType.ITEM:
                 quantity = int(node_dict.get("quantity") or 0)
-            node = create_node(name=name, type_=type_, parent_id=parent_id, quantity=quantity)
+            unique_item = bool(node_dict.get("unique_item") or node_dict.get("single_object"))
+            unique_quantity_val: Optional[int] = None
+            if type_ == NodeType.GROUP and unique_item:
+                uq_raw = node_dict.get("unique_quantity")
+                if uq_raw is None:
+                    uq_raw = node_dict.get("unique_max")
+                try:
+                    unique_quantity_val = int(uq_raw) if uq_raw is not None else 0
+                except Exception:
+                    unique_quantity_val = 0
+            node = create_node(
+                name=name,
+                type_=type_,
+                parent_id=parent_id,
+                quantity=quantity,
+                unique_item=unique_item if type_ == NodeType.GROUP else False,
+                unique_quantity=unique_quantity_val if (type_ == NodeType.GROUP and unique_item) else None,
+            )
 
             needs_flush = False
             # rétro compat: single expiry_date

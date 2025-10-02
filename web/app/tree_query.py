@@ -83,7 +83,8 @@ def _serialize(node: StockNode,
                latest: Dict[int, Dict[str, Any]],
                is_root: bool,
                ens_map: Dict[int, EventNodeStatus],
-               exp_map: Dict[int, List[StockItemExpiry]]) -> Dict[str, Any]:
+               exp_map: Dict[int, List[StockItemExpiry]],
+               selected_quantities: Dict[int, Optional[int]]) -> Dict[str, Any]:
     base: Dict[str, Any] = {
         "id": node.id,
         "name": node.name,
@@ -128,15 +129,37 @@ def _serialize(node: StockNode,
         return base
 
     # GROUP
+    is_unique = bool(getattr(node, "unique_item", False))
+    if is_unique:
+        info = latest.get(int(node.id), {})
+        qty_selected = selected_quantities.get(int(node.id))
+        if qty_selected is None:
+            qty_selected = getattr(node, "unique_quantity", None)
+        base.update({
+            "unique_item": True,
+            "unique_quantity": getattr(node, "unique_quantity", None),
+            "quantity": qty_selected,
+            "selected_quantity": qty_selected,
+            "last_status": info.get("status", "TODO"),
+            "last_by": info.get("by"),
+            "last_at": info.get("at"),
+            "comment": info.get("comment"),
+            "issue_code": info.get("issue_code"),
+            "observed_qty": info.get("observed_qty"),
+            "missing_qty": info.get("missing_qty"),
+        })
+        base["children"] = []
+        return base
+
     children = []
     # relation ORM “children” ou requête fallback
     if hasattr(node, "children"):
         for c in node.children:
-            children.append(_serialize(c, latest, False, ens_map, exp_map))
+            children.append(_serialize(c, latest, False, ens_map, exp_map, selected_quantities))
     else:
         childs = StockNode.query.filter_by(parent_id=node.id).all()
         for c in childs:
-            children.append(_serialize(c, latest, False, ens_map, exp_map))
+            children.append(_serialize(c, latest, False, ens_map, exp_map, selected_quantities))
 
     base["children"] = children
     base["is_event_root"] = bool(is_root)
@@ -149,6 +172,9 @@ def _serialize(node: StockNode,
         if getattr(ens, "comment", None):
             base["comment"] = ens.comment
 
+    base["unique_item"] = is_unique
+    if is_unique:
+        base["unique_quantity"] = getattr(node, "unique_quantity", None)
     return base
 
 def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
@@ -157,6 +183,7 @@ def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
         event_stock.select().where(event_stock.c.event_id == event_id)
     ).fetchall()
     root_ids = [r.node_id for r in rows]
+    selected_quantities: Dict[int, Optional[int]] = {int(r.node_id): r.selected_quantity for r in rows}
     root_nodes: List[StockNode] = []
     if root_ids:
         root_nodes = StockNode.query.filter(StockNode.id.in_(root_ids)).all()
@@ -164,7 +191,7 @@ def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
     # Récupère tous les ITEM ids pour batcher verifs + expirations
     item_ids: List[int] = []
     def collect_items(n: StockNode):
-        if n.type == NodeType.ITEM:
+        if n.type == NodeType.ITEM or getattr(n, "unique_item", False):
             item_ids.append(int(n.id))
         else:
             if hasattr(n, "children") and n.children:
@@ -180,7 +207,7 @@ def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
     ens_map = _ens_map(event_id)
     exp_map = _expiries_for_items(item_ids)
 
-    return [_serialize(r, latest, True, ens_map, exp_map) for r in root_nodes]
+    return [_serialize(r, latest, True, ens_map, exp_map, selected_quantities) for r in root_nodes]
 
 # --------- stats (optionnelles) ----------
 def tree_stats(tree: List[Dict[str, Any]]) -> Dict[str, int]:
@@ -188,7 +215,7 @@ def tree_stats(tree: List[Dict[str, Any]]) -> Dict[str, int]:
     items: List[Dict[str, Any]] = []
 
     def collect(n: Dict[str, Any]):
-        if (n.get("type") or "").upper() == "ITEM":
+        if ((n.get("type") or "").upper() == "ITEM") or n.get("unique_item"):
             items.append(n)
         for c in n.get("children") or []:
             collect(c)
