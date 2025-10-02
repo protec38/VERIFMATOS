@@ -75,7 +75,7 @@ async function loadList(){
   for(const e of data){
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td>${fmt(e.date)}</td>
+      <td>${fmt(e.expiry_date)}</td>
       <td>${e.quantity ?? ""}</td>
       <td>${e.lot ?? ""}</td>
       <td>${e.note ?? ""}</td>

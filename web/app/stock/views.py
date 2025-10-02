@@ -31,6 +31,30 @@ except Exception:
     StockItemExpiry = None  # type: ignore
     HAS_EXP_MODEL = False
 
+
+def _sync_item_legacy_expiry(item: Optional[StockNode]) -> Dict[str, Any]:
+    """Synchronise la colonne héritée ``expiry_date`` avec les lots multiples.
+
+    Retourne également un petit résumé (compte, prochaine date) pour éviter de
+    recalculer ces informations plusieurs fois dans les routes.
+    """
+
+    if not HAS_EXP_MODEL or not item or item.type != NodeType.ITEM:
+        return {"count": 0, "next": None}
+
+    rows: List[StockItemExpiry] = (  # type: ignore[misc]
+        StockItemExpiry.query
+        .filter_by(node_id=item.id)
+        .order_by(StockItemExpiry.expiry_date.asc(), StockItemExpiry.id.asc())
+        .all()
+    )
+
+    next_date: Optional[date] = rows[0].expiry_date if rows else None
+    item.expiry_date = next_date
+    # Flush pour s'assurer que l'UI (tree JSON) voit la mise à jour.
+    db.session.flush()
+    return {"count": len(rows), "next": next_date}
+
 bp = Blueprint("stock", __name__)
 
 
@@ -169,16 +193,18 @@ def create_node_api():
             quantity = None
 
         node = create_node(name=name, type_=type_, parent_id=parent_id, quantity=quantity)
+        node = db.session.get(StockNode, node.id)
 
+        needs_commit = False
         # rétro compat: single expiry_date (facultatif)
         expiry = _parse_iso_date(data.get("expiry_date"))
         if type_ == NodeType.ITEM and expiry:
             node.expiry_date = expiry
-            db.session.commit()
+            needs_commit = True
 
         # nouveau: tableau "expiries" [{expiry_date, quantity?, lot?, note?}]
         expiries = data.get("expiries")
-        if type_ == NodeType.ITEM and expiries and _ensure_expiry_table():
+        if type_ == NodeType.ITEM and isinstance(expiries, list) and _ensure_expiry_table():
             for e in expiries:
                 ed = _parse_iso_date((e or {}).get("expiry_date"))
                 if not ed:
@@ -195,6 +221,10 @@ def create_node_api():
                     lot=(e.get("lot") or None),
                     note=(e.get("note") or None),
                 ))
+            _sync_item_legacy_expiry(node)
+            needs_commit = True
+
+        if needs_commit:
             db.session.commit()
 
         return jsonify({
@@ -233,12 +263,14 @@ def update_node_api(node_id: int):
         else:
             qty = None if node.type != NodeType.ITEM else node.quantity
 
-        update_node(node_id=node_id, name=name, parent_id=parent_id, quantity=qty)
+        node = update_node(node_id=node_id, name=name, parent_id=parent_id, quantity=qty)
+
+        needs_commit = False
 
         # rétro compat: single expiry_date (ITEM uniquement)
         if node.type == NodeType.ITEM and "expiry_date" in data:
             node.expiry_date = _parse_iso_date(data.get("expiry_date"))
-            db.session.commit()
+            needs_commit = True
 
         # NOUVEAU (optionnel): remplacement total des expiries via "expiries"
         if node.type == NodeType.ITEM and isinstance(data.get("expiries"), list) and _ensure_expiry_table():
@@ -260,6 +292,10 @@ def update_node_api(node_id: int):
                     lot=(e.get("lot") or None),
                     note=(e.get("note") or None),
                 ))
+            _sync_item_legacy_expiry(node)
+            needs_commit = True
+
+        if needs_commit:
             db.session.commit()
 
         node = db.session.get(StockNode, node_id)  # refresh
@@ -401,10 +437,11 @@ def import_stock():
                 quantity = int(node_dict.get("quantity") or 0)
             node = create_node(name=name, type_=type_, parent_id=parent_id, quantity=quantity)
 
+            needs_flush = False
             # rétro compat: single expiry_date
             if type_ == NodeType.ITEM and node_dict.get("expiry_date"):
                 node.expiry_date = _parse_iso_date(node_dict.get("expiry_date"))
-                db.session.flush()
+                needs_flush = True
 
             # (optionnel) si l’import fournit "expiries"
             exps = node_dict.get("expiries")
@@ -425,6 +462,10 @@ def import_stock():
                         lot=(e.get("lot") or None),
                         note=(e.get("note") or None),
                     ))
+                _sync_item_legacy_expiry(node)
+                needs_flush = True
+
+            if needs_flush:
                 db.session.flush()
 
             for c in node_dict.get("children") or []:
@@ -589,8 +630,15 @@ def api_add_expiry(item_id: int):
             note=(payload.get("note") or None),
         )
         db.session.add(rec)
+        summary = _sync_item_legacy_expiry(item)
         db.session.commit()
-        return jsonify({"ok": True, "id": rec.id})
+        next_iso = summary["next"].isoformat() if summary.get("next") else None
+        return jsonify({
+            "ok": True,
+            "id": rec.id,
+            "next_expiry": next_iso,
+            "lots": summary.get("count", 0),
+        })
     except Exception as e:
         db.session.rollback()
         return _bad_request(str(e))
@@ -608,9 +656,16 @@ def api_delete_expiry(exp_id: int):
         rec = db.session.get(StockItemExpiry, int(exp_id))  # type: ignore[misc]
         if not rec:
             return _bad_request("Not found", 404)
+        item = rec.item
         db.session.delete(rec)
+        summary = _sync_item_legacy_expiry(item)
         db.session.commit()
-        return jsonify({"ok": True})
+        next_iso = summary["next"].isoformat() if summary.get("next") else None
+        return jsonify({
+            "ok": True,
+            "next_expiry": next_iso,
+            "lots": summary.get("count", 0),
+        })
     except Exception as e:
         db.session.rollback()
         return _bad_request(str(e))
