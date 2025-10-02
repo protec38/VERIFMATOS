@@ -37,7 +37,7 @@
   .badge-ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
 
   .muted{color:#9fb0c6}
-  .qty{opacity:.9;font-size:12px;border:1px dashed var(--border);border-radius:8px;padding:2px 8px;margin-left:6px}
+  .details{opacity:.85;font-size:12px;margin-top:4px}
   .search{flex:1}
   @media (max-width: 820px){
     .row{grid-template-columns: 1fr 140px 100px;gap:8px}
@@ -114,10 +114,16 @@ function renderRows(items){
     if(q && !hay.includes(q)) continue;
 
     const cls = it.status==="EXPIRED" ? "expired" : (it.status==="SOON" ? "soon" : "ok");
+    const metaParts = [];
+    if(it.quantity != null) metaParts.push(`Qté cible : ${it.quantity}`);
+    if(it.lot_quantity != null) metaParts.push(`Qté lot : ${it.lot_quantity}`);
+    if(it.lot) metaParts.push(`Lot ${it.lot}`);
+    if(it.note) metaParts.push(it.note);
+
     const row = el("div",{class:"row "+cls},
       el("div", null,
         el("div",{class:"strong"}, it.name),
-        el("div",{class:"muted"}, "Qté : ", (it.quantity!=null?it.quantity:1))
+        metaParts.length ? el("div",{class:"muted details"}, metaParts.join(" • ")) : el("div",{class:"muted"}, "Qté cible : ", (it.quantity!=null?it.quantity:"—"))
       ),
       el("div",{class:"col-path muted"}, it.path || "—"),
       el("div",{class:"col-date"}, fmtDate(it.expiry_date)),
@@ -137,7 +143,7 @@ async function loadData(){
   if(!r.ok){ document.getElementById("summary").textContent = "Erreur de chargement"; return; }
   const data = await r.json();
   const items = data.items || [];
-  document.getElementById("summary").textContent = `${items.length} article(s) • fenêtre ${data.window_days} j`;
+  document.getElementById("summary").textContent = `${items.length} entrée(s) • fenêtre ${data.window_days} j`;
   renderRows(items);
 }
 

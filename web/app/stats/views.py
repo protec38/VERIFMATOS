@@ -1,14 +1,16 @@
 # app/stats/views.py — Endpoints de statistiques d'événement + péremptions
 from __future__ import annotations
 from datetime import date
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from flask import Blueprint, jsonify
 from flask_login import login_required, current_user
 
 from .. import db
-from ..models import Role, StockNode, NodeType
+from ..models import Role, StockNode, StockItemExpiry, NodeType
 from ..reports.utils import compute_summary, build_event_tree, latest_verifications
+
+from sqlalchemy.exc import ProgrammingError, OperationalError
 
 bp = Blueprint("stats", __name__)
 
@@ -80,6 +82,30 @@ def _serialize_item(n: StockNode) -> Dict[str, Any]:
         "parent_id": n.parent_id,
     }
 
+
+def _expiries_by_item() -> Dict[int, List[StockItemExpiry]]:
+    try:
+        rows: List[StockItemExpiry] = (
+            StockItemExpiry.query
+            .order_by(
+                StockItemExpiry.node_id.asc(),
+                StockItemExpiry.expiry_date.asc(),
+                StockItemExpiry.id.asc(),
+            )
+            .all()
+        )
+    except (ProgrammingError, OperationalError):
+        StockItemExpiry.query.session.rollback()
+        return {}
+    except Exception:
+        StockItemExpiry.query.session.rollback()
+        return {}
+
+    mapping: Dict[int, List[StockItemExpiry]] = {}
+    for row in rows:
+        mapping.setdefault(row.node_id, []).append(row)
+    return mapping
+
 @bp.get("/stock/expiry")
 @login_required
 def stock_expiry_list():
@@ -103,10 +129,37 @@ def stock_expiry_list():
         # garder même ceux sans date (pour "no_date")
     )
 
+    expiries_map = _expiries_by_item()
+
     buckets: Dict[str, List[Dict[str, Any]]] = {"expired": [], "j30": [], "j60": [], "later": [], "no_date": []}
     for n in q.all():
-        cat = _classify_expiry(getattr(n, "expiry_date", None), today)
-        buckets[cat].append(_serialize_item(n))
+        entries = []
+        closest: Optional[date] = None
+        for entry in expiries_map.get(n.id, []):
+            delta = (entry.expiry_date - today).days
+            entries.append(
+                {
+                    "id": entry.id,
+                    "expiry_date": entry.expiry_date.isoformat(),
+                    "quantity": entry.quantity,
+                    "lot": entry.lot,
+                    "note": entry.note,
+                    "days_left": delta,
+                    "status": _classify_expiry(entry.expiry_date, today),
+                }
+            )
+            if closest is None or entry.expiry_date < closest:
+                closest = entry.expiry_date
+
+        fallback_date = getattr(n, "expiry_date", None)
+        effective_date = closest or fallback_date
+        cat = _classify_expiry(effective_date, today)
+        payload = _serialize_item(n)
+        payload["expiry_date"] = effective_date.isoformat() if effective_date else None
+        if entries:
+            payload["expiries"] = entries
+            payload["next_expiry"] = entries[0]
+        buckets[cat].append(payload)
 
     # Tri par date (quand présente), puis par nom
     def sort_key(it: Dict[str, Any]):
@@ -131,9 +184,17 @@ def stock_expiry_counts():
         .filter(StockNode.type == NodeType.ITEM)
     )
 
+    expiries_map = _expiries_by_item()
+
     counts = {"expired": 0, "j30": 0, "j60": 0, "later": 0, "no_date": 0}
     for n in q.all():
-        cat = _classify_expiry(getattr(n, "expiry_date", None), today)
+        closest: Optional[date] = None
+        for entry in expiries_map.get(n.id, []):
+            if closest is None or entry.expiry_date < closest:
+                closest = entry.expiry_date
+        fallback_date = getattr(n, "expiry_date", None)
+        effective_date = closest or fallback_date
+        cat = _classify_expiry(effective_date, today)
         counts[cat] += 1
 
     return jsonify({"today": today.isoformat(), **counts})
