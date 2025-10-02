@@ -204,19 +204,21 @@ function renderItem(n){
   const statusLbl = s==="OK" ? "✅ OK" : (s==="NOT_OK" ? "❌ Non conforme" : "⏳ En attente");
   const by = n.last_by ? ` (${n.last_by})` : "";
   const actionsEnabled = IS_OPEN;
+  const targetId = targetNodeId(n);
+  const safeId = domSafeId(n.id);
 
-  const qtySpan = el("span", {class:"qty", id:`qty-${n.id}`}, `Qté: ${n.quantity ?? 1}`);
+  const qtySpan = el("span", {class:"qty", id:`qty-${safeId}`}, `Qté: ${n.quantity ?? 1}`);
   ITEM_QTY_TXT.set(n.id, qtySpan);
 
-  const statusDiv = el("div", {class:"muted", id:`status-${n.id}`}, `Dernier statut: ${statusLbl}${by}`);
+  const statusDiv = el("div", {class:"muted", id:`status-${safeId}`}, `Dernier statut: ${statusLbl}${by}`);
   ITEM_STATUS_TXT.set(n.id, statusDiv);
 
   const right = el("div", {class:"row"},
-    el("button", {class:"btn success", disabled:!actionsEnabled, onclick:()=>verify(n.id,"OK")}, "OK"),
-    el("button", {class:"btn ghost", disabled:!actionsEnabled, onclick:()=>verify(n.id,"NOT_OK")}, "Non conforme"),
+    el("button", {class:"btn success", disabled:!actionsEnabled, onclick:()=>verify(targetId,"OK")}, "OK"),
+    el("button", {class:"btn ghost", disabled:!actionsEnabled, onclick:()=>verify(targetId,"NOT_OK")}, "Non conforme"),
   );
 
-  const wrap = el("div", {class:"item "+itemStateClass(n), id:`item-${n.id}`},
+  const wrap = el("div", {class:"item "+itemStateClass(n), id:`item-${safeId}`},
     el("div", null,
       el("div", {class:"name"}, statusDot(s==="OK", s==="NOT_OK"), " ", n.name, " ", qtySpan),
       statusDiv
@@ -264,6 +266,8 @@ function applyItemDelta(local, incoming){
   local.last_status = normStatus(incoming.last_status || "PENDING");
   local.last_by = incoming.last_by || "";
   if(incoming.quantity != null) local.quantity = incoming.quantity;
+  if(typeof incoming.target_node_id !== "undefined") local.target_node_id = incoming.target_node_id;
+  if(typeof incoming.unique_from_parent !== "undefined") local.unique_from_parent = incoming.unique_from_parent;
 
   const box = ITEM_EL.get(local.id);
   const statusDiv = ITEM_STATUS_TXT.get(local.id);

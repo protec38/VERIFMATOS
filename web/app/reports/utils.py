@@ -97,10 +97,38 @@ def _build_subtree(node: StockNode,
             "last_status": status,
             "last_by": info.get("verifier_name"),
             "last_at": info.get("created_at"),
+            "comment": info.get("comment"),
             "issue_code": info.get("issue_code"),
             "observed_qty": info.get("observed_qty"),
             "missing_qty": info.get("missing_qty"),
+        }
+
+        if node.type == NodeType.ITEM:
+            data.update(leaf_payload)
+            return data, ok, total
+
+        # unique parent behaving like a group -> attach synthetic child
+        data.update({
+            "unique_item": True,
+            "unique_parent": True,
+            "unique_quantity": getattr(node, "unique_quantity", None),
+            "quantity": qty_selected,
+            "selected_quantity": qty_selected,
         })
+
+        child = {
+            "id": f"unique-{node.id}",
+            "name": node.name,
+            "type": NodeType.ITEM.name,
+            "level": node.level + 1,
+            "quantity": qty_selected,
+            "unique_item": True,
+            "unique_from_parent": True,
+            "unique_parent_id": node.id,
+            "target_node_id": node.id,
+            **leaf_payload,
+        }
+        data["children"].append(child)
         return data, ok, total
 
     # Groupe = GROUP

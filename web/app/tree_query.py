@@ -214,6 +214,9 @@ def tree_stats(tree: List[Dict[str, Any]]) -> Dict[str, int]:
     """Calcule un petit récapitulatif OK / NOT_OK / TODO."""
     items: List[Dict[str, Any]] = []
 
+    def _is_unique_parent(n: Dict[str, Any]) -> bool:
+        return bool(n.get("unique_parent"))
+
     def collect(n: Dict[str, Any]):
         if ((n.get("type") or "").upper() == "ITEM") or n.get("unique_item"):
             items.append(n)
