@@ -2,7 +2,7 @@
 from __future__ import annotations
 import enum
 from datetime import datetime, date
-from typing import Optional
+from typing import Optional, List
 
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy import CheckConstraint, UniqueConstraint, Index
@@ -95,8 +95,18 @@ class StockNode(db.Model):
 
     # Quantité cible pour les ITEMS uniquement
     quantity = db.Column(db.Integer, nullable=True)
-    # ⬇️ Nouveau : date de péremption (pertinent pour ITEM, sinon None)
+
+    # (Legacy) Date de péremption simple. Gardée pour compatibilité ascendante.
+    # Désormais on utilise StockItemExpiry pour plusieurs dates.
     expiry_date = db.Column(db.Date, nullable=True)
+
+    # Relation vers les multiples dates de péremption
+    expiries = db.relationship(
+        "StockItemExpiry",
+        backref="item",
+        lazy="dynamic",
+        cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         CheckConstraint("level >= 0 AND level <= 5", name="ck_stocknode_level_0_5"),
@@ -105,6 +115,22 @@ class StockNode(db.Model):
 
     def is_leaf(self) -> bool:
         return self.type == NodeType.ITEM
+
+# Table des expirations multiples par ITEM
+class StockItemExpiry(db.Model):
+    __tablename__ = "stock_item_expiries"
+
+    id = db.Column(db.Integer, primary_key=True)
+    node_id = db.Column(db.Integer, db.ForeignKey("stock_nodes.id"), nullable=False, index=True)
+    expiry_date = db.Column(db.Date, nullable=False, index=True)
+    quantity = db.Column(db.Integer, nullable=True)     # quantité concernée pour cette date (optionnel)
+    lot = db.Column(db.String(64), nullable=True)       # n° de lot (optionnel)
+    note = db.Column(db.String(255), nullable=True)     # commentaire (optionnel)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("(quantity IS NULL) OR (quantity >= 0)", name="ck_itemexpiry_qty_nonneg"),
+    )
 
 # Association : racines de stock attachées à un événement
 event_stock = db.Table(
