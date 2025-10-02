@@ -26,6 +26,8 @@ def _node_json(n: StockNode) -> Dict[str, Any]:
         "type": n.type.name,   # "GROUP" | "ITEM"
         "level": n.level,
         "quantity": n.quantity if n.type == NodeType.ITEM else None,
+        "unique_item": bool(getattr(n, "unique_item", False)),
+        "unique_quantity": getattr(n, "unique_quantity", None) if getattr(n, "unique_item", False) else None,
         "children": [],
     }
 
@@ -67,7 +69,8 @@ def _latest_verifications_map(event_id: int) -> Dict[int, Dict[str, Any]]:
 
 def _build_subtree(node: StockNode,
                    idx: Dict[Optional[int], List[StockNode]],
-                   latest: Dict[int, Dict[str, Any]]) -> Tuple[Dict[str, Any], int, int]:
+                   latest: Dict[int, Dict[str, Any]],
+                   selected_quantities: Dict[int, Optional[int]]) -> Tuple[Dict[str, Any], int, int]:
     """
     Construit récursivement un sous-arbre JSON-safe.
     Retourne (data, ok_count, total_items)
@@ -75,11 +78,21 @@ def _build_subtree(node: StockNode,
     data = _node_json(node)
 
     # Feuille = ITEM
-    if node.type == NodeType.ITEM:
+    is_unique = bool(getattr(node, "unique_item", False))
+
+    if node.type == NodeType.ITEM or is_unique:
         info = latest.get(node.id, {})
         status = info.get("status", "TODO")
         ok = 1 if status == "OK" else 0
         total = 1
+        if is_unique:
+            qty_selected = selected_quantities.get(node.id)
+            if qty_selected is None:
+                qty_selected = getattr(node, "unique_quantity", None)
+            data["unique_item"] = True
+            data["unique_quantity"] = getattr(node, "unique_quantity", None)
+            data["quantity"] = qty_selected
+            data["selected_quantity"] = qty_selected
         data.update({
             "last_status": status,
             "last_by": info.get("verifier_name"),
@@ -92,10 +105,13 @@ def _build_subtree(node: StockNode,
 
     # Groupe = GROUP
     children = idx.get(node.id, [])
+    data["unique_item"] = is_unique
+    if is_unique:
+        data["unique_quantity"] = getattr(node, "unique_quantity", None)
     ok_sum = 0
     total_sum = 0
     for c in children:
-        cj, ok_c, tot_c = _build_subtree(c, idx, latest)
+        cj, ok_c, tot_c = _build_subtree(c, idx, latest, selected_quantities)
         data["children"].append(cj)
         ok_sum += ok_c
         total_sum += tot_c
@@ -114,6 +130,11 @@ def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
     Chaque nœud est JSON-safe et contient les infos nécessaires aux exports.
     """
     # Racines liées à l'événement
+    selection_rows = db.session.execute(
+        event_stock.select().where(event_stock.c.event_id == event_id)
+    ).fetchall()
+    selected_quantities: Dict[int, Optional[int]] = {int(r.node_id): r.selected_quantity for r in selection_rows}
+
     roots: List[StockNode] = (
         db.session.query(StockNode)
         .join(event_stock, event_stock.c.node_id == StockNode.id)
@@ -132,7 +153,7 @@ def build_event_tree(event_id: int) -> List[Dict[str, Any]]:
 
     out: List[Dict[str, Any]] = []
     for r in roots:
-        tree, _, _ = _build_subtree(r, idx, latest)
+        tree, _, _ = _build_subtree(r, idx, latest, selected_quantities)
         out.append(tree)
     return out
 
@@ -147,7 +168,7 @@ def flatten_items(tree: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     items: List[Dict[str, Any]] = []
 
     def rec(n: Dict[str, Any]):
-        if n.get("type") == "ITEM":
+        if n.get("type") == "ITEM" or n.get("unique_item"):
             items.append(n)
         for c in n.get("children", []):
             rec(c)

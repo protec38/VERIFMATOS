@@ -70,10 +70,25 @@ def create_event():
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
     date_raw = (data.get("date") or "").strip() or None
-    root_ids = data.get("root_ids") or data.get("root_node_ids") or []
+    raw_roots = data.get("roots")
+    root_specs: List[Dict[str, Any]] = []
+    if isinstance(raw_roots, list) and raw_roots:
+        for entry in raw_roots:
+            if isinstance(entry, dict):
+                root_specs.append({
+                    "id": entry.get("id"),
+                    "quantity": entry.get("quantity"),
+                })
+            else:
+                root_specs.append({"id": entry, "quantity": None})
+    else:
+        root_ids = data.get("root_ids") or data.get("root_node_ids") or []
+        if isinstance(root_ids, list):
+            for rid in root_ids:
+                root_specs.append({"id": rid, "quantity": None})
 
-    if not name or not isinstance(root_ids, list) or not root_ids:
-        abort(400, description="name et root_ids (liste non vide) requis.")
+    if not name or not root_specs:
+        abort(400, description="name et roots requis.")
 
     # date optionnelle
     dt = None
@@ -93,7 +108,8 @@ def create_event():
     db.session.flush()
 
     seen = set()
-    for nid in root_ids:
+    for spec in root_specs:
+        nid = spec.get("id")
         try:
             nid_i = int(nid)
         except Exception:
@@ -106,7 +122,31 @@ def create_event():
             abort(400, description=f"StockNode {nid_i} introuvable.")
         if node.type != NodeType.GROUP:
             abort(400, description=f"StockNode {nid_i} doit être de type GROUP.")
-        db.session.execute(event_stock.insert().values(event_id=ev.id, node_id=nid_i))
+        selected_qty = None
+        if getattr(node, "unique_item", False):
+            qty_raw = spec.get("quantity")
+            if qty_raw is None:
+                qty_val = getattr(node, "unique_quantity", None)
+                if qty_val is None:
+                    abort(400, description=f"Quantité requise pour le parent {node.name}.")
+            else:
+                try:
+                    qty_val = int(qty_raw)
+                except Exception:
+                    abort(400, description=f"Quantité invalide pour le parent {node.name}.")
+            if qty_val < 0:
+                abort(400, description=f"Quantité négative pour le parent {node.name}.")
+            max_qty = getattr(node, "unique_quantity", None)
+            if max_qty is not None and qty_val > max_qty:
+                abort(400, description=f"Quantité demandée supérieure au maximum ({max_qty}) pour {node.name}.")
+            selected_qty = qty_val
+        db.session.execute(
+            event_stock.insert().values(
+                event_id=ev.id,
+                node_id=nid_i,
+                selected_quantity=selected_qty,
+            )
+        )
 
     db.session.commit()
     return jsonify({"ok": True, "id": ev.id, "url": f"/events/{ev.id}"}), 201
@@ -158,7 +198,7 @@ def event_verify(event_id: int):
         abort(400, description="Paramètres invalides (node_id, status).")
 
     node = db.session.get(StockNode, node_id)
-    if not node or node.type != NodeType.ITEM:
+    if not node or (node.type != NodeType.ITEM and not getattr(node, "unique_item", False)):
         abort(404, description="Item introuvable.")
 
     rec = VerificationRecord(
@@ -315,7 +355,7 @@ def public_verify(token: str):
         abort(400, description="Paramètres invalides (node_id, status).")
 
     node = db.session.get(StockNode, node_id)
-    if not node or node.type != NodeType.ITEM:
+    if not node or (node.type != NodeType.ITEM and not getattr(node, "unique_item", False)):
         abort(404, description="Élément introuvable ou non vérifiable.")
 
     rec = VerificationRecord(

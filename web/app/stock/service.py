@@ -44,7 +44,15 @@ def _apply_level_rec(n: StockNode, level: int):
 # -------------------------------------------------
 # CRUD
 # -------------------------------------------------
-def create_node(*, name: str, type_: NodeType, parent_id: Optional[int], quantity: Optional[int]) -> StockNode:
+def create_node(
+    *,
+    name: str,
+    type_: NodeType,
+    parent_id: Optional[int],
+    quantity: Optional[int],
+    unique_item: bool = False,
+    unique_quantity: Optional[int] = None,
+) -> StockNode:
     """
     Crée un noeud:
       - parent_id None => racine (level=1)
@@ -64,11 +72,32 @@ def create_node(*, name: str, type_: NodeType, parent_id: Optional[int], quantit
         parent=parent,
         quantity=quantity if type_ == NodeType.ITEM else None,
     )
+    if type_ == NodeType.GROUP:
+        node.unique_item = bool(unique_item)
+        if node.unique_item:
+            if unique_quantity is None:
+                raise ValueError("unique_quantity required when unique_item is true")
+            if not isinstance(unique_quantity, int) or unique_quantity < 0:
+                raise ValueError("unique_quantity must be an integer >= 0")
+            node.unique_quantity = unique_quantity
+        else:
+            node.unique_quantity = None
+    else:
+        node.unique_item = False
+        node.unique_quantity = None
     db.session.add(node)
     db.session.commit()
     return node
 
-def update_node(*, node_id: int, name: Optional[str] = None, parent_id: Optional[int] = None, quantity: Optional[int] = None) -> StockNode:
+def update_node(
+    *,
+    node_id: int,
+    name: Optional[str] = None,
+    parent_id: Optional[int] = None,
+    quantity: Optional[int] = None,
+    unique_item: Optional[bool] = None,
+    unique_quantity: Optional[int] = None,
+) -> StockNode:
     """
     Met à jour un noeud:
       - name (optionnel)
@@ -91,6 +120,19 @@ def update_node(*, node_id: int, name: Optional[str] = None, parent_id: Optional
             node.quantity = quantity
     else:
         node.quantity = None  # GROUP: force None
+        if unique_item is not None:
+            node.unique_item = bool(unique_item)
+            if not node.unique_item:
+                node.unique_quantity = None
+        if node.unique_item:
+            if unique_quantity is not None:
+                if not isinstance(unique_quantity, int) or unique_quantity < 0:
+                    raise ValueError("unique_quantity must be >= 0")
+                node.unique_quantity = unique_quantity
+            elif node.unique_quantity is None:
+                raise ValueError("unique_quantity required when unique_item is true")
+        else:
+            node.unique_quantity = None
 
     # Reparentage uniquement si changement effectif
     if parent_id != node.parent_id:
@@ -163,6 +205,12 @@ def duplicate_subtree(root_id: int, *, new_name: Optional[str] = None, new_paren
             parent=parent_new,
             quantity=n.quantity if n.type == NodeType.ITEM else None,
         )
+        if n.type == NodeType.GROUP:
+            copy.unique_item = bool(getattr(n, "unique_item", False))
+            copy.unique_quantity = getattr(n, "unique_quantity", None) if copy.unique_item else None
+        else:
+            copy.unique_item = False
+            copy.unique_quantity = None
         # Copier la péremption pour ITEM
         if n.type == NodeType.ITEM:
             copy.expiry_date = getattr(n, "expiry_date", None)
@@ -186,6 +234,8 @@ def serialize_tree(node: StockNode) -> Dict[str, Any]:
         "type": node.type.name,
         "level": node.level,
         "quantity": node.quantity if node.type == NodeType.ITEM else None,
+        "unique_item": bool(getattr(node, "unique_item", False)),
+        "unique_quantity": getattr(node, "unique_quantity", None) if getattr(node, "unique_item", False) else None,
         # date de péremption pour ITEM (string ISO ou None)
         "expiry_date": node.expiry_date.isoformat() if getattr(node, "expiry_date", None) else None,
         "children": [],

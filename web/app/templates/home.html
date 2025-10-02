@@ -17,7 +17,10 @@
         {% if roots and roots|length %}
           {% for r in roots %}
             <label class="btn ghost" style="cursor:pointer;">
-              <input type="checkbox" class="root-cb" value="{{ r.id }}" style="margin-right:6px">
+              <input type="checkbox" class="root-cb" value="{{ r.id }}" style="margin-right:6px"
+                     data-name="{{ r.name }}"
+                     data-unique="{{ 1 if r.unique_item else 0 }}"
+                     data-max="{{ r.unique_quantity if r.unique_quantity is not none else '' }}">
               {{ r.name }}
             </label>
           {% endfor %}
@@ -68,6 +71,67 @@
 <script>
 (function(){
   const byId = (id)=>document.getElementById(id);
+  const rootSelections = new Map();
+
+  function updateRootBadge(cb){
+    const wrap = cb.closest('label');
+    if(!wrap) return;
+    let badge = wrap.querySelector('.root-qty');
+    const id = parseInt(cb.value, 10);
+    const qty = rootSelections.get(id);
+    if(badge && (!cb.checked || qty==null)){
+      badge.remove();
+      badge = null;
+    }
+    if(cb.checked && qty != null){
+      if(!badge){
+        badge = document.createElement('span');
+        badge.className = 'badge root-qty';
+        badge.style.marginLeft = '6px';
+        wrap.appendChild(badge);
+      }
+      badge.textContent = `Qté: ${qty}`;
+    }
+  }
+
+  document.querySelectorAll('.root-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const id = parseInt(cb.value, 10);
+      const isUnique = (cb.dataset.unique === '1');
+      if(cb.checked){
+        if(isUnique){
+          const maxRaw = cb.dataset.max;
+          const max = maxRaw ? parseInt(maxRaw, 10) : null;
+          const current = rootSelections.get(id) ?? (max ?? 1);
+          const label = cb.dataset.name || 'parent';
+          let msg = `Quantité désirée pour ${label}`;
+          if(max != null){ msg += ` (max ${max})`; }
+          let input = prompt(msg, String(current));
+          if(input === null){
+            cb.checked = false;
+            return;
+          }
+          let qty = parseInt(input, 10);
+          if(isNaN(qty) || qty < 0){
+            alert('Quantité invalide');
+            cb.checked = false;
+            return;
+          }
+          if(max != null && qty > max){
+            alert(`Quantité supérieure au maximum (${max}).`);
+            cb.checked = false;
+            return;
+          }
+          rootSelections.set(id, qty);
+        }else{
+          rootSelections.delete(id);
+        }
+      }else{
+        rootSelections.delete(id);
+      }
+      updateRootBadge(cb);
+    });
+  });
 
   // -------- Création --------
   let creating = false;
@@ -75,17 +139,31 @@
     if (creating) return;
     const name = byId('ev-name').value.trim();
     const date = byId('ev-date').value || null;
-    const rootIds = Array.from(document.querySelectorAll('.root-cb:checked')).map(cb => parseInt(cb.value,10));
+    const selectedCbs = Array.from(document.querySelectorAll('.root-cb:checked'));
+    const rootsPayload = [];
+    for(const cb of selectedCbs){
+      const id = parseInt(cb.value, 10);
+      const isUnique = (cb.dataset.unique === '1');
+      if(isUnique){
+        if(!rootSelections.has(id)){
+          alert(`Sélectionne une quantité pour ${cb.dataset.name || 'ce parent'}.`);
+          return;
+        }
+        rootsPayload.push({id, quantity: rootSelections.get(id)});
+      }else{
+        rootsPayload.push({id});
+      }
+    }
 
     if(!name){ alert("Nom requis"); return; }
-    if(rootIds.length === 0){ alert("Sélectionne au moins un parent"); return; }
+    if(rootsPayload.length === 0){ alert("Sélectionne au moins un parent"); return; }
 
     creating = true;
     try {
       const res = await fetch('/events', {
         method: 'POST',
         headers: {'Content-Type':'application/json', 'Accept':'application/json'},
-        body: JSON.stringify({ name, date, root_ids: rootIds })
+        body: JSON.stringify({ name, date, roots: rootsPayload })
       });
 
       const text = await res.text();
