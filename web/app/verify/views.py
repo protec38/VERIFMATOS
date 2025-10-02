@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from flask import Blueprint, jsonify, request, abort, render_template
 
-from .. import db
+from .. import db, socketio
 from ..models import (
     Event,
     EventStatus,
@@ -16,6 +16,21 @@ from ..models import (
     NodeType,
 )
 from ..tree_query import build_event_tree
+
+def _emit_event_update(event_id: int, payload: Dict[str, Any]) -> None:
+    """Emit a socket.io update for all clients of the event."""
+    if not socketio:
+        return
+    try:
+        socketio.emit(
+            "event_update",
+            payload,
+            namespace="/events",
+            room=f"event_{event_id}"
+        )
+    except Exception:
+        pass
+
 
 bp = Blueprint("verify", __name__)
 
@@ -133,6 +148,20 @@ def public_verify_item(token: str):
     db.session.add(rec)
     db.session.commit()
 
+    status_value = getattr(status, 'name', str(status)).upper()
+    issue_value = getattr(issue_code, 'name', issue_code) if issue_code else None
+    _emit_event_update(ev.id, {
+        'type': 'item_verified',
+        'event_id': ev.id,
+        'node_id': node_id,
+        'status': status_value,
+        'verifier_name': verifier_name,
+        'comment': comment,
+        'issue_code': issue_value,
+        'observed_qty': observed_qty,
+        'missing_qty': missing_qty,
+    })
+
     return jsonify({"ok": True, "record_id": rec.id})
 
 # --------- marquer un parent (racine) chargé ----------
@@ -182,6 +211,15 @@ def public_mark_group_charged(token: str):
 
     db.session.add(ens)
     db.session.commit()
+
+    _emit_event_update(ev.id, {
+        'type': 'parent_charged',
+        'event_id': ev.id,
+        'node_id': node_id,
+        'charged': True,
+        'vehicle_name': vehicle,
+        'operator_name': operator_name,
+    })
 
     return jsonify({
         "ok": True,
