@@ -1,7 +1,8 @@
 # app/reports/utils.py — utilitaires pour exporter les données d'un événement
 from __future__ import annotations
-from typing import List, Dict, Any, Tuple, Optional
+import json
 from datetime import datetime
+from typing import List, Dict, Any, Tuple, Optional
 
 from .. import db
 from ..models import (
@@ -39,6 +40,47 @@ def _children_index(all_nodes: List[StockNode]) -> Dict[Optional[int], List[Stoc
     for k in idx:
         idx[k].sort(key=lambda x: (x.type.name, x.name.lower()))
     return idx
+
+def _decode_charge_comment(raw: Optional[str]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    vehicle: Optional[str] = None
+    operator: Optional[str] = None
+    display: Optional[str] = None
+    if raw:
+        txt = raw.strip()
+        if txt:
+            try:
+                data = json.loads(txt)
+            except Exception:
+                parts = [p.strip() for p in txt.split("|")]
+                for part in parts:
+                    low = part.lower()
+                    if low.startswith("véhicule"):
+                        _, _, rest = part.partition(":")
+                        if rest.strip():
+                            vehicle = rest.strip()
+                    elif low.startswith("par"):
+                        _, _, rest = part.partition(":")
+                        if rest.strip():
+                            operator = rest.strip()
+                display = txt if txt else None
+            else:
+                if isinstance(data, dict):
+                    veh_val = data.get("vehicle_name")
+                    op_val = data.get("operator_name")
+                    if veh_val:
+                        vehicle = veh_val.strip() or None
+                    if op_val:
+                        operator = op_val.strip() or None
+                    parts: List[str] = []
+                    if vehicle:
+                        parts.append(f"Véhicule: {vehicle}")
+                    if operator:
+                        parts.append(f"Par: {operator}")
+                    display = " | ".join(parts) if parts else None
+                else:
+                    display = txt
+    return vehicle, operator, display
+
 
 def _latest_verifications_map(event_id: int) -> Dict[int, Dict[str, Any]]:
     """
@@ -93,7 +135,7 @@ def _build_subtree(node: StockNode,
             data["unique_quantity"] = getattr(node, "unique_quantity", None)
             data["quantity"] = qty_selected
             data["selected_quantity"] = qty_selected
-        data.update({
+        leaf_payload = {
             "last_status": status,
             "last_by": info.get("verifier_name"),
             "last_at": info.get("created_at"),
@@ -102,6 +144,7 @@ def _build_subtree(node: StockNode,
             "observed_qty": info.get("observed_qty"),
             "missing_qty": info.get("missing_qty"),
         }
+        data.update(leaf_payload)
 
         if node.type == NodeType.ITEM:
             data.update(leaf_payload)
@@ -217,14 +260,17 @@ def parent_statuses(event_id: int) -> Dict[int, Dict[str, Any]]:
     Retourne l'état par parent (EventNodeStatus) : chargé, commentaire, MAJ.
     """
     rows = EventNodeStatus.query.filter_by(event_id=event_id).all()
-    return {
-        r.node_id: {
+    out: Dict[int, Dict[str, Any]] = {}
+    for r in rows:
+        vehicle, operator, display = _decode_charge_comment(r.comment)
+        out[r.node_id] = {
             "charged_vehicle": r.charged_vehicle,
-            "comment": r.comment,
+            "vehicle_name": vehicle,
+            "operator_name": operator,
+            "comment": display or r.comment,
             "updated_at": r.updated_at,
         }
-        for r in rows
-    }
+    return out
 
 def compute_summary(event_id: int) -> Dict[str, Any]:
     """
