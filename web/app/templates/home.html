@@ -36,7 +36,6 @@
             <option value="{{ tpl.id }}">{{ tpl.name }}</option>
           {% endfor %}
         </select>
-        <button class="btn" id="btn-save-template" type="button">💾 Enregistrer comme template</button>
       </div>
       <div class="row wrap" style="margin-top:8px;gap:8px;align-items:center">
         <label for="lot-select" class="muted">Lot :</label>
@@ -46,7 +45,6 @@
             <option value="{{ lot.id }}">{{ lot.name }}</option>
           {% endfor %}
         </select>
-        <button class="btn" id="btn-save-lot" type="button">💾 Enregistrer comme lot</button>
       </div>
     </div>
 
@@ -222,59 +220,6 @@
     }
     lotSelect.value = '';
   });
-
-  async function saveSelection(kind){
-    const nodes = buildSelectionPayload();
-    if(nodes.length === 0){
-      alert('Sélectionne au moins un parent.');
-      return;
-    }
-    const label = kind === 'LOT' ? 'Nom du lot' : 'Nom du template';
-    const nameRaw = prompt(label + ' ?');
-    if(!nameRaw){
-      return;
-    }
-    const name = nameRaw.trim();
-    if(!name){
-      return;
-    }
-    try{
-      const res = await fetch('/events/templates', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json','Accept':'application/json'},
-        body: JSON.stringify({name, kind, nodes})
-      });
-      const text = await res.text();
-      if(!res.ok){
-        alert(text || 'Enregistrement impossible.');
-        return;
-      }
-      let data;
-      try{ data = JSON.parse(text); }catch{ data = null; }
-      if(!data){ return; }
-      if(kind === 'LOT'){
-        lotSpecs.push(data);
-        lotMap.set(String(data.id), data);
-        const opt = document.createElement('option');
-        opt.value = data.id;
-        opt.textContent = data.name;
-        lotSelect?.appendChild(opt);
-      }else{
-        templateSpecs.push(data);
-        templateMap.set(String(data.id), data);
-        const opt = document.createElement('option');
-        opt.value = data.id;
-        opt.textContent = data.name;
-        tplSelect?.appendChild(opt);
-      }
-      alert('Enregistré.');
-    }catch(err){
-      alert('Erreur: ' + err);
-    }
-  }
-
-  byId('btn-save-template')?.addEventListener('click', () => saveSelection('TEMPLATE'));
-  byId('btn-save-lot')?.addEventListener('click', () => saveSelection('LOT'));
 
   // -------- Création --------
   let creating = false;
