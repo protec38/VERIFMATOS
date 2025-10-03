@@ -77,6 +77,7 @@ def create_app() -> Flask:
     _register_bp_if_any(app, "app.auth.views")
     _register_bp_if_any(app, "app.admin.views")
     _register_bp_if_any(app, "app.stock.views")
+    _register_bp_if_any(app, "app.reassort.views")
 
     # Verify contient aussi les routes publiques /public/event/<token>/...
     _register_bp_if_any(app, "app.verify.views")

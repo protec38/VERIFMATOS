@@ -14,8 +14,13 @@ from ..models import (
     IssueCode,
     EventNodeStatus,
     NodeType,
+    StockItemExpiry,
+    ReassortBatch,
+    ReassortItem,
 )
 from ..tree_query import build_event_tree
+from sqlalchemy import or_
+from datetime import date, datetime
 
 bp = Blueprint("verify", __name__)
 
@@ -31,6 +36,21 @@ def _json() -> Dict[str, Any]:
 def _sanitize_tree(node: Dict[str, Any]) -> Dict[str, Any]:
     # build_event_tree renvoie déjà des objets JSON-safe
     return node
+
+
+def _ensure_reassort_tables() -> None:
+    try:
+        ReassortItem.__table__.create(bind=db.engine, checkfirst=True)
+        ReassortBatch.__table__.create(bind=db.engine, checkfirst=True)
+    except Exception:
+        db.session.rollback()
+
+
+def _ensure_expiry_table() -> None:
+    try:
+        StockItemExpiry.__table__.create(bind=db.engine, checkfirst=True)
+    except Exception:
+        db.session.rollback()
 
 # --------- pages publiques ---------
 @bp.get("/public/event/<token>")
@@ -190,4 +210,215 @@ def public_mark_group_charged(token: str):
         "charged_vehicle": True,
         "comment": getattr(ens, "comment", None),
         "updated_at": getattr(ens, "updated_at", None).isoformat() if getattr(ens, "updated_at", None) else None,
+    })
+
+
+def _sync_item_expiry(node_id: int) -> Optional[date]:
+    try:
+        _ensure_expiry_table()
+        rows: List[StockItemExpiry] = (
+            StockItemExpiry.query
+            .filter_by(node_id=node_id)
+            .order_by(StockItemExpiry.expiry_date.asc(), StockItemExpiry.id.asc())
+            .all()
+        )
+    except Exception:
+        db.session.rollback()
+        return None
+    next_date = rows[0].expiry_date if rows else None
+    node = db.session.get(StockNode, node_id)
+    if node is not None:
+        node.expiry_date = next_date
+        db.session.add(node)
+    return next_date
+
+
+def _serialize_reassort_batch(batch: ReassortBatch, node_id: int) -> Dict[str, Any]:
+    preferred = batch.item.target_node_id == node_id if batch.item else False
+    return {
+        "batch_id": batch.id,
+        "item_id": batch.item_id,
+        "item_name": batch.item.name if batch.item else None,
+        "quantity": batch.quantity,
+        "expiry_date": batch.expiry_date.isoformat() if batch.expiry_date else None,
+        "lot": batch.lot,
+        "note": batch.note,
+        "preferred": preferred,
+    }
+
+
+@bp.get("/public/event/<token>/reassort/<int:node_id>")
+def public_reassort_options(token: str, node_id: int):
+    link = EventShareLink.query.filter_by(token=token, active=True).first()
+    if not link or not link.event:
+        abort(404)
+
+    _ensure_reassort_tables()
+
+    batches = (
+        ReassortBatch.query
+        .join(ReassortItem)
+        .filter(ReassortBatch.quantity > 0)
+        .filter(or_(ReassortItem.target_node_id == node_id, ReassortItem.target_node_id.is_(None)))
+        .all()
+    )
+    batches.sort(key=lambda b: (
+        b.item.target_node_id != node_id if b.item else True,
+        (b.item.name.lower() if b.item and b.item.name else ""),
+        b.expiry_date or date.max,
+        b.id,
+    ))
+
+    payload = [_serialize_reassort_batch(b, node_id) for b in batches]
+    return jsonify({
+        "node_id": node_id,
+        "items": payload,
+    })
+
+
+@bp.post("/public/event/<token>/replace")
+def public_replace_from_reassort(token: str):
+    link = EventShareLink.query.filter_by(token=token, active=True).first()
+    if not link or not link.event:
+        abort(404)
+    ev = link.event
+    if ev.status != EventStatus.OPEN:
+        abort(403, description="Événement fermé")
+
+    data = _json()
+
+    try:
+        node_id = int(data.get("node_id") or 0)
+    except Exception:
+        abort(400, description="node_id invalide")
+
+    try:
+        batch_id = int(data.get("batch_id") or 0)
+    except Exception:
+        abort(400, description="batch_id invalide")
+
+    try:
+        quantity = int(data.get("quantity") or 1)
+    except Exception:
+        quantity = 1
+    if quantity <= 0:
+        quantity = 1
+
+    verifier_name = (data.get("verifier_name") or "").strip()
+    if not verifier_name:
+        abort(400, description="Nom du vérificateur requis")
+
+    comment_extra = (data.get("comment") or "").strip() or None
+
+    node = db.session.get(StockNode, node_id)
+    if not node:
+        abort(404, description="Item introuvable")
+    if node.type != NodeType.ITEM and not getattr(node, "unique_item", False):
+        abort(400, description="Seuls les items peuvent être remplacés")
+
+    _ensure_reassort_tables()
+    batch = db.session.get(ReassortBatch, batch_id)
+    if not batch or batch.quantity <= 0:
+        abort(404, description="Lot de réassort indisponible")
+
+    if batch.item and batch.item.target_node_id not in (None, node_id):
+        # On autorise tout de même mais on diminue la priorité si mismatch
+        pass
+
+    use_qty = min(quantity, batch.quantity)
+    batch.quantity -= use_qty
+    batch.updated_at = datetime.utcnow()
+    db.session.add(batch)
+
+    removed_expiry: Optional[date] = None
+    expiry_id = data.get("expiry_id")
+    expiry_date_raw = data.get("expiry_date")
+
+    _ensure_expiry_table()
+
+    if expiry_id:
+        try:
+            exp = db.session.get(StockItemExpiry, int(expiry_id))
+        except Exception:
+            exp = None
+        if exp and exp.node_id == node_id:
+            if exp.quantity and exp.quantity > use_qty:
+                exp.quantity -= use_qty
+                removed_expiry = exp.expiry_date
+                db.session.add(exp)
+            else:
+                removed_expiry = exp.expiry_date
+                db.session.delete(exp)
+    elif expiry_date_raw:
+        try:
+            exp_date = date.fromisoformat(str(expiry_date_raw))
+        except Exception:
+            exp_date = None
+        if exp_date is not None:
+            exp = (
+                StockItemExpiry.query
+                .filter_by(node_id=node_id, expiry_date=exp_date)
+                .order_by(StockItemExpiry.id.asc())
+                .first()
+            )
+            if exp:
+                if exp.quantity and exp.quantity > use_qty:
+                    exp.quantity -= use_qty
+                    removed_expiry = exp.expiry_date
+                    db.session.add(exp)
+                else:
+                    removed_expiry = exp.expiry_date
+                    db.session.delete(exp)
+
+    new_expiry = batch.expiry_date
+    if new_expiry:
+        entry = StockItemExpiry(
+            node_id=node_id,
+            expiry_date=new_expiry,
+            quantity=use_qty,
+            lot=batch.lot,
+            note=batch.note,
+        )
+        db.session.add(entry)
+    elif node.expiry_date and removed_expiry and node.expiry_date == removed_expiry:
+        node.expiry_date = None
+
+    next_date = _sync_item_expiry(node_id)
+    if next_date is None and new_expiry:
+        node.expiry_date = new_expiry
+        db.session.add(node)
+
+    parts = ["Remplacement via réassort"]
+    if batch.item and batch.item.name:
+        parts.append(f"Article: {batch.item.name}")
+    if batch.lot:
+        parts.append(f"Lot réassort: {batch.lot}")
+    if removed_expiry:
+        parts.append(f"Lot retiré: {removed_expiry.isoformat()}")
+    if new_expiry:
+        parts.append(f"Nouvelle exp.: {new_expiry.isoformat()}")
+    if use_qty > 1:
+        parts.append(f"Quantité: {use_qty}")
+    if comment_extra:
+        parts.append(comment_extra)
+    final_comment = " | ".join(parts)
+
+    rec = VerificationRecord(
+        event_id=ev.id,
+        node_id=node_id,
+        status=ItemStatus.OK,
+        verifier_name=verifier_name,
+        comment=final_comment,
+    )
+    db.session.add(rec)
+
+    db.session.commit()
+
+    return jsonify({
+        "ok": True,
+        "node_id": node_id,
+        "batch_id": batch_id,
+        "quantity": use_qty,
+        "new_expiry": new_expiry.isoformat() if new_expiry else None,
+        "remaining_batch": batch.quantity,
     })

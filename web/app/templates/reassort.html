@@ -1,0 +1,308 @@
+{% extends "base.html" %}
+{% set title = "Réassort" %}
+{% block content %}
+
+<style>
+  .reassort-wrap{display:flex;flex-direction:column;gap:18px;margin-top:12px}
+  .topbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+  .topbar .title{font-size:24px;font-weight:900}
+  .actions{display:flex;gap:8px;flex-wrap:wrap}
+  .btn.primary{background:var(--pc-orange);color:#221600;border-color:#b06c05;font-weight:800}
+  .btn.ghost{background:#16253b;color:#cfe2ff}
+  .list{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+  .card-item{border:1px solid var(--border);border-radius:14px;padding:16px;background:radial-gradient(1200px 400px at top left,rgba(255,255,255,.05),transparent),var(--bg-2);box-shadow:var(--shadow);display:flex;flex-direction:column;gap:12px;position:relative}
+  .card-item .name{font-weight:900;font-size:18px}
+  .card-item .badge{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 10px;font-size:12px;border:1px solid var(--border)}
+  .card-item .meta{color:var(--muted);font-size:13px}
+  .card-item .batches{display:flex;flex-direction:column;gap:8px}
+  .batch{border:1px solid var(--border);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px;background:#101c2e}
+  .batch .row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px}
+  .batch .qty{font-weight:800}
+  .empty{border:1px dashed var(--border);padding:26px;text-align:center;border-radius:14px;color:var(--muted)}
+  .search{flex:1;min-width:220px}
+  .muted{color:var(--muted)}
+  .note{background:#16253b;padding:6px 8px;border-radius:8px;font-size:12px;border:1px dashed var(--border);color:#cfe2ff}
+  .modal-back{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:60}
+  .modal{background:#0f1726;border:1px solid var(--border);border-radius:16px;padding:18px;box-shadow:var(--shadow);width:min(480px,94%)}
+  .modal h3{margin:0 0 10px 0}
+  .modal .field{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+  .modal input,.modal textarea{width:100%;padding:10px;border-radius:10px;border:1px solid var(--border);background:#0b1120;color:#fff}
+  .modal textarea{min-height:80px;resize:vertical}
+  .modal .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
+  .modal label{font-size:13px;color:var(--muted)}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;border:1px dashed var(--border);font-size:12px}
+</style>
+
+<div class="reassort-wrap">
+  <div class="topbar">
+    <div>
+      <div class="title">Stock de réassort</div>
+      <div class="muted">Suivez les lots disponibles pour remplacer rapidement le matériel non conforme.</div>
+    </div>
+    <div class="actions">
+      <input id="search" class="search" placeholder="Rechercher un article…" />
+      <button class="btn primary" id="btn-add">➕ Nouvel article</button>
+    </div>
+  </div>
+
+  <div id="content"></div>
+</div>
+
+<script>
+const state = {
+  items: [],
+  filtered: [],
+  search: ""
+};
+
+function el(tag, attrs={}, ...children){
+  const e = document.createElement(tag);
+  for(const [k,v] of Object.entries(attrs||{})){
+    if(k === "class") e.className = v;
+    else if(k.startsWith("on") && typeof v === "function") e.addEventListener(k.slice(2), v);
+    else if(k === "html") e.innerHTML = v;
+    else e.setAttribute(k, v);
+  }
+  children.filter(Boolean).forEach(child=>{
+    if(typeof child === "string" || typeof child === "number") e.appendChild(document.createTextNode(child));
+    else if(child instanceof Node) e.appendChild(child);
+  });
+  return e;
+}
+
+function formatDate(iso){
+  if(!iso) return "—";
+  try{ return new Date(iso+"T00:00:00").toLocaleDateString(); }
+  catch(_){ return iso; }
+}
+
+function closeModal(){ document.getElementById("modal-root")?.remove(); }
+
+function openModal(content){
+  closeModal();
+  const wrap = el("div",{class:"modal-back",id:"modal-root"},
+    el("div",{class:"modal"}, content)
+  );
+  document.body.appendChild(wrap);
+}
+
+async function api(url, options={}){
+  const opts = Object.assign({headers:{"Content-Type":"application/json"},credentials:'include'}, options);
+  const res = await fetch(url, opts);
+  if(!res.ok){ const txt = await res.text(); throw new Error(txt || 'Requête refusée'); }
+  const ct = res.headers.get('content-type')||'';
+  if(ct.includes('application/json')) return res.json();
+  return null;
+}
+
+function totalLabel(item){
+  const qty = item.total_quantity || 0;
+  return `${qty} unité${qty>1?'s':''}`;
+}
+
+function renderBatches(item){
+  if(!item.batches || !item.batches.length){
+    return el("div",{class:"empty"},"Aucun lot enregistré.");
+  }
+  return el("div",{class:"batches"}, ...item.batches.map(batch=>{
+    const header = el("div",{class:"row"},
+      el("div",{class:"qty"},`Qté: ${batch.quantity}`),
+      el("div",{class:"pill"},`Péremption: ${formatDate(batch.expiry_date)}`)
+    );
+    const footer = el("div",{class:"row"},
+      el("div",{class:"muted"}, batch.lot ? `Lot ${batch.lot}` : "Lot non précisé"),
+      el("div",{class:"actions"},
+        el("button",{class:"btn ghost", onclick:()=>openBatchForm(item, batch)},"✏️ Modifier"),
+        el("button",{class:"btn ghost", onclick:()=>deleteBatch(batch.id)},"🗑 Supprimer")
+      )
+    );
+    const note = batch.note ? el("div",{class:"note"}, batch.note) : null;
+    return el("div",{class:"batch"}, header, footer, note);
+  }));
+}
+
+function renderItem(item){
+  return el("div",{class:"card-item"},
+    el("div",{class:"row",style:"justify-content:space-between;align-items:flex-start"},
+      el("div",{},
+        el("div",{class:"name"}, item.name),
+        el("div",{class:"badge"}, `Stock dispo : ${totalLabel(item)}`),
+        item.target_node_name ? el("div",{class:"meta"},`Associé à : ${item.target_node_name} (#${item.target_node_id})`) : null,
+        item.note ? el("div",{class:"note"}, item.note) : null
+      ),
+      el("div",{class:"actions"},
+        el("button",{class:"btn ghost",onclick:()=>openItemForm(item)},"✏️ Modifier"),
+        el("button",{class:"btn ghost",onclick:()=>addBatch(item.id)},"➕ Lot"),
+        el("button",{class:"btn ghost",onclick:()=>deleteItem(item.id)},"🗑 Supprimer")
+      )
+    ),
+    renderBatches(item)
+  );
+}
+
+function renderList(){
+  const content = document.getElementById('content');
+  content.innerHTML = '';
+  const items = state.filtered;
+  if(!items.length){
+    content.appendChild(el('div',{class:'empty'},'Aucun article de réassort. Ajoutez votre premier lot.'));
+    return;
+  }
+  const grid = el('div',{class:'list'}, ...items.map(renderItem));
+  content.appendChild(grid);
+}
+
+function applyFilter(){
+  const term = (state.search||'').toLowerCase();
+  if(!term){ state.filtered = state.items.slice(); }
+  else{
+    state.filtered = state.items.filter(it=>[
+      it.name,
+      it.target_node_name,
+      ...(it.batches||[]).map(b=>b.lot||'')
+    ].some(txt => (txt||'').toLowerCase().includes(term)));
+  }
+  renderList();
+}
+
+async function loadItems(){
+  try{
+    const data = await api('/reassort/api/items');
+    state.items = Array.isArray(data)?data:[];
+    state.filtered = state.items.slice();
+    applyFilter();
+  }catch(err){
+    console.error(err);
+    const content = document.getElementById('content');
+    content.innerHTML = '';
+    content.appendChild(el('div',{class:'empty'},'Impossible de charger le stock de réassort.'));
+  }
+}
+
+function openItemForm(item=null){
+  const isEdit = !!item;
+  const title = isEdit ? 'Modifier l\'article' : 'Nouvel article';
+  const nameValue = item?item.name:'';
+  const noteValue = item?item.note||'':'';
+  const targetValue = item && item.target_node_id ? item.target_node_id : '';
+
+  const nameInput = el('input',{value:nameValue,placeholder:'Nom du matériel'});
+  const targetInput = el('input',{value:targetValue,placeholder:'ID du stock associé (optionnel)',type:'number',min:'0'});
+  const noteInput = el('textarea',{placeholder:'Note interne (optionnel)'}, noteValue);
+
+  const form = el('div',{},
+    el('h3',{},title),
+    el('div',{class:'field'}, el('label',{},'Nom'), nameInput),
+    el('div',{class:'field'}, el('label',{},'Stock cible (#ID)'), targetInput),
+    el('div',{class:'field'}, el('label',{},'Note'), noteInput),
+    el('div',{class:'actions'},
+      el('button',{class:'btn ghost',onclick:closeModal},'Annuler'),
+      el('button',{class:'btn primary',onclick:async()=>{
+        const payload = {
+          name: nameInput.value.trim(),
+          note: noteInput.value.trim(),
+          target_node_id: targetInput.value.trim()
+        };
+        if(!payload.name){ alert('Nom requis'); return; }
+        try{
+          if(isEdit){
+            await api(`/reassort/api/items/${item.id}`,{method:'PATCH',body:JSON.stringify(payload)});
+          }else{
+            await api('/reassort/api/items',{method:'POST',body:JSON.stringify(payload)});
+          }
+          closeModal();
+          loadItems();
+        }catch(err){ alert(err.message); }
+      }}, isEdit?'Enregistrer':'Créer')
+    )
+  );
+  openModal(form);
+}
+
+function addBatch(itemId){
+  const expiryInput = el('input',{type:'date'});
+  const qtyInput = el('input',{type:'number',min:'0',value:'1'});
+  const lotInput = el('input',{placeholder:'Lot (optionnel)'});
+  const noteInput = el('textarea',{placeholder:'Note (optionnel)'});
+
+  const form = el('div',{},
+    el('h3',{},'Ajouter un lot'),
+    el('div',{class:'field'}, el('label',{},'Quantité'), qtyInput),
+    el('div',{class:'field'}, el('label',{},'Péremption'), expiryInput),
+    el('div',{class:'field'}, el('label',{},'Lot'), lotInput),
+    el('div',{class:'field'}, el('label',{},'Note'), noteInput),
+    el('div',{class:'actions'},
+      el('button',{class:'btn ghost',onclick:closeModal},'Annuler'),
+      el('button',{class:'btn primary',onclick:async()=>{
+        const payload = {
+          quantity: qtyInput.value || 0,
+          expiry_date: expiryInput.value || null,
+          lot: lotInput.value.trim(),
+          note: noteInput.value.trim()
+        };
+        try{
+          await api(`/reassort/api/items/${itemId}/batches`,{method:'POST',body:JSON.stringify(payload)});
+          closeModal();
+          loadItems();
+        }catch(err){ alert(err.message); }
+      }},'Ajouter')
+    )
+  );
+  openModal(form);
+}
+
+function openBatchForm(item, batch){
+  const expiryInput = el('input',{type:'date',value:batch.expiry_date||''});
+  const qtyInput = el('input',{type:'number',min:'0',value:batch.quantity});
+  const lotInput = el('input',{placeholder:'Lot (optionnel)',value:batch.lot||''});
+  const noteInput = el('textarea',{placeholder:'Note (optionnel)'}, batch.note||'');
+
+  const form = el('div',{},
+    el('h3',{},`Modifier le lot (${item.name})`),
+    el('div',{class:'field'}, el('label',{},'Quantité'), qtyInput),
+    el('div',{class:'field'}, el('label',{},'Péremption'), expiryInput),
+    el('div',{class:'field'}, el('label',{},'Lot'), lotInput),
+    el('div',{class:'field'}, el('label',{},'Note'), noteInput),
+    el('div',{class:'actions'},
+      el('button',{class:'btn ghost',onclick:closeModal},'Annuler'),
+      el('button',{class:'btn primary',onclick:async()=>{
+        const payload = {
+          quantity: qtyInput.value || 0,
+          expiry_date: expiryInput.value || null,
+          lot: lotInput.value.trim(),
+          note: noteInput.value.trim()
+        };
+        try{
+          await api(`/reassort/api/batches/${batch.id}`,{method:'PATCH',body:JSON.stringify(payload)});
+          closeModal();
+          loadItems();
+        }catch(err){ alert(err.message); }
+      }},'Enregistrer')
+    )
+  );
+  openModal(form);
+}
+
+async function deleteItem(id){
+  if(!confirm('Supprimer cet article ?')) return;
+  try{
+    await api(`/reassort/api/items/${id}`,{method:'DELETE'});
+    loadItems();
+  }catch(err){ alert(err.message); }
+}
+
+async function deleteBatch(id){
+  if(!confirm('Supprimer ce lot ?')) return;
+  try{
+    await api(`/reassort/api/batches/${id}`,{method:'DELETE'});
+    loadItems();
+  }catch(err){ alert(err.message); }
+}
+
+document.getElementById('btn-add').addEventListener('click',()=>openItemForm());
+document.getElementById('search').addEventListener('input',(ev)=>{ state.search = ev.target.value; applyFilter(); });
+
+loadItems();
+</script>
+
+{% endblock %}
