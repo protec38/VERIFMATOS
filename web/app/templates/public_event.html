@@ -363,7 +363,7 @@ function renderUniqueParentRow(n){
   );
 
   const right = el("div",{class:"right"},
-    el("button",{class:"btn xs success", onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(targetId,"OK"); }},"Charger"),
+    el("button",{class:"btn xs success", onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(targetId,"OK"); }},"OK"),
     el("button",{class:"btn xs ghost",   onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(targetId,"NOT_OK"); }},"Non conforme")
   );
 
@@ -467,7 +467,9 @@ function updateGroupStatsEl(n){
 
 function applyItemDelta(local, incoming){
   local.last_status = normStatus(incoming.last_status || "PENDING");
-  local.quantity    = (incoming.quantity!=null)?incoming.quantity:local.quantity;
+  if(incoming.quantity != null) local.quantity = incoming.quantity;
+  if(typeof incoming.selected_quantity !== "undefined") local.selected_quantity = incoming.selected_quantity;
+  if(typeof incoming.unique_quantity !== "undefined") local.unique_quantity = incoming.unique_quantity;
   local.last_by     = (incoming.last_by!=null)?incoming.last_by:local.last_by;
   if(typeof incoming.target_node_id !== "undefined") local.target_node_id = incoming.target_node_id;
   if(typeof incoming.unique_from_parent !== "undefined") local.unique_from_parent = incoming.unique_from_parent;
@@ -490,7 +492,12 @@ function applyItemDelta(local, incoming){
   }
 
   const q = box.querySelector(".qty");
-  if(q) q.textContent = `Qté: ${local.quantity != null ? local.quantity : 1}`;
+  if(q){
+    const qtyVal = (local.selected_quantity != null)
+      ? local.selected_quantity
+      : (local.quantity != null ? local.quantity : (local.unique_quantity != null ? local.unique_quantity : 1));
+    q.textContent = `Qté: ${qtyVal}`;
+  }
 
   const chip = box.querySelector(".chip.ok, .chip.bad, .chip.wait");
   if(chip){
