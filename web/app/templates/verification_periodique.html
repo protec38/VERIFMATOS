@@ -2,6 +2,62 @@
 {% set title = "Vérification périodique" %}
 {% block content %}
 
+<style>
+  .state-ok{
+    border-color: var(--success) !important;
+    background:
+      radial-gradient(600px 200px at top left, rgba(18,184,134,.15), transparent),
+      #0f1e2f;
+    box-shadow: 0 0 0 1px rgba(18,184,134,.35) inset, 0 0 18px rgba(18,184,134,.15);
+  }
+  .state-bad{
+    border-color: var(--danger) !important;
+    background:
+      radial-gradient(600px 200px at top left, rgba(255,107,107,.12), transparent),
+      #0f1a27;
+    box-shadow: 0 0 0 1px rgba(255,107,107,.30) inset, 0 0 18px rgba(255,107,107,.12);
+  }
+  .state-wait{
+    border-color: var(--border) !important;
+    background:
+      radial-gradient(600px 200px at top left, rgba(45,123,191,.08), transparent),
+      var(--bg-2);
+  }
+  .chip{padding:4px 8px;border-radius:999px;font-weight:800;font-size:12px;border:1px solid var(--border);}
+  .chip.ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
+  .chip.bad{background:#2a0e14;color:#ffd5dc;border-color:#75212f}
+  .chip.wait{background:#101c2e;color:#b7c7dc;border-color:#24344f}
+  .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
+  .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
+  .parents-bar{display:flex;gap:10px;overflow:auto;padding:6px 2px}
+  .parent-pill{
+    display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;border:1px solid var(--border);
+    background:#0f1a2a;color:var(--text);white-space:nowrap;cursor:pointer;user-select:none;
+    transition:transform .08s ease,border-color .08s ease,background .08s ease;
+  }
+  .parent-pill:hover{transform:translateY(-1px)}
+  .pill-ok{border-color:#1d6e5d;background:#0e2a24;color:#bff3e7}
+  .pill-bad{border-color:#75212f;background:#2a0e14;color:#ffd5dc}
+  .pill-wait{border-color:#24344f;background:#101c2e;color:#b7c7dc}
+  .focus-ring{outline:2px solid var(--pc-orange);outline-offset:2px;transition:outline-color .4s ease}
+  .modal-back{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:80}
+  .modal{width:min(520px,92%);background:#0f1726;border:1px solid var(--border);border-radius:16px;padding:18px;box-shadow:var(--shadow);max-height:calc(100vh - 40px);overflow-y:auto}
+  .modal .field{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+  .modal textarea{min-height:90px}
+  .modal .exp-list{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+  .modal .exp-option{display:flex;gap:10px;align-items:flex-start;padding:8px;border:1px solid var(--border);border-radius:10px;background:#101c2e}
+  .modal .exp-option input{margin-top:4px}
+  .modal .exp-text{font-size:14px;line-height:1.4}
+  .modal .modal-action-row{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .modal .reassort-section{flex-direction:column;gap:10px;margin-top:14px;background:#0f1e2f;border:1px dashed var(--border);padding:12px;border-radius:12px}
+  .modal .reassort-list{display:flex;flex-direction:column;gap:8px}
+  .modal .reassort-option{display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid var(--border);border-radius:10px;background:#13263c}
+  .modal .reassort-option input{margin-top:6px}
+  .modal .reassort-text{font-size:14px;line-height:1.4}
+  .modal .reassort-controls{display:flex;align-items:center;gap:10px;font-size:14px}
+  .modal .reassort-confirm{margin-top:12px;display:flex;justify-content:flex-end}
+</style>
+
 <div class="grid cols-2">
   <div class="card">
     <div class="title">Vérification périodique du matériel</div>
@@ -51,6 +107,8 @@ const GROUP_EL = new Map();
 const ITEM_EL = new Map();
 const ITEM_STATUS_TXT = new Map();
 const ITEM_QTY_TXT = new Map();
+const ROOT_STATUS = new Map();
+const REASSORT_CACHE = new Map();
 
 function el(tag, attrs={}, ...children){
   const e = document.createElement(tag);
@@ -60,8 +118,28 @@ function el(tag, attrs={}, ...children){
     else if(k.startsWith("on") && typeof v === "function") e.addEventListener(k.slice(2), v);
     else e.setAttribute(k, v);
   }
-  for(const c of children){ if(c!=null) e.append(c.nodeType?c:document.createTextNode(c)); }
+  for(const c of children){
+    if(c == null) continue;
+    e.append(c.nodeType ? c : document.createTextNode(c));
+  }
   return e;
+}
+
+function closeModal(){
+  const m = document.getElementById("modal-root");
+  if(m) m.remove();
+}
+
+function openModal(content){
+  closeModal();
+  const wrap = document.createElement("div");
+  wrap.id = "modal-root";
+  wrap.className = "modal-back";
+  const card = document.createElement("div");
+  card.className = "modal";
+  card.appendChild(content);
+  wrap.appendChild(card);
+  document.body.appendChild(wrap);
 }
 
 function indexTree(nodes){
@@ -77,19 +155,20 @@ const isItem = n => {
   if(!n) return false;
   if(n.unique_parent) return true;
   const type = (n.type||"").toUpperCase();
-  return type === "ITEM" || (!!n.unique_item && !n.children?.length);
+  return type === "ITEM" || (!!n.unique_item && !(n.children||[]).length);
 };
 const isGroup = n => !isItem(n);
 const targetNodeId = n => (n && (n.target_node_id || n.id));
 function normStatus(s){
   s = (s||"").toUpperCase();
-  if(s==="OK") return "OK";
-  if(s==="NOT_OK" || s==="NOT-OK" || s==="KO" || s==="NOK") return "NOT_OK";
+  if(s === "OK") return "OK";
+  if(s === "NOT_OK" || s === "NOT-OK" || s === "KO" || s === "NOK") return "NOT_OK";
   return "PENDING";
 }
 
 function flattenItems(nodes){
-  const out=[];(nodes||[]).forEach(function rec(n){
+  const out = [];
+  (nodes||[]).forEach(function rec(n){
     if(isItem(n)) out.push(n);
     (n.children||[]).forEach(rec);
   });
@@ -97,14 +176,22 @@ function flattenItems(nodes){
 }
 function groupAllOk(n){
   const items = flattenItems([n]);
-  return items.length>0 && items.every(i=>normStatus(i.last_status)==="OK");
+  return items.length > 0 && items.every(i => normStatus(i.last_status) === "OK");
 }
 function groupHasBad(n){
-  return flattenItems([n]).some(i=>normStatus(i.last_status)==="NOT_OK");
+  return flattenItems([n]).some(i => normStatus(i.last_status) === "NOT_OK");
 }
 function groupStatus(n){
   if(groupAllOk(n)) return "OK";
   if(groupHasBad(n)) return "BAD";
+  return "WAIT";
+}
+function determineRootStatus(node){
+  if(!node) return "WAIT";
+  if(isGroup(node)) return groupStatus(node);
+  const s = normStatus(node.last_status);
+  if(s === "OK") return "OK";
+  if(s === "NOT_OK") return "BAD";
   return "WAIT";
 }
 
@@ -112,12 +199,12 @@ function recomputeStats(stats){
   if(!stats){
     const items = flattenItems(TREE);
     const total = items.length;
-    const ok = items.filter(i=>normStatus(i.last_status)==="OK").length;
-    const bad = items.filter(i=>normStatus(i.last_status)==="NOT_OK").length;
+    const ok = items.filter(i => normStatus(i.last_status) === "OK").length;
+    const bad = items.filter(i => normStatus(i.last_status) === "NOT_OK").length;
     const wait = total - ok - bad;
     updateStats(ok, bad, wait, total);
   }else{
-    updateStats(stats.ok||0, stats.not_ok||0, stats.todo||0, stats.total||0);
+    updateStats(stats.ok || 0, stats.not_ok || 0, stats.todo || 0, stats.total || 0);
   }
 }
 
@@ -126,46 +213,91 @@ function updateStats(ok, bad, wait, total){
   document.getElementById("stat-bad").textContent = `Non conformes : ${bad}`;
   document.getElementById("stat-wait").textContent = `En attente : ${wait}`;
   const pct = total ? Math.round(ok/total*100) : 0;
-  document.getElementById("progress-bar").style.width = pct+"%";
+  document.getElementById("progress-bar").style.width = pct + "%";
   document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
 }
 
 function itemStateClass(n){
   const s = normStatus(n.last_status);
-  if(s==="OK") return "state-ok";
-  if(s==="NOT_OK") return "state-bad";
+  if(s === "OK") return "state-ok";
+  if(s === "NOT_OK") return "state-bad";
   return "state-wait";
 }
 function groupStateClass(n){
   const s = groupStatus(n);
-  if(s==="OK") return "state-ok";
-  if(s==="BAD") return "state-bad";
+  if(s === "OK") return "state-ok";
+  if(s === "BAD") return "state-bad";
   return "state-wait";
 }
-function statusDot(isOk,isBad){
-  return el("span", {class:"status-dot "+(isOk?"dot-ok":(isBad?"dot-bad":"dot-wait"))});
+function statusDot(isOk, isBad){
+  return el("span", {class: "status-dot " + (isOk ? "dot-ok" : (isBad ? "dot-bad" : "dot-wait"))});
+}
+
+function formatISODate(iso){
+  if(!iso) return "—";
+  try{
+    return new Date(iso + "T00:00:00").toLocaleDateString();
+  }catch(_){
+    return iso;
+  }
+}
+
+function buildExpiryChoices(item){
+  const out = [];
+  if(Array.isArray(item.expiries) && item.expiries.length){
+    item.expiries.forEach((e, idx)=>{
+      const labelParts = [];
+      if(e.date) labelParts.push(`Péremption ${formatISODate(e.date)}`);
+      if(e.lot) labelParts.push(`Lot ${e.lot}`);
+      if(typeof e.quantity === "number") labelParts.push(`Qté ${e.quantity}`);
+      if(e.note) labelParts.push(e.note);
+      out.push({
+        key: `exp-${e.id || idx}`,
+        expiry_id: e.id || null,
+        date: e.date || null,
+        lot: e.lot || null,
+        quantity: e.quantity || null,
+        label: labelParts.join(" • ") || `Péremption ${formatISODate(e.date)}`,
+      });
+    });
+  }else{
+    const d = item.expiry_date || null;
+    out.push({
+      key: `legacy-${d || "none"}`,
+      expiry_id: null,
+      date: d,
+      lot: null,
+      quantity: null,
+      label: d ? `Péremption ${formatISODate(d)}` : "Aucune date enregistrée",
+    });
+  }
+  return out;
 }
 
 function renderItem(n){
   const s = normStatus(n.last_status);
-  const statusLbl = s==="OK" ? "✅ OK" : (s==="NOT_OK" ? "❌ Non conforme" : "⏳ En attente");
+  const statusLbl = s === "OK" ? "✅ OK" : (s === "NOT_OK" ? "❌ Non conforme" : "⏳ En attente");
   const by = n.last_by ? ` (${n.last_by})` : "";
+  const statusParts = [`Dernier statut: ${statusLbl}${by}`];
+  if(n.comment){
+    statusParts.push(`Commentaire: ${n.comment}`);
+  }
   const targetId = targetNodeId(n);
   const safeId = domSafeId(n.id);
   const qtyValue = n.selected_quantity ?? n.quantity ?? n.unique_quantity ?? 1;
-  const qtySpan = el("span", {class:"qty", id:`qty-${safeId}`}, `Qté: ${qtyValue}`);
+  const qtySpan = el("span", {class: "qty", id: `qty-${safeId}`}, `Qté: ${qtyValue}`);
   ITEM_QTY_TXT.set(n.id, qtySpan);
-  const statusDiv = el("div", {class:"muted", id:`status-${safeId}`}, `Dernier statut: ${statusLbl}${by}`);
+  const statusDiv = el("div", {class: "muted", id: `status-${safeId}`}, statusParts.join(" • "));
   ITEM_STATUS_TXT.set(n.id, statusDiv);
-  const wrap = el("div", {class:"item "+itemStateClass(n), id:`item-${safeId}`},
+  const wrap = el("div", {class: "item " + itemStateClass(n), id: `item-${safeId}`},
     el("div", null,
-      el("div", {class:"name"}, statusDot(s==="OK", s==="NOT_OK"), " ", n.name, " ", qtySpan),
+      el("div", {class: "name"}, statusDot(s === "OK", s === "NOT_OK"), " ", n.name, " ", qtySpan),
       statusDiv
     ),
-    el("div", {class:"row"},
-      el("button", {class:"btn success", onclick:()=>verify(targetId,"OK")}, "OK"),
-      el("button", {class:"btn ghost", onclick:()=>verify(targetId,"NOT_OK")}, "Non conforme"),
-      el("button", {class:"btn", onclick:()=>verify(targetId,"TODO")}, "Remettre en attente")
+    el("div", {class: "row"},
+      el("button", {class: "btn success", onclick: ()=>markOk(n)}, "OK"),
+      el("button", {class: "btn ghost", onclick: ()=>openNotOkModal(n)}, "Non conforme"),
+      el("button", {class: "btn", onclick: ()=>markTodo(n)}, "Remettre en attente")
     )
   );
   ITEM_EL.set(n.id, wrap);
@@ -173,16 +305,16 @@ function renderItem(n){
 }
 
 function renderGroup(n){
-  const header = el("div", {class:"header"},
-    el("div", {class:"name"}, statusDot(groupStatus(n)==="OK", groupStatus(n)==="BAD"), " ", n.name)
+  const header = el("div", {class: "header"},
+    el("div", {class: "name"}, statusDot(groupStatus(n) === "OK", groupStatus(n) === "BAD"), " ", n.name)
   );
   const bodyChildren = [];
   if(n.unique_item || n.unique_parent){
     bodyChildren.push(renderItem(n));
   }
   (n.children||[]).forEach(child => bodyChildren.push(renderNode(child)));
-  const children = el("div", {class:"childs"}, ...bodyChildren);
-  const box = el("div", {class:`node ${groupStateClass(n)}`, id:`node-${n.id}`}, header, children);
+  const children = el("div", {class: "childs"}, ...bodyChildren);
+  const box = el("div", {class: `node ${groupStateClass(n)}`, id: `node-${n.id}`}, header, children);
   GROUP_EL.set(n.id, box);
   return box;
 }
@@ -201,15 +333,17 @@ function buildTree(){
 
 function buildParentsBar(){
   const bar = document.getElementById("root-buttons");
+  if(!bar) return;
   bar.innerHTML = "";
   ROOTS.forEach(root => {
-    const pill = el("div", {
-      class:"parent-pill "+(root.id===CURRENT_ROOT_ID?"pill-ok":"pill-wait"),
-      onclick:()=>loadRoot(root.id)
-    }, root.name);
-    if(root.id===CURRENT_ROOT_ID){
-      pill.classList.add("focus-ring");
-    }
+    const status = ROOT_STATUS.get(root.id) || root.status || "WAIT";
+    const cls = status === "OK" ? "pill-ok" : (status === "BAD" ? "pill-bad" : "pill-wait");
+    const classes = ["parent-pill", cls];
+    if(root.id === CURRENT_ROOT_ID) classes.push("focus-ring");
+    const pill = el("div", {class: classes.join(" "), onclick: ()=>loadRoot(root.id)},
+      statusDot(status === "OK", status === "BAD"),
+      el("span", {class: "strong"}, root.name)
+    );
     bar.appendChild(pill);
   });
 }
@@ -219,34 +353,245 @@ function updateCurrentRootName(name){
   if(elmt) elmt.textContent = name || "Sélectionne un parent";
 }
 
+function handleError(err){
+  if(!err) return;
+  if(err instanceof Error){
+    alert(err.message || "Erreur");
+  }else if(typeof err === "string"){
+    alert(err || "Erreur");
+  }else{
+    alert("Erreur réseau");
+  }
+}
+
 function loadRoot(rootId){
-  if(!rootId) return;
+  if(!rootId) return Promise.resolve();
   CURRENT_ROOT_ID = rootId;
-  document.getElementById("tree").innerHTML = "<div class='muted'>Chargement…</div>";
-  fetch(`/verification-periodique/tree/${rootId}`, {credentials:"include"})
-    .then(r => r.ok ? r.json() : r.text().then(txt=>Promise.reject(txt)))
+  const treeEl = document.getElementById("tree");
+  treeEl.innerHTML = "<div class='muted'>Chargement…</div>";
+  return fetch(`/verification-periodique/tree/${rootId}`, {credentials: "include"})
+    .then(r => r.ok ? r.json() : r.text().then(txt => Promise.reject(txt || "Erreur serveur")))
     .then(data => {
       TREE = data.tree || [];
       indexTree(TREE);
       updateCurrentRootName(data.root?.name || "");
+      const rootNode = TREE.length ? TREE[0] : null;
+      const status = determineRootStatus(rootNode);
+      ROOT_STATUS.set(rootId, status);
+      const found = ROOTS.find(r => r.id === rootId);
+      if(found) found.status = status;
       buildTree();
       recomputeStats(data.stats);
+      return data;
     })
     .catch(err => {
-      document.getElementById("tree").innerHTML = `<div class='muted'>Erreur de chargement : ${err}</div>`;
+      const msg = typeof err === "string" ? err : "Erreur de chargement";
+      treeEl.innerHTML = `<div class='muted'>Erreur de chargement : ${msg}</div>`;
+      throw err;
     });
 }
 
-function verify(nodeId, status){
-  fetch(`/verification-periodique/verify`, {
-    method:"POST",
-    credentials:"include",
-    headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({node_id: nodeId, status})
-  })
-  .then(r => r.ok ? r.json() : r.text().then(txt=>Promise.reject(txt)))
-  .then(()=> loadRoot(CURRENT_ROOT_ID))
-  .catch(err => alert(typeof err === "string" ? err : "Erreur réseau"));
+function verify(nodeId, status, extra={}){
+  const payload = Object.assign({node_id: nodeId, status}, extra || {});
+  return fetch(`/verification-periodique/verify`, {
+    method: "POST",
+    credentials: "include",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(payload)
+  }).then(r => {
+    if(r.ok) return r.json();
+    return r.text().then(txt => Promise.reject(txt || "Vérification refusée."));
+  }).then(() => loadRoot(CURRENT_ROOT_ID));
+}
+
+function markOk(item){
+  const targetId = targetNodeId(item);
+  verify(targetId, "OK").catch(handleError);
+}
+
+function markTodo(item){
+  const targetId = targetNodeId(item);
+  verify(targetId, "TODO").catch(handleError);
+}
+
+async function fetchReassortOptions(nodeId){
+  if(REASSORT_CACHE.has(nodeId)) return REASSORT_CACHE.get(nodeId);
+  const res = await fetch(`/verification-periodique/reassort/${nodeId}`, {credentials: "include"});
+  if(!res.ok){
+    const txt = await res.text();
+    throw new Error(txt || "Chargement impossible");
+  }
+  const data = await res.json();
+  REASSORT_CACHE.set(nodeId, data);
+  return data;
+}
+
+function invalidateReassort(nodeId){
+  REASSORT_CACHE.delete(nodeId);
+}
+
+function openNotOkModal(item){
+  const targetId = targetNodeId(item);
+  const choices = buildExpiryChoices(item);
+  let selectedExpiry = choices[0] || null;
+  let selectedReassort = null;
+
+  const commentInput = el('textarea',{placeholder:'Commentaire (optionnel)'});
+  const expiryList = el('div',{class:'exp-list'},
+    ...choices.map(choice=>{
+      const input = el('input',{type:'radio',name:'exp-choice',value:choice.key});
+      if(choice === selectedExpiry) input.checked = true;
+      input.addEventListener('change', ()=>{ selectedExpiry = choice; });
+      return el('label',{class:'exp-option'},
+        input,
+        el('div',{class:'exp-text'}, choice.label)
+      );
+    })
+  );
+  if(!choices.length){
+    expiryList.appendChild(el('div',{class:'muted'},'Aucune date enregistrée.'));
+  }
+
+  const qtyInput = el('input',{type:'number',min:'1',value:String(Math.max(1, item.missing_qty || 1)),style:'width:120px'});
+  const reassortList = el('div',{class:'reassort-list'});
+  const reassortSection = el('div',{class:'reassort-section',style:'display:none'},
+    reassortList,
+    el('div',{class:'reassort-controls'},
+      el('label',{},'Quantité'),
+      qtyInput
+    )
+  );
+  const btnConfirmReplace = el('button',{class:'btn primary',disabled:true},'Confirmer le remplacement');
+  const confirmWrap = el('div',{class:'reassort-confirm',style:'display:none'}, btnConfirmReplace);
+
+  async function confirmNotOk(){
+    btnMarkNotOk.disabled = true;
+    const parts = [];
+    if(selectedExpiry){
+      const detail = [];
+      if(selectedExpiry.date) detail.push(`péremption ${formatISODate(selectedExpiry.date)}`);
+      if(selectedExpiry.lot) detail.push(`lot ${selectedExpiry.lot}`);
+      if(detail.length) parts.push(detail.join(' · '));
+    }
+    const raw = (commentInput.value || '').trim();
+    if(raw) parts.push(raw);
+    const payload = { comment: parts.join(' — ') || undefined, issue_code: 'OTHER' };
+    try{
+      await verify(targetId, 'NOT_OK', payload);
+      closeModal();
+    }catch(err){
+      handleError(err);
+    }finally{
+      btnMarkNotOk.disabled = false;
+    }
+  }
+
+  async function loadReassort(){
+    reassortSection.style.display = 'flex';
+    reassortList.innerHTML = '';
+    const loader = el('div',{class:'muted'},'Chargement en cours…');
+    reassortList.appendChild(loader);
+    try{
+      const data = await fetchReassortOptions(targetId);
+      reassortList.innerHTML = '';
+      const items = Array.isArray(data?.items) ? data.items : [];
+      if(!items.length){
+        reassortList.appendChild(el('div',{class:'muted'},'Aucun lot de réassort disponible.'));
+        btnConfirmReplace.disabled = true;
+        return;
+      }
+      items.forEach(entry=>{
+        const input = el('input',{type:'radio',name:'reassort-choice',value:String(entry.batch_id)});
+        input.addEventListener('change',()=>{
+          selectedReassort = entry;
+          btnConfirmReplace.disabled = false;
+        });
+        if(!selectedReassort){
+          input.checked = true;
+          selectedReassort = entry;
+          btnConfirmReplace.disabled = false;
+        }
+        const option = el('label',{class:'reassort-option'},
+          input,
+          el('div',{class:'reassort-text'},
+            el('div',{class:'strong'}, entry.item_name || 'Réassort'),
+            el('div',{class:'muted'}, `Qté dispo: ${entry.quantity}`),
+            el('div',{class:'muted'}, entry.expiry_date ? `Péremption ${formatISODate(entry.expiry_date)}` : 'Péremption inconnue'),
+            entry.lot ? el('div',{class:'muted'}, `Lot ${entry.lot}`) : null,
+            entry.preferred ? el('div',{class:'chip ok'},'Article recommandé') : null
+          )
+        );
+        reassortList.appendChild(option);
+      });
+    }catch(err){
+      reassortList.innerHTML = '';
+      reassortList.appendChild(el('div',{class:'muted'}, err.message || 'Impossible de charger le réassort.'));
+      btnConfirmReplace.disabled = true;
+    }
+  }
+
+  async function confirmReplace(){
+    if(!selectedReassort){
+      alert('Choisissez un lot de réassort.');
+      return;
+    }
+    const qty = Math.max(1, parseInt(qtyInput.value, 10) || 1);
+    const payload = {
+      node_id: targetId,
+      batch_id: selectedReassort.batch_id,
+      quantity: qty,
+      comment: (commentInput.value || '').trim() || undefined,
+    };
+    if(selectedExpiry){
+      if(selectedExpiry.expiry_id) payload.expiry_id = selectedExpiry.expiry_id;
+      else if(selectedExpiry.date) payload.expiry_date = selectedExpiry.date;
+    }
+    btnConfirmReplace.disabled = true;
+    try{
+      const res = await fetch(`/verification-periodique/replace`,{
+        method:'POST',
+        credentials:'include',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
+      if(!res.ok){
+        const txt = await res.text();
+        throw new Error(txt || 'Remplacement impossible');
+      }
+      await res.json().catch(()=>null);
+      invalidateReassort(targetId);
+      closeModal();
+      await loadRoot(CURRENT_ROOT_ID);
+    }catch(err){
+      handleError(err);
+      btnConfirmReplace.disabled = false;
+    }
+  }
+
+  const btnMarkNotOk = el('button',{class:'btn ghost'},'Marquer non conforme');
+  btnMarkNotOk.addEventListener('click', confirmNotOk);
+
+  const btnShowReassort = el('button',{class:'btn primary'},'Remplacer via réassort');
+  btnShowReassort.addEventListener('click',()=>{
+    btnShowReassort.disabled = true;
+    reassortSection.style.display = 'flex';
+    confirmWrap.style.display = 'flex';
+    loadReassort();
+  });
+
+  btnConfirmReplace.addEventListener('click', confirmReplace);
+
+  const content = el('div',{},
+    el('h3',{},'Résoudre la non conformité'),
+    el('div',{class:'muted'}, item.name),
+    el('div',{class:'field'}, el('label',{},'Quel lot est concerné ?'), expiryList),
+    el('div',{class:'field'}, el('label',{},'Commentaire (optionnel)'), commentInput),
+    el('div',{class:'modal-action-row'}, btnMarkNotOk, btnShowReassort),
+    reassortSection,
+    confirmWrap
+  );
+
+  openModal(content);
 }
 
 (function init(){
