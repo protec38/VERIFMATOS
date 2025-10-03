@@ -209,6 +209,13 @@ const isUnique = n => !!(n && n.unique_item);
 const isUniqueParent = n => !!(n && n.unique_parent);
 const targetNodeId = n => (n && (n.target_node_id || n.id));
 const domSafeId = id => String(id).replace(/[^a-zA-Z0-9_-]/g, "-");
+function formatChargeInfo(vehicle, operator){
+  const veh = (vehicle && vehicle.trim()) ? vehicle.trim() : "—";
+  if(operator && operator.trim()){
+    return `${veh} (par ${operator.trim()})`;
+  }
+  return veh;
+}
 const isItem  = n => {
   if(!n) return false;
   if(isUniqueParent(n)) return false;
@@ -272,7 +279,7 @@ function buildParentsBar(){
     const pill = el("div",{class:"parent-pill "+cls, onclick:()=>scrollAndOpen(p.id)},
       statusDot(s==="OK", s==="BAD"),
       el("span",{class:"strong"}, p.name),
-      p.charged_vehicle ? el("span",{class:"veh on"}, p.charged_vehicle_name || "—") : null
+      p.charged_vehicle ? el("span",{class:"veh on"}, formatChargeInfo(p.charged_vehicle_name, p.charged_operator_name)) : null
     );
     holder.appendChild(pill);
   });
@@ -349,15 +356,14 @@ function renderUniqueParentRow(n){
 
   const left = el("div",{class:"left"},
     el("span",{class:"status-dot "+(s==="OK"?"dot-ok":(s==="NOT_OK"?"dot-bad":"dot-wait"))}),
-    el("span",{class:"label"}, "Qté sélectionnée"),
+    el("span",{class:"label"}, "Qté à charger"),
     el("span",{class:"qty"}, `Qté: ${qtyValue}`),
     statusChip(s),
     n.last_by ? el("span",{class:"meta"}, `• par ${n.last_by}`) : null
   );
 
   const right = el("div",{class:"right"},
-    el("button",{class:"btn xs success", onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(targetId,"OK"); }},"OK"),
-    el("button",{class:"btn xs ghost",   onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(targetId,"NOT_OK"); }},"Non conforme")
+    el("button",{class:"btn xs primary", onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(targetId,"OK"); }},"Charger")
   );
 
   const wrap = el("div",{class:`item unique-parent ${s==="OK"?"state-ok":(s==="NOT_OK"?"state-bad":"state-wait")}`, id:`item-${safeId}`}, left, right);
@@ -390,7 +396,7 @@ function renderGroup(n){
 
   const veh  = isRoot
     ? el("span",{class:"veh "+(n.charged_vehicle?'on':'off')},
-        n.charged_vehicle ? `Chargé : ${n.charged_vehicle_name || "—"}` : "Non chargé")
+        n.charged_vehicle ? `Chargé : ${formatChargeInfo(n.charged_vehicle_name, n.charged_operator_name)}` : "Non chargé")
     : null;
   if(isRoot) VEH_LABEL.set(n.id, veh);
 
@@ -527,12 +533,25 @@ function applyItemDelta(local, incoming){
 function applyGroupDelta(local, incoming){
   if(typeof incoming.charged_vehicle !== "undefined"){
     local.charged_vehicle = !!incoming.charged_vehicle;
-    local.charged_vehicle_name = incoming.charged_vehicle_name || null;
+    if(typeof incoming.charged_vehicle_name !== "undefined"){
+      local.charged_vehicle_name = incoming.charged_vehicle_name || null;
+    }
+    if(typeof incoming.operator_name !== "undefined"){
+      local.charged_operator_name = incoming.operator_name || null;
+    } else if(typeof incoming.charged_operator_name !== "undefined"){
+      local.charged_operator_name = incoming.charged_operator_name || null;
+    }
+    if(!local.charged_vehicle){
+      local.charged_vehicle_name = null;
+      local.charged_operator_name = null;
+    }
     const lab = VEH_LABEL.get(local.id);
     if(lab){
       lab.classList.toggle("on", !!local.charged_vehicle);
       lab.classList.toggle("off", !local.charged_vehicle);
-      lab.textContent = local.charged_vehicle ? `Chargé : ${local.charged_vehicle_name || "—"}` : "Non chargé";
+      lab.textContent = local.charged_vehicle
+        ? `Chargé : ${formatChargeInfo(local.charged_vehicle_name, local.charged_operator_name)}`
+        : "Non chargé";
     }
   }
 
@@ -559,11 +578,33 @@ function syncTreeIncoming(incomingRoots){
     if(!nLoc) return;
     if(isUnique(nLoc)){
       applyItemDelta(nLoc, nInc);
+      if(typeof nInc.charged_vehicle !== "undefined"){
+        nLoc.charged_vehicle = !!nInc.charged_vehicle;
+      }
+      if(typeof nInc.charged_vehicle_name !== "undefined"){
+        nLoc.charged_vehicle_name = nInc.charged_vehicle_name || null;
+      }
+      if(typeof nInc.operator_name !== "undefined"){
+        nLoc.charged_operator_name = nInc.operator_name || null;
+      } else if(typeof nInc.charged_operator_name !== "undefined"){
+        nLoc.charged_operator_name = nInc.charged_operator_name || null;
+      }
       (nInc.children||[]).forEach(recInc);
       applyGroupDelta(nLoc, nInc);
     } else if(isItem(nLoc)){
       applyItemDelta(nLoc, nInc);
     }else{
+      if(typeof nInc.charged_vehicle !== "undefined"){
+        nLoc.charged_vehicle = !!nInc.charged_vehicle;
+      }
+      if(typeof nInc.charged_vehicle_name !== "undefined"){
+        nLoc.charged_vehicle_name = nInc.charged_vehicle_name || null;
+      }
+      if(typeof nInc.operator_name !== "undefined"){
+        nLoc.charged_operator_name = nInc.operator_name || null;
+      } else if(typeof nInc.charged_operator_name !== "undefined"){
+        nLoc.charged_operator_name = nInc.charged_operator_name || null;
+      }
       (nInc.children||[]).forEach(recInc);
       applyGroupDelta(nLoc, nInc);
     }
@@ -650,10 +691,11 @@ function confirmCharge(){
     if(n){
       n.charged_vehicle = true;
       n.charged_vehicle_name = veh;
+      n.charged_operator_name = getOperator() || null;
       const lab = VEH_LABEL.get(n.id);
       if(lab){
         lab.classList.remove("off"); lab.classList.add("on");
-        lab.textContent = `Chargé : ${veh}`;
+        lab.textContent = `Chargé : ${formatChargeInfo(veh, n.charged_operator_name)}`;
       }
     }
     closeChargeModal();

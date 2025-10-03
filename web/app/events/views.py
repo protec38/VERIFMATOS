@@ -19,6 +19,9 @@ from ..models import (
     NodeType,
     VerificationRecord,
     EventNodeStatus,
+    EventTemplate,
+    EventTemplateKind,
+    EventTemplateNode,
     event_stock,
     Role,
 )
@@ -56,6 +59,55 @@ def _emit(event_name: str, payload: Dict[str, Any]):
     except Exception:
         # Ne jamais faire planter l'API pour un emit
         pass
+
+
+def _serialize_template(tpl: EventTemplate) -> Dict[str, Any]:
+    return {
+        "id": tpl.id,
+        "name": tpl.name,
+        "kind": getattr(tpl.kind, "name", str(tpl.kind)).upper(),
+        "description": tpl.description,
+        "nodes": [
+            {
+                "id": node.node_id,
+                "quantity": node.quantity,
+            }
+            for node in sorted(tpl.nodes, key=lambda n: n.node_id)
+        ],
+    }
+
+
+def _parse_template_nodes(raw_nodes: Any) -> List[Dict[str, Any]]:
+    nodes: List[Dict[str, Any]] = []
+    if not isinstance(raw_nodes, list) or not raw_nodes:
+        return nodes
+
+    for entry in raw_nodes:
+        if isinstance(entry, dict):
+            nid = entry.get("id") or entry.get("node_id")
+            qty = entry.get("quantity")
+        else:
+            nid = entry
+            qty = None
+
+        try:
+            node_id = int(nid)
+        except Exception:
+            raise ValueError(f"node_id invalide: {nid}") from None
+
+        quantity = None
+        if qty is not None:
+            try:
+                quantity = int(qty)
+            except Exception:
+                raise ValueError(f"Quantité invalide pour le parent {nid}") from None
+            if quantity < 0:
+                raise ValueError(f"Quantité négative pour le parent {nid}")
+
+        nodes.append({"id": node_id, "quantity": quantity})
+
+    return nodes
+
 
 # -------------------------------------------------
 # Routes internes
@@ -150,6 +202,106 @@ def create_event():
 
     db.session.commit()
     return jsonify({"ok": True, "id": ev.id, "url": f"/events/{ev.id}"}), 201
+
+
+@bp_events.get("/templates")
+@login_required
+def list_templates_api():
+    if not _is_manager():
+        abort(403)
+
+    templates = (
+        EventTemplate.query
+        .order_by(EventTemplate.kind.asc(), EventTemplate.name.asc())
+        .all()
+    )
+    return jsonify([_serialize_template(t) for t in templates])
+
+
+@bp_events.post("/templates")
+@login_required
+def create_template_api():
+    if not _is_manager():
+        abort(403)
+
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        abort(400, description="Nom requis")
+
+    # Unicité du nom
+    existing = EventTemplate.query.filter_by(name=name).first()
+    if existing:
+        abort(400, description="Un template ou lot porte déjà ce nom")
+
+    kind_raw = (data.get("kind") or "TEMPLATE").strip().upper()
+    try:
+        kind = EventTemplateKind[kind_raw]
+    except KeyError:
+        abort(400, description="kind doit être TEMPLATE ou LOT")
+
+    try:
+        nodes = _parse_template_nodes(data.get("nodes"))
+    except ValueError as exc:
+        abort(400, description=str(exc))
+
+    if not nodes:
+        abort(400, description="Sélection vide")
+
+    tpl = EventTemplate(
+        name=name,
+        kind=kind,
+        description=(data.get("description") or "").strip() or None,
+        created_by_id=current_user.id if current_user.is_authenticated else None,
+    )
+    db.session.add(tpl)
+    db.session.flush()
+
+    seen = set()
+    for spec in nodes:
+        node_id = spec["id"]
+        if node_id in seen:
+            continue
+        seen.add(node_id)
+        node = db.session.get(StockNode, node_id)
+        if not node:
+            abort(400, description=f"StockNode {node_id} introuvable")
+        if node.type != NodeType.GROUP or node.parent_id is not None:
+            abort(400, description=f"Le nœud {node.name} n'est pas un parent racine")
+
+        quantity = spec.get("quantity")
+        if getattr(node, "unique_item", False):
+            if quantity is None:
+                quantity = getattr(node, "unique_quantity", None)
+            max_qty = getattr(node, "unique_quantity", None)
+            if quantity is None:
+                abort(400, description=f"Quantité requise pour {node.name}")
+            if quantity < 0:
+                abort(400, description=f"Quantité négative pour {node.name}")
+            if max_qty is not None and quantity > max_qty:
+                abort(400, description=f"Quantité supérieure au maximum ({max_qty}) pour {node.name}")
+        else:
+            quantity = None
+
+        tpl.nodes.append(EventTemplateNode(node_id=node_id, quantity=quantity))
+
+    db.session.commit()
+    return jsonify(_serialize_template(tpl)), 201
+
+
+@bp_events.delete("/templates/<int:template_id>")
+@login_required
+def delete_template_api(template_id: int):
+    if not _is_manager():
+        abort(403)
+
+    tpl = db.session.get(EventTemplate, template_id)
+    if not tpl:
+        abort(404)
+
+    db.session.delete(tpl)
+    db.session.commit()
+    return jsonify({"ok": True, "id": template_id})
 
 
 @bp_events.get("/list")
@@ -425,3 +577,19 @@ def public_parent_charge(token: str):
     })
 
     return jsonify({"ok": True, "node_id": node.id, "vehicle": vehicle_name, "by": operator_name})
+def _serialize_template(tpl: EventTemplate) -> Dict[str, Any]:
+    return {
+        "id": tpl.id,
+        "name": tpl.name,
+        "kind": getattr(tpl.kind, "name", str(tpl.kind)).upper(),
+        "description": tpl.description,
+        "nodes": [
+            {
+                "id": node.node_id,
+                "quantity": node.quantity,
+            }
+            for node in sorted(tpl.nodes, key=lambda n: n.node_id)
+        ],
+    }
+
+
