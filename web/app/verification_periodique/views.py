@@ -375,6 +375,65 @@ def verify_item():
     return jsonify({"ok": True, "record_id": rec.id})
 
 
+@bp.post("/reset")
+@login_required
+def reset_root():
+    """Mark every item under a root back to TODO."""
+    if not _can_access():
+        return jsonify(error="Forbidden"), 403
+
+    _ensure_table()
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        root_id = int(payload.get("root_id") or 0)
+    except Exception:
+        return jsonify(error="root_id invalide"), 400
+
+    if not root_id:
+        return jsonify(error="root_id requis"), 400
+
+    node = db.session.get(StockNode, root_id)
+    if not node:
+        return jsonify(error="Parent introuvable"), 404
+
+    while node.parent_id is not None:
+        node = node.parent
+
+    item_ids: List[int] = []
+    _collect_item_ids(node, item_ids)
+
+    if not item_ids:
+        return jsonify(ok=True, updated=0)
+
+    latest = _latest_map(item_ids)
+
+    records: List[PeriodicVerificationRecord] = []
+    for item_id in item_ids:
+        last_status = (latest.get(item_id, {}).get("status") or "TODO").upper()
+        if last_status == "TODO":
+            continue
+        rec = PeriodicVerificationRecord(
+            node_id=item_id,
+            status=ItemStatus.TODO,
+            verifier_id=current_user.id,
+            verifier_name=getattr(current_user, "username", None),
+            comment=None,
+            issue_code=None,
+            observed_qty=None,
+            missing_qty=None,
+        )
+        records.append(rec)
+
+    if not records:
+        return jsonify(ok=True, updated=0)
+
+    db.session.add_all(records)
+    db.session.commit()
+
+    return jsonify(ok=True, updated=len(records))
+
+
 @bp.get("/reassort/<int:node_id>")
 @login_required
 def reassort_options(node_id: int):
