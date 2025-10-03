@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Optional, Dict, Any, List
 
 from .. import db
-from ..models import StockNode, NodeType
+from ..models import StockNode, NodeType, PeriodicVerificationRecord
 from .validators import (
     ensure_level_valid,
     ensure_item_quantity,
@@ -161,6 +161,20 @@ def delete_node(node_id: int):
     node = db.session.get(StockNode, node_id)
     if not node:
         raise LookupError("node not found")
+
+    node_ids: list[int] = []
+
+    def collect(n: StockNode):
+        node_ids.append(n.id)
+        for c in n.children:
+            collect(c)
+
+    collect(node)
+
+    if node_ids:
+        db.session.query(PeriodicVerificationRecord).filter(
+            PeriodicVerificationRecord.node_id.in_(node_ids)
+        ).delete(synchronize_session=False)
 
     def rec(n: StockNode):
         for c in list(n.children):

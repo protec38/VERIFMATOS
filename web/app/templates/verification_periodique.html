@@ -29,10 +29,11 @@
   .chip.wait{background:#101c2e;color:#b7c7dc;border-color:#24344f}
   .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
   .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
-  .parents-bar{display:flex;gap:10px;overflow:auto;padding:6px 2px}
+  .parents-bar{display:flex;flex-direction:column;gap:10px;overflow-y:auto;max-height:260px;padding:6px 2px}
   .parent-pill{
-    display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;border:1px solid var(--border);
+    display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;border:1px solid var(--border);
     background:#0f1a2a;color:var(--text);white-space:nowrap;cursor:pointer;user-select:none;
+    width:100%;box-sizing:border-box;
     transition:transform .08s ease,border-color .08s ease,background .08s ease;
   }
   .parent-pill:hover{transform:translateY(-1px)}
