@@ -312,6 +312,56 @@ def tree(root_id: int):
     })
 
 
+@bp.get("/history/<int:root_id>")
+@login_required
+def history(root_id: int):
+    if not _can_access():
+        return jsonify(error="Forbidden"), 403
+
+    _ensure_table()
+
+    node = db.session.get(StockNode, root_id)
+    if not node:
+        return jsonify(error="Parent introuvable"), 404
+
+    while node.parent_id is not None:
+        node = node.parent
+
+    item_ids: List[int] = []
+    _collect_item_ids(node, item_ids)
+
+    if not item_ids:
+        return jsonify({"root": {"id": node.id, "name": node.name}, "records": []})
+
+    rows = (
+        PeriodicVerificationRecord.query
+        .filter(PeriodicVerificationRecord.node_id.in_(item_ids))
+        .order_by(
+            PeriodicVerificationRecord.created_at.desc(),
+            PeriodicVerificationRecord.id.desc(),
+        )
+        .limit(50)
+        .all()
+    )
+
+    payload: List[Dict[str, Any]] = []
+    for row in rows:
+        timestamp = getattr(row, "updated_at", None) or getattr(row, "created_at", None)
+        payload.append(
+            {
+                "id": row.id,
+                "node_id": row.node_id,
+                "node_name": getattr(row.node, "name", None),
+                "status": _norm_status(getattr(row, "status", None)),
+                "verifier": row.verifier_name
+                or getattr(getattr(row, "verifier", None), "username", None),
+                "timestamp": timestamp.isoformat() if timestamp else None,
+            }
+        )
+
+    return jsonify({"root": {"id": node.id, "name": node.name}, "records": payload})
+
+
 @bp.post("/verify")
 @login_required
 def verify_item():

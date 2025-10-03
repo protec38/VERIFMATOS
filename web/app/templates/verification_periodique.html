@@ -56,12 +56,21 @@
   .modal .reassort-text{font-size:14px;line-height:1.4}
   .modal .reassort-controls{display:flex;align-items:center;gap:10px;font-size:14px}
   .modal .reassort-confirm{margin-top:12px;display:flex;justify-content:flex-end}
+  .history-list{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+  .history-entry{padding:10px;border:1px solid var(--border);border-radius:10px;background:#101c2e;display:flex;flex-direction:column;gap:4px}
+  .history-entry .history-primary{font-weight:600;font-size:14px}
+  .history-entry .history-secondary{font-size:12px;color:var(--muted-text, #9fb0c9)}
 </style>
 
 <div class="grid cols-2">
   <div class="card">
-    <div class="title">Vérification périodique du matériel</div>
-    <div class="subtitle">Sélectionne un parent racine pour afficher son contenu et enregistre les contrôles sans créer d’événement.</div>
+    <div class="row space-between" style="align-items:center; gap:12px;">
+      <div>
+        <div class="title">Vérification périodique du matériel</div>
+        <div class="subtitle">Sélectionne un parent racine pour afficher son contenu et enregistre les contrôles sans créer d’événement.</div>
+      </div>
+      <button class="btn" id="history-btn">Historique des vérifications</button>
+    </div>
     <div class="alert" style="margin-top:10px;">
       <div class="muted">Rôles autorisés : ADMIN, CHEF et VERIFICATIONPERIODIQUE.</div>
       <div class="muted" style="margin-top:6px;">Clique sur un parent dans la liste pour charger son arbre puis marque chaque item comme conforme ou non conforme.</div>
@@ -96,6 +105,10 @@
     <div class="muted">Vert = tout OK • Rouge = au moins un non conforme • Bleu = en attente</div>
   </div>
   <div id="tree" class="tree" style="margin-top:10px;"></div>
+</div>
+
+<div class="card" style="margin-top:12px; display:flex; justify-content:flex-end;">
+  <button class="btn primary" id="finish-verification-btn">Finir la vérification</button>
 </div>
 
 <script>
@@ -179,9 +192,11 @@ function flattenItems(nodes){
 
 function updateResetButtonState(){
   const btn = document.getElementById("reset-all-btn");
-  if(!btn) return;
+  const finishBtn = document.getElementById("finish-verification-btn");
   const hasItems = flattenItems(TREE).length > 0;
-  btn.disabled = IS_RESETTING || !CURRENT_ROOT_ID || !hasItems;
+  const disabled = IS_RESETTING || !CURRENT_ROOT_ID || !hasItems;
+  if(btn) btn.disabled = disabled;
+  if(finishBtn) finishBtn.disabled = disabled;
 }
 function groupAllOk(n){
   const items = flattenItems([n]);
@@ -361,6 +376,76 @@ function buildParentsBar(){
 function updateCurrentRootName(name){
   const elmt = document.getElementById("current-root-name");
   if(elmt) elmt.textContent = name || "Sélectionne un parent";
+}
+
+function formatDateTime(value){
+  if(!value) return "Date inconnue";
+  try{
+    const dt = new Date(value);
+    if(Number.isNaN(dt.getTime())) return value;
+    return dt.toLocaleString('fr-FR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }catch(err){
+    return value;
+  }
+}
+
+async function fetchHistory(rootId){
+  const res = await fetch(`/verification-periodique/history/${rootId}`, {credentials: 'include'});
+  if(!res.ok){
+    const txt = await res.text().catch(()=>null);
+    throw new Error(txt || "Impossible de récupérer l'historique");
+  }
+  return res.json();
+}
+
+async function showHistoryModal(){
+  if(!CURRENT_ROOT_ID){
+    alert("Sélectionne un parent pour afficher l'historique.");
+    return;
+  }
+  const btn = document.getElementById('history-btn');
+  if(btn) btn.disabled = true;
+  try{
+    const data = await fetchHistory(CURRENT_ROOT_ID);
+    const records = data?.records || [];
+    const rootName = data?.root?.name || '';
+    const header = rootName ? `Historique - ${rootName}` : 'Historique des vérifications';
+    const subtitle = records.length
+      ? `Dernières vérifications (${records.length})`
+      : "Aucune vérification enregistrée pour ce parent.";
+
+    const list = records.length
+      ? el('div',{class:'history-list'}, ...records.map(rec => {
+          const verifier = rec.verifier || 'Inconnu';
+          const dateTxt = formatDateTime(rec.timestamp);
+          return el('div',{class:'history-entry'},
+            el('div',{class:'history-primary'}, verifier),
+            el('div',{class:'history-secondary'}, dateTxt)
+          );
+        }))
+      : el('div',{class:'muted', style:'margin-top:12px;'},"L'historique est vide.");
+
+    const closeBtn = el('button',{class:'btn ghost', onclick: closeModal},'Fermer');
+
+    const content = el('div',{},
+      el('h3',{}, header),
+      el('div',{class:'muted'}, subtitle),
+      list,
+      el('div',{class:'modal-action-row'}, closeBtn)
+    );
+
+    openModal(content);
+  }catch(err){
+    handleError(err);
+  }finally{
+    if(btn) btn.disabled = false;
+  }
 }
 
 function handleError(err){
@@ -644,6 +729,16 @@ function openNotOkModal(item){
 const resetBtn = document.getElementById("reset-all-btn");
 if(resetBtn){
   resetBtn.addEventListener("click", resetAllToTodo);
+}
+
+const finishBtn = document.getElementById("finish-verification-btn");
+if(finishBtn){
+  finishBtn.addEventListener("click", resetAllToTodo);
+}
+
+const historyBtn = document.getElementById("history-btn");
+if(historyBtn){
+  historyBtn.addEventListener("click", showHistoryModal);
 }
 
 (function init(){
