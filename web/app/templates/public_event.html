@@ -104,9 +104,25 @@
   }
 
   .modal-back{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:60}
-  .modal-card{width:min(520px,92%);background:#0f1726;border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:var(--shadow)}
+  .modal-card{width:min(520px,92%);background:#0f1726;border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:var(--shadow);max-height:90vh;overflow-y:auto}
+  .modal{width:min(520px,92%);background:#0f1726;border:1px solid var(--border);border-radius:16px;padding:18px;box-shadow:var(--shadow);max-height:90vh;overflow-y:auto}
   .modal-card input{width:100%;margin:8px 0 12px 0;padding:10px;border-radius:10px;border:1px solid var(--border);background:#0b1120;color:#fff}
   .modal-actions{display:flex;gap:8px;justify-content:flex-end}
+  .modal .field{display:flex;flex-direction:column;gap:6px}
+  .modal .exp-list{display:flex;flex-direction:column;gap:8px;margin:12px 0}
+  .modal .exp-option{display:flex;gap:10px;align-items:flex-start;padding:8px;border:1px solid var(--border);border-radius:10px;background:#101c2e}
+  .modal .exp-option input{margin-top:4px}
+  .modal .exp-text{font-size:14px;line-height:1.4}
+  .modal .section-title{font-weight:800;margin-top:10px}
+  .modal .modal-action-row{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .modal .reassort-section{flex-direction:column;gap:10px;margin-top:14px;background:#0f1e2f;border:1px dashed var(--border);padding:12px;border-radius:12px}
+  .modal .reassort-list{display:flex;flex-direction:column;gap:8px}
+  .modal .reassort-option{display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid var(--border);border-radius:10px;background:#13263c}
+  .modal .reassort-option input{margin-top:6px}
+  .modal .reassort-text .strong{font-weight:800}
+  .modal .reassort-text .tag{display:inline-flex;margin-top:4px;padding:2px 6px;border-radius:999px;background:#0e2a24;border:1px solid #1d6e5d;font-size:11px;color:#bff3e7}
+  .modal .reassort-controls{display:flex;align-items:center;gap:10px;font-size:14px}
+  .modal .reassort-confirm{margin-top:12px;display:flex;justify-content:flex-end}
 </style>
 
 <div class="wrap">
@@ -152,6 +168,7 @@ const GROUP_EL  = new Map();
 const ITEM_EL   = new Map();
 const VEH_LABEL = new Map();
 const COLLAPSED = new Map();
+const REASSORT_CACHE = new Map();
 
 const NAME_KEY = "pcprep_public_operator";
 function getOperator(){ return (localStorage.getItem(NAME_KEY) || "").trim(); }
@@ -205,6 +222,18 @@ function el(tag, attrs={}, ...children){
   for(const c of children){ if(c!=null) e.append(c.nodeType?c:document.createTextNode(c)); }
   return e;
 }
+function closeModal(){ const m = document.getElementById("modal-root"); if(m) m.remove(); }
+function openModal(content){
+  closeModal();
+  const wrap = document.createElement('div');
+  wrap.id = 'modal-root';
+  wrap.className = 'modal-back';
+  const card = document.createElement('div');
+  card.className = 'modal';
+  card.appendChild(content);
+  wrap.appendChild(card);
+  document.body.appendChild(wrap);
+}
 const isUnique = n => !!(n && n.unique_item);
 const isUniqueParent = n => !!(n && n.unique_parent);
 const targetNodeId = n => (n && (n.target_node_id || n.id));
@@ -232,6 +261,11 @@ function normStatus(s){
 function daysUntilISO(iso){
   if(!iso) return null;
   try{ const d=new Date(iso+"T00:00:00"); const now=new Date(); return Math.ceil((d-now)/86400000); }catch(_){ return null; }
+}
+function formatISODate(iso){
+  if(!iso) return "—";
+  try{ return new Date(iso+"T00:00:00").toLocaleDateString(); }
+  catch(_){ return iso; }
 }
 function nextExpiryDaysFromNode(n){
   // Priorité à n.expiries (liste), fallback sur n.expiry_date (legacy)
@@ -338,7 +372,7 @@ function renderItem(n){
 
   const right = el("div",{class:"right"},
     el("button",{class:"btn xs success", onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(targetId,"OK"); }},"OK"),
-    el("button",{class:"btn xs ghost",   onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(targetId,"NOT_OK"); }},"Non conforme")
+    el("button",{class:"btn xs ghost",   onclick:()=>{ if(!ensureOperatorOrAsk()) return; openNotOkModal(n); }},"Non conforme")
   );
 
   const wrap = el("div",{class:"item "+(s==="OK"?"state-ok":(s==="NOT_OK"?"state-bad":"state-wait")), id:`item-${safeId}`}, left, right);
@@ -364,7 +398,7 @@ function renderUniqueParentRow(n){
 
   const right = el("div",{class:"right"},
     el("button",{class:"btn xs success", onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(targetId,"OK"); }},"OK"),
-    el("button",{class:"btn xs ghost",   onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(targetId,"NOT_OK"); }},"Non conforme")
+    el("button",{class:"btn xs ghost",   onclick:()=>{ if(!ensureOperatorOrAsk()) return; openNotOkModal(n); }},"Non conforme")
   );
 
   const wrap = el("div",{class:`item unique-parent ${s==="OK"?"state-ok":(s==="NOT_OK"?"state-bad":"state-wait")}`, id:`item-${safeId}`}, left, right);
@@ -646,16 +680,209 @@ async function refreshTree(){
     }
   }catch(_){}
 }
-function verify(nodeId, status){
-  const payload = { node_id: nodeId, status, verifier_name: getOperator() || "" };
-  fetch(`/public/event/{{ token }}/verify`,{
+function verify(nodeId, status, extra={}){
+  const payload = Object.assign({ node_id: nodeId, status, verifier_name: getOperator() || "" }, extra||{});
+  return fetch(`/public/event/{{ token }}/verify`,{
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body: JSON.stringify(payload)
   }).then(async res=>{
-    if(!res.ok){ const t=await res.text(); alert(t || "Vérification refusée."); return; }
+    if(!res.ok){ const t=await res.text(); alert(t || "Vérification refusée."); return Promise.reject(new Error(t||'fail')); }
     refreshTree();
-  }).catch(()=>{});
+    return true;
+  }).catch(err=>{ if(err) console.error(err); });
+}
+
+function buildExpiryChoices(item){
+  const out = [];
+  if(Array.isArray(item.expiries) && item.expiries.length){
+    item.expiries.forEach((e, idx)=>{
+      const labelParts = [];
+      if(e.date) labelParts.push(`Péremption ${formatISODate(e.date)}`);
+      if(e.lot) labelParts.push(`Lot ${e.lot}`);
+      if(typeof e.quantity === 'number') labelParts.push(`Qté ${e.quantity}`);
+      if(e.note) labelParts.push(e.note);
+      out.push({
+        key: `exp-${e.id || idx}`,
+        expiry_id: e.id || null,
+        date: e.date || null,
+        lot: e.lot || null,
+        quantity: e.quantity || null,
+        label: labelParts.join(' • ') || `Péremption ${formatISODate(e.date)}`,
+      });
+    });
+  } else {
+    const d = item.expiry_date || null;
+    out.push({
+      key: `legacy-${d || 'none'}`,
+      expiry_id: null,
+      date: d,
+      lot: null,
+      quantity: null,
+      label: d ? `Péremption ${formatISODate(d)}` : "Aucune date enregistrée",
+    });
+  }
+  return out;
+}
+
+async function fetchReassortOptions(nodeId){
+  if(REASSORT_CACHE.has(nodeId)) return REASSORT_CACHE.get(nodeId);
+  const res = await fetch(`/public/event/{{ token }}/reassort/${nodeId}`);
+  if(!res.ok){ const txt = await res.text(); throw new Error(txt || 'Chargement impossible'); }
+  const data = await res.json();
+  REASSORT_CACHE.set(nodeId, data);
+  return data;
+}
+
+function invalidateReassort(nodeId){ REASSORT_CACHE.delete(nodeId); }
+
+function openNotOkModal(item){
+  const targetId = targetNodeId(item);
+  const choices = buildExpiryChoices(item);
+  let selectedExpiry = choices[0] || null;
+  let selectedReassort = null;
+
+  const commentInput = el('textarea',{placeholder:'Commentaire (optionnel)', style:'margin-top:6px'});
+
+  const expiryList = el('div',{class:'exp-list'}, ...choices.map(choice=>{
+    const input = el('input',{type:'radio',name:'exp-choice',value:choice.key});
+    if(choice===selectedExpiry) input.checked = true;
+    input.addEventListener('change',()=>{ selectedExpiry = choice; });
+    return el('label',{class:'exp-option'}, input, el('div',{class:'exp-text'}, choice.label));
+  }));
+
+  const qtyInput = el('input',{type:'number',min:'1',value:String(Math.max(1, item.missing_qty || 1)), style:'width:120px'});
+  const reassortList = el('div',{class:'reassort-list'});
+  const reassortSection = el('div',{class:'reassort-section',style:'display:none'},
+    el('div',{class:'section-title'},'Sélectionnez un article de réassort à utiliser :'),
+    reassortList,
+    el('div',{class:'reassort-controls'},
+      el('label',{},'Quantité'),
+      qtyInput
+    )
+  );
+
+  const btnConfirmReplace = el('button',{class:'btn primary',disabled:true},'Confirmer le remplacement');
+  const confirmWrap = el('div',{class:'reassort-confirm',style:'display:none'}, btnConfirmReplace);
+
+  const closeAndRefresh = ()=>{ closeModal(); refreshTree(); };
+
+  async function loadReassort(){
+    reassortSection.style.display = 'flex';
+    reassortList.innerHTML = '';
+    const loader = el('div',{class:'muted'},'Chargement en cours…');
+    reassortList.appendChild(loader);
+    try{
+      const data = await fetchReassortOptions(targetId);
+      reassortList.innerHTML = '';
+      const items = Array.isArray(data?.items) ? data.items : [];
+      if(!items.length){
+        reassortList.appendChild(el('div',{class:'muted'},'Aucun lot de réassort disponible.'));
+        btnConfirmReplace.disabled = true;
+        return;
+      }
+      items.forEach(entry=>{
+        const input = el('input',{type:'radio',name:'reassort-choice',value:String(entry.batch_id)});
+        input.addEventListener('change',()=>{ selectedReassort = entry; btnConfirmReplace.disabled = false; });
+        if(!selectedReassort){ input.checked = true; selectedReassort = entry; btnConfirmReplace.disabled = false; }
+        const option = el('label',{class:'reassort-option'},
+          input,
+          el('div',{class:'reassort-text'},
+            el('div',{class:'strong'}, entry.item_name || 'Réassort'),
+            el('div',{class:'muted'}, `Qté dispo: ${entry.quantity}`),
+            el('div',{class:'muted'}, entry.expiry_date ? `Péremption ${formatISODate(entry.expiry_date)}` : 'Péremption inconnue'),
+            entry.lot ? el('div',{class:'muted'}, `Lot ${entry.lot}`) : null,
+            entry.preferred ? el('div',{class:'tag'},'Article recommandé') : null
+          )
+        );
+        reassortList.appendChild(option);
+      });
+    }catch(err){
+      reassortList.innerHTML = '';
+      reassortList.appendChild(el('div',{class:'muted'}, err.message || 'Impossible de charger le réassort.'));
+      btnConfirmReplace.disabled = true;
+    }
+  }
+
+  async function confirmNotOk(){
+    const btn = btnMarkNotOk;
+    btn.disabled = true;
+    const parts = [];
+    if(selectedExpiry){
+      const detail = [];
+      if(selectedExpiry.date) detail.push(`péremption ${formatISODate(selectedExpiry.date)}`);
+      if(selectedExpiry.lot) detail.push(`lot ${selectedExpiry.lot}`);
+      if(detail.length) parts.push(detail.join(' · '));
+    }
+    const raw = (commentInput.value || '').trim();
+    if(raw) parts.push(raw);
+    const payload = { comment: parts.join(' — ') || undefined, issue_code: 'OTHER' };
+    try{
+      await verify(targetId, 'NOT_OK', payload);
+      closeModal();
+    }catch(err){
+      console.error(err);
+    }finally{
+      btn.disabled = false;
+    }
+  }
+
+  async function confirmReplace(){
+    if(!selectedReassort){ alert('Choisissez un lot de réassort.'); return; }
+    const qty = Math.max(1, parseInt(qtyInput.value, 10) || 1);
+    const payload = {
+      node_id: targetId,
+      batch_id: selectedReassort.batch_id,
+      quantity: qty,
+      verifier_name: getOperator() || '',
+      comment: (commentInput.value || '').trim() || undefined,
+    };
+    if(selectedExpiry){
+      if(selectedExpiry.expiry_id) payload.expiry_id = selectedExpiry.expiry_id;
+      else if(selectedExpiry.date) payload.expiry_date = selectedExpiry.date;
+    }
+    btnConfirmReplace.disabled = true;
+    try{
+      const res = await fetch(`/public/event/{{ token }}/replace`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
+      if(!res.ok){ const txt = await res.text(); throw new Error(txt || 'Remplacement impossible'); }
+      await res.json().catch(()=>null);
+      invalidateReassort(targetId);
+      closeAndRefresh();
+    }catch(err){
+      alert(err.message || 'Remplacement impossible');
+      btnConfirmReplace.disabled = false;
+    }
+  }
+
+  const btnMarkNotOk = el('button',{class:'btn ghost'},'Marquer non conforme');
+  btnMarkNotOk.addEventListener('click', confirmNotOk);
+
+  const btnShowReassort = el('button',{class:'btn primary'},'Remplacer via réassort');
+  btnShowReassort.addEventListener('click',()=>{
+    btnShowReassort.disabled = true;
+    reassortSection.style.display = 'flex';
+    confirmWrap.style.display = 'flex';
+    loadReassort();
+  });
+
+  btnConfirmReplace.addEventListener('click', confirmReplace);
+
+  const content = el('div',{},
+    el('h3',{},`Résoudre la non conformité`),
+    el('div',{class:'muted'}, item.name),
+    el('div',{class:'section-title'},'Quel lot est concerné ?'),
+    expiryList,
+    el('div',{class:'field'}, commentInput),
+    el('div',{class:'modal-action-row'}, btnMarkNotOk, btnShowReassort),
+    reassortSection,
+    confirmWrap
+  );
+
+  openModal(content);
 }
 
 /* ===== Charger (racine) ===== */
