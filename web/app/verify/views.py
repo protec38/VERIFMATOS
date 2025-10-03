@@ -95,7 +95,7 @@ def public_verify_item(token: str):
     node = db.session.get(StockNode, node_id)
     if not node:
         abort(404, description="Item introuvable")
-    if getattr(node.type, "name", None) != "ITEM":
+    if node.type != NodeType.ITEM and not getattr(node, "unique_item", False):
         abort(400, description="Seuls les items (feuilles) sont vérifiables")
 
     # optionnels

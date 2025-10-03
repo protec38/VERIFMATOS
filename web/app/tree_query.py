@@ -1,7 +1,8 @@
 # app/tree_query.py — construction du TREE pour une page évènement
 from __future__ import annotations
-from typing import Dict, Any, List, Optional
+import json
 from datetime import date
+from typing import Dict, Any, List, Optional, Tuple
 
 from . import db
 from .models import (
@@ -62,6 +63,51 @@ def _latest_verifs_map(event_id: int, item_ids: List[int]) -> Dict[int, Dict[str
 def _ens_map(event_id: int) -> Dict[int, EventNodeStatus]:
     rows = EventNodeStatus.query.filter_by(event_id=event_id).all()
     return {int(r.node_id): r for r in rows}
+
+
+def _extract_charge_meta(ens: EventNodeStatus) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Decode vehicle / operator names stored in the comment JSON fallback."""
+    vehicle: Optional[str] = getattr(ens, "charged_vehicle_name", None)
+    operator: Optional[str] = None
+    comment = getattr(ens, "comment", None)
+
+    display_comment: Optional[str] = None
+    if comment:
+        raw = comment.strip()
+        if raw:
+            try:
+                data = json.loads(raw)
+            except Exception:
+                display_comment = raw
+                parts = [p.strip() for p in raw.split("|")]
+                for part in parts:
+                    low = part.lower()
+                    if low.startswith("véhicule"):
+                        _, _, rest = part.partition(":")
+                        if rest.strip():
+                            vehicle = vehicle or rest.strip()
+                    elif low.startswith("par"):
+                        _, _, rest = part.partition(":")
+                        if rest.strip():
+                            operator = operator or rest.strip()
+            else:
+                if isinstance(data, dict):
+                    veh_val = data.get("vehicle_name")
+                    op_val = data.get("operator_name")
+                    if veh_val:
+                        vehicle = veh_val.strip() or vehicle
+                    if op_val:
+                        operator = op_val.strip() or operator
+                    parts: List[str] = []
+                    if vehicle:
+                        parts.append(f"Véhicule: {vehicle}")
+                    if operator:
+                        parts.append(f"Par: {operator}")
+                    display_comment = " | ".join(parts) if parts else None
+                else:
+                    display_comment = raw
+
+    return vehicle, operator, display_comment
 
 def _expiries_for_items(item_ids: List[int]) -> Dict[int, List[StockItemExpiry]]:
     """Batch: récupère toutes les lignes d'expiration pour les items donnés."""
@@ -130,6 +176,7 @@ def _serialize(node: StockNode,
 
     # GROUP
     is_unique = bool(getattr(node, "unique_item", False))
+    children: List[Dict[str, Any]] = []
     if is_unique:
         info = latest.get(int(node.id), {})
         qty_selected = selected_quantities.get(int(node.id))
@@ -137,6 +184,7 @@ def _serialize(node: StockNode,
             qty_selected = getattr(node, "unique_quantity", None)
         base.update({
             "unique_item": True,
+            "unique_parent": True,
             "unique_quantity": getattr(node, "unique_quantity", None),
             "quantity": qty_selected,
             "selected_quantity": qty_selected,
@@ -148,18 +196,15 @@ def _serialize(node: StockNode,
             "observed_qty": info.get("observed_qty"),
             "missing_qty": info.get("missing_qty"),
         })
-        base["children"] = []
-        return base
-
-    children = []
-    # relation ORM “children” ou requête fallback
-    if hasattr(node, "children"):
-        for c in node.children:
-            children.append(_serialize(c, latest, False, ens_map, exp_map, selected_quantities))
     else:
-        childs = StockNode.query.filter_by(parent_id=node.id).all()
-        for c in childs:
-            children.append(_serialize(c, latest, False, ens_map, exp_map, selected_quantities))
+        # relation ORM “children” ou requête fallback
+        if hasattr(node, "children"):
+            for c in node.children:
+                children.append(_serialize(c, latest, False, ens_map, exp_map, selected_quantities))
+        else:
+            childs = StockNode.query.filter_by(parent_id=node.id).all()
+            for c in childs:
+                children.append(_serialize(c, latest, False, ens_map, exp_map, selected_quantities))
 
     base["children"] = children
     base["is_event_root"] = bool(is_root)
@@ -167,9 +212,13 @@ def _serialize(node: StockNode,
     ens = ens_map.get(int(node.id))
     if ens:
         base["charged_vehicle"] = getattr(ens, "charged_vehicle", None)
-        if hasattr(ens, "charged_vehicle_name"):
-            base["charged_vehicle_name"] = getattr(ens, "charged_vehicle_name", None)
-        if getattr(ens, "comment", None):
+        vehicle, operator, display_comment = _extract_charge_meta(ens)
+        base["charged_vehicle_name"] = vehicle
+        if operator is not None:
+            base["charged_operator_name"] = operator
+        if display_comment:
+            base["comment"] = display_comment
+        elif getattr(ens, "comment", None):
             base["comment"] = ens.comment
 
     base["unique_item"] = is_unique

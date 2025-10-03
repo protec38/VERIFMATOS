@@ -40,6 +40,8 @@ def ensure_schema_compatibility() -> None:
         if "event_stock" in tables:
             _ensure_event_stock_columns(conn, inspector)
 
+        _ensure_event_template_tables(conn, tables)
+
 
 def _ensure_stock_nodes_columns(conn: Connection, inspector) -> None:
     columns = {col["name"] for col in inspector.get_columns("stock_nodes")}
@@ -69,6 +71,17 @@ def _ensure_event_stock_columns(conn: Connection, inspector) -> None:
             "ALTER TABLE event_stock ADD COLUMN selected_quantity INTEGER",
         )
 
+
+def _ensure_event_template_tables(conn: Connection, tables: set[str]) -> None:
+    from .models import EventTemplate, EventTemplateNode  # import tardif pour éviter les cycles
+
+    if "event_templates" not in tables:
+        current_app.logger.info("Creating table event_templates")
+    EventTemplate.__table__.create(bind=conn, checkfirst=True)
+
+    if "event_template_nodes" not in tables:
+        current_app.logger.info("Creating table event_template_nodes")
+    EventTemplateNode.__table__.create(bind=conn, checkfirst=True)
 
 def _execute_ignore_duplicate(conn: Connection, sql: str) -> None:
     try:

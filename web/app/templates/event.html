@@ -130,6 +130,13 @@ const isUnique = n => !!(n && n.unique_item);
 const isUniqueParent = n => !!(n && n.unique_parent);
 const targetNodeId = n => (n && (n.target_node_id || n.id));
 const domSafeId = id => String(id).replace(/[^a-zA-Z0-9_-]/g, "-");
+function formatChargeInfo(vehicle, operator){
+  const veh = (vehicle && vehicle.trim()) ? vehicle.trim() : "—";
+  if(operator && operator.trim()){
+    return `${veh} (par ${operator.trim()})`;
+  }
+  return veh;
+}
 const isItem = n => {
   if(!n) return false;
   if(isUniqueParent(n)) return false;
@@ -168,7 +175,7 @@ function groupStatus(n){
 }
 function flattenItems(nodes){
   const out=[]; (nodes||[]).forEach(function rec(n){
-    if(isItem(n)) out.push(n);
+    if(isItem(n) || isUniqueParent(n)) out.push(n);
     (n.children||[]).forEach(rec);
   });
   return out;
@@ -253,7 +260,7 @@ function renderUniqueParentRow(n){
   ITEM_STATUS_TXT.set(n.id, statusDiv);
 
   const right = el("div", {class:"row"},
-    el("button", {class:"btn success", disabled:!actionsEnabled, onclick:()=>verify(targetId,"OK")}, "OK"),
+    el("button", {class:"btn success", disabled:!actionsEnabled, onclick:()=>verify(targetId,"OK")}, "Charger"),
     el("button", {class:"btn ghost", disabled:!actionsEnabled, onclick:()=>verify(targetId,"NOT_OK")}, "Non conforme"),
   );
 
@@ -271,7 +278,7 @@ function renderUniqueParentRow(n){
 function renderGroup(n){
   // Badge véhicule (affiché sur racines si présent dans le tree)
   const veh = el("span", {class:"vehicle "+(n.charged_vehicle?'on':'off')},
-    n.charged_vehicle ? `Chargé : ${n.charged_vehicle_name || "—"}` : "Non chargé"
+    n.charged_vehicle ? `Chargé : ${formatChargeInfo(n.charged_vehicle_name, n.charged_operator_name)}` : "Non chargé"
   );
   VEH_LABEL.set(n.id, veh);
 
@@ -341,12 +348,25 @@ function applyItemDelta(local, incoming){
 function applyGroupDelta(local, incoming){
   if(local.is_event_root && (typeof incoming.charged_vehicle !== "undefined")){
     local.charged_vehicle = !!incoming.charged_vehicle;
-    local.charged_vehicle_name = incoming.charged_vehicle_name || null;
+    if(typeof incoming.charged_vehicle_name !== "undefined"){
+      local.charged_vehicle_name = incoming.charged_vehicle_name || null;
+    }
+    if(typeof incoming.operator_name !== "undefined"){
+      local.charged_operator_name = incoming.operator_name || null;
+    } else if(typeof incoming.charged_operator_name !== "undefined"){
+      local.charged_operator_name = incoming.charged_operator_name || null;
+    }
+    if(!local.charged_vehicle){
+      local.charged_vehicle_name = null;
+      local.charged_operator_name = null;
+    }
     const lab = VEH_LABEL.get(local.id);
     if(lab){
       lab.classList.toggle("on", !!local.charged_vehicle);
       lab.classList.toggle("off", !local.charged_vehicle);
-      lab.textContent = local.charged_vehicle ? `Chargé : ${local.charged_vehicle_name || "—"}` : "Non chargé";
+      lab.textContent = local.charged_vehicle
+        ? `Chargé : ${formatChargeInfo(local.charged_vehicle_name, local.charged_operator_name)}`
+        : "Non chargé";
     }
   }
   const box = GROUP_EL.get(local.id);
@@ -373,7 +393,12 @@ function syncTreeIncoming(incomingRoots){
       applyItemDelta(nLoc, nInc);
       if(nLoc.is_event_root){
         nLoc.charged_vehicle = !!nInc.charged_vehicle;
-        nLoc.charged_vehicle_name = nInc.charged_vehicle_name || null;
+        nLoc.charged_vehicle_name = (typeof nInc.charged_vehicle_name !== "undefined" ? nInc.charged_vehicle_name : nLoc.charged_vehicle_name) || null;
+        if(typeof nInc.operator_name !== "undefined"){
+          nLoc.charged_operator_name = nInc.operator_name || null;
+        } else if(typeof nInc.charged_operator_name !== "undefined"){
+          nLoc.charged_operator_name = nInc.charged_operator_name || null;
+        }
       }
       applyGroupDelta(nLoc, nInc);
       (nInc.children||[]).forEach(recInc);
@@ -382,7 +407,12 @@ function syncTreeIncoming(incomingRoots){
     } else {
       if(nLoc.is_event_root){
         nLoc.charged_vehicle = !!nInc.charged_vehicle;
-        nLoc.charged_vehicle_name = nInc.charged_vehicle_name || null;
+        nLoc.charged_vehicle_name = (typeof nInc.charged_vehicle_name !== "undefined" ? nInc.charged_vehicle_name : nLoc.charged_vehicle_name) || null;
+        if(typeof nInc.operator_name !== "undefined"){
+          nLoc.charged_operator_name = nInc.operator_name || null;
+        } else if(typeof nInc.charged_operator_name !== "undefined"){
+          nLoc.charged_operator_name = nInc.charged_operator_name || null;
+        }
       }
       (nInc.children||[]).forEach(recInc);
       applyGroupDelta(nLoc, nInc);
@@ -404,7 +434,7 @@ function buildParentsBar(){
     const pill = el("div", {class:"parent-pill "+pillClass, onclick:()=>scrollToParent(p.id)},
       statusDot(s==="OK", s==="BAD"),
       el("span", {class:"strong"}, p.name),
-      p.charged_vehicle ? el("span", {class:"vehicle on"}, p.charged_vehicle_name || "—") : null
+      p.charged_vehicle ? el("span", {class:"vehicle on"}, formatChargeInfo(p.charged_vehicle_name, p.charged_operator_name)) : null
     );
     holder.appendChild(pill);
   });
