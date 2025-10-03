@@ -333,4 +333,11 @@ def verification_periodique_page():
         .order_by(StockNode.name.asc())
         .all()
     )
-    return render_template("verification_periodique.html", roots=roots)
+    root_payload = [
+        {
+            "id": root.id,
+            "name": root.name,
+        }
+        for root in roots
+    ]
+    return render_template("verification_periodique.html", roots=root_payload)
