@@ -153,20 +153,11 @@ function normStatus(s){
 
 /* ---------- Statuts ---------- */
 function groupAllOk(n){
-  let ok = true, hasItem=false;
-  (function rec(x){
-    if(isItem(x)){ hasItem=true; ok = ok && (normStatus(x.last_status)==="OK"); }
-    (x.children||[]).forEach(rec);
-  })(n);
-  return hasItem && ok;
+  const items = flattenItems([n]);
+  return items.length > 0 && items.every(i => normStatus(i.last_status) === "OK");
 }
 function groupHasBad(n){
-  let bad = false;
-  (function rec(x){
-    if(isItem(x) && normStatus(x.last_status)==="NOT_OK") bad = true;
-    (x.children||[]).forEach(rec);
-  })(n);
-  return bad;
+  return flattenItems([n]).some(i => normStatus(i.last_status) === "NOT_OK");
 }
 function groupStatus(n){
   if(groupAllOk(n)) return "OK";
@@ -260,7 +251,7 @@ function renderUniqueParentRow(n){
   ITEM_STATUS_TXT.set(n.id, statusDiv);
 
   const right = el("div", {class:"row"},
-    el("button", {class:"btn success", disabled:!actionsEnabled, onclick:()=>verify(targetId,"OK")}, "Charger"),
+    el("button", {class:"btn success", disabled:!actionsEnabled, onclick:()=>verify(targetId,"OK")}, "OK"),
     el("button", {class:"btn ghost", disabled:!actionsEnabled, onclick:()=>verify(targetId,"NOT_OK")}, "Non conforme"),
   );
 
@@ -319,6 +310,8 @@ function applyItemDelta(local, incoming){
   local.last_status = normStatus(incoming.last_status || "PENDING");
   local.last_by = incoming.last_by || "";
   if(incoming.quantity != null) local.quantity = incoming.quantity;
+  if(typeof incoming.selected_quantity !== "undefined") local.selected_quantity = incoming.selected_quantity;
+  if(typeof incoming.unique_quantity !== "undefined") local.unique_quantity = incoming.unique_quantity;
   if(typeof incoming.target_node_id !== "undefined") local.target_node_id = incoming.target_node_id;
   if(typeof incoming.unique_from_parent !== "undefined") local.unique_from_parent = incoming.unique_from_parent;
 
@@ -342,7 +335,12 @@ function applyItemDelta(local, incoming){
   // 3) Texte d'état & quantité
   const label = s==="OK" ? "✅ OK" : (s==="NOT_OK" ? "❌ Non conforme" : "⏳ En attente");
   if(statusDiv) statusDiv.textContent = `Dernier statut: ${label}${local.last_by ? " ("+local.last_by+")" : ""}`;
-  if(qtySpan) qtySpan.textContent = `Qté: ${local.quantity ?? 1}`;
+  if(qtySpan){
+    const qtyVal = (local.selected_quantity != null)
+      ? local.selected_quantity
+      : (local.quantity != null ? local.quantity : (local.unique_quantity != null ? local.unique_quantity : 1));
+    qtySpan.textContent = `Qté: ${qtyVal}`;
+  }
 }
 
 function applyGroupDelta(local, incoming){
