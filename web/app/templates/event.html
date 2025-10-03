@@ -175,7 +175,7 @@ function groupStatus(n){
 }
 function flattenItems(nodes){
   const out=[]; (nodes||[]).forEach(function rec(n){
-    if(isItem(n)) out.push(n);
+    if(isItem(n) || isUniqueParent(n)) out.push(n);
     (n.children||[]).forEach(rec);
   });
   return out;

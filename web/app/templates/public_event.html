@@ -244,7 +244,7 @@ function nextExpiryDaysFromNode(n){
   }
   return daysUntilISO(n.expiry_date);
 }
-function flattenItems(nodes){ const out=[]; (nodes||[]).forEach(function rec(n){ if(isItem(n)) out.push(n); (n.children||[]).forEach(rec); }); return out; }
+function flattenItems(nodes){ const out=[]; (nodes||[]).forEach(function rec(n){ if(isItem(n) || isUniqueParent(n)) out.push(n); (n.children||[]).forEach(rec); }); return out; }
 function groupAllOk(n){ const items=flattenItems([n]); return items.length>0 && items.every(i=>normStatus(i.last_status)==="OK"); }
 function groupHasBad(n){ return flattenItems([n]).some(i=>normStatus(i.last_status)==="NOT_OK"); }
 function groupStatus(n){ if(groupAllOk(n)) return "OK"; if(groupHasBad(n)) return "BAD"; return "WAIT"; }

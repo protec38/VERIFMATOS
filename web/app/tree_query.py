@@ -176,6 +176,7 @@ def _serialize(node: StockNode,
 
     # GROUP
     is_unique = bool(getattr(node, "unique_item", False))
+    children: List[Dict[str, Any]] = []
     if is_unique:
         info = latest.get(int(node.id), {})
         qty_selected = selected_quantities.get(int(node.id))
@@ -183,6 +184,7 @@ def _serialize(node: StockNode,
             qty_selected = getattr(node, "unique_quantity", None)
         base.update({
             "unique_item": True,
+            "unique_parent": True,
             "unique_quantity": getattr(node, "unique_quantity", None),
             "quantity": qty_selected,
             "selected_quantity": qty_selected,
@@ -194,18 +196,15 @@ def _serialize(node: StockNode,
             "observed_qty": info.get("observed_qty"),
             "missing_qty": info.get("missing_qty"),
         })
-        base["children"] = []
-        return base
-
-    children = []
-    # relation ORM “children” ou requête fallback
-    if hasattr(node, "children"):
-        for c in node.children:
-            children.append(_serialize(c, latest, False, ens_map, exp_map, selected_quantities))
     else:
-        childs = StockNode.query.filter_by(parent_id=node.id).all()
-        for c in childs:
-            children.append(_serialize(c, latest, False, ens_map, exp_map, selected_quantities))
+        # relation ORM “children” ou requête fallback
+        if hasattr(node, "children"):
+            for c in node.children:
+                children.append(_serialize(c, latest, False, ens_map, exp_map, selected_quantities))
+        else:
+            childs = StockNode.query.filter_by(parent_id=node.id).all()
+            for c in childs:
+                children.append(_serialize(c, latest, False, ens_map, exp_map, selected_quantities))
 
     base["children"] = children
     base["is_event_root"] = bool(is_root)
