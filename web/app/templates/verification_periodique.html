@@ -79,10 +79,11 @@
       <div class="title" id="current-root-name">Sélectionne un parent</div>
       <div class="muted">Actualise automatiquement après chaque vérification.</div>
     </div>
-    <div class="row wrap" style="gap:10px;">
+    <div class="row wrap" style="gap:10px;align-items:center;justify-content:flex-end;">
       <span class="chip ok" id="stat-ok">OK : 0</span>
       <span class="chip bad" id="stat-bad">Non conformes : 0</span>
       <span class="chip wait" id="stat-wait">En attente : 0</span>
+      <button class="btn ghost" id="reset-all-btn">Tout remettre en attente</button>
     </div>
   </div>
   <div class="progress" style="margin-top:10px;"><div id="progress-bar" style="width:0%"></div></div>
@@ -101,6 +102,7 @@
 const ROOTS = {{ (roots or [])|tojson }};
 let CURRENT_ROOT_ID = ROOTS.length ? ROOTS[0].id : null;
 let TREE = [];
+let IS_RESETTING = false;
 
 const NODE_MAP = new Map();
 const GROUP_EL = new Map();
@@ -173,6 +175,13 @@ function flattenItems(nodes){
     (n.children||[]).forEach(rec);
   });
   return out;
+}
+
+function updateResetButtonState(){
+  const btn = document.getElementById("reset-all-btn");
+  if(!btn) return;
+  const hasItems = flattenItems(TREE).length > 0;
+  btn.disabled = IS_RESETTING || !CURRENT_ROOT_ID || !hasItems;
 }
 function groupAllOk(n){
   const items = flattenItems([n]);
@@ -329,6 +338,7 @@ function buildTree(){
   ITEM_QTY_TXT.clear();
   (TREE||[]).forEach(n => container.appendChild(renderNode(n)));
   buildParentsBar();
+  updateResetButtonState();
 }
 
 function buildParentsBar(){
@@ -365,8 +375,13 @@ function handleError(err){
 }
 
 function loadRoot(rootId){
-  if(!rootId) return Promise.resolve();
+  if(!rootId){
+    CURRENT_ROOT_ID = null;
+    updateResetButtonState();
+    return Promise.resolve();
+  }
   CURRENT_ROOT_ID = rootId;
+  updateResetButtonState();
   const treeEl = document.getElementById("tree");
   treeEl.innerHTML = "<div class='muted'>Chargement…</div>";
   return fetch(`/verification-periodique/tree/${rootId}`, {credentials: "include"})
@@ -382,12 +397,44 @@ function loadRoot(rootId){
       if(found) found.status = status;
       buildTree();
       recomputeStats(data.stats);
+      updateResetButtonState();
       return data;
     })
     .catch(err => {
       const msg = typeof err === "string" ? err : "Erreur de chargement";
       treeEl.innerHTML = `<div class='muted'>Erreur de chargement : ${msg}</div>`;
+      updateResetButtonState();
       throw err;
+    });
+}
+
+function resetAllToTodo(){
+  if(!CURRENT_ROOT_ID || IS_RESETTING) return;
+  if(!confirm("Confirmer la remise en attente de tous les éléments ?")) return;
+  IS_RESETTING = true;
+  updateResetButtonState();
+  fetch(`/verification-periodique/reset`, {
+    method: "POST",
+    credentials: "include",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({root_id: CURRENT_ROOT_ID})
+  })
+    .then(r => {
+      if(r.ok) return r.json();
+      return r.text().then(txt => Promise.reject(txt || "Réinitialisation impossible"));
+    })
+    .then(data => {
+      if(!data || data.error){
+        throw data?.error || "Réinitialisation impossible";
+      }
+      return loadRoot(CURRENT_ROOT_ID);
+    })
+    .catch(err => {
+      handleError(err);
+    })
+    .finally(() => {
+      IS_RESETTING = false;
+      updateResetButtonState();
     });
 }
 
@@ -594,12 +641,19 @@ function openNotOkModal(item){
   openModal(content);
 }
 
+const resetBtn = document.getElementById("reset-all-btn");
+if(resetBtn){
+  resetBtn.addEventListener("click", resetAllToTodo);
+}
+
 (function init(){
   if(!ROOTS.length){
     document.getElementById("tree").innerHTML = "<div class='muted'>Aucun parent racine défini.</div>";
+    updateResetButtonState();
     return;
   }
   buildParentsBar();
+  updateResetButtonState();
   loadRoot(CURRENT_ROOT_ID);
 })();
 </script>

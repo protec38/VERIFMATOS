@@ -134,28 +134,50 @@ def _ensure_role_enum_value(conn: Connection) -> None:
         return
 
     type_name = row[0]
-    try:
-        existing = conn.execute(
-            text(
-                "SELECT 1 FROM pg_type t "
-                "JOIN pg_enum e ON t.oid = e.enumtypid "
-                "WHERE t.typname = :type AND e.enumlabel = :label"
-            ),
-            {"type": type_name, "label": "verificationperiodique"},
-        ).fetchone()
-    except Exception:  # pragma: no cover - defensive
-        return
+    def _label_exists(label: str) -> bool:
+        try:
+            existing = conn.execute(
+                text(
+                    "SELECT 1 FROM pg_type t "
+                    "JOIN pg_enum e ON t.oid = e.enumtypid "
+                    "WHERE t.typname = :type AND e.enumlabel = :label"
+                ),
+                {"type": type_name, "label": label},
+            ).fetchone()
+        except Exception:  # pragma: no cover - defensive
+            return False
+        return bool(existing)
 
-    if existing:
+    desired_label = "VERIFICATIONPERIODIQUE"
+    legacy_label = "verificationperiodique"
+
+    if _label_exists(desired_label):
         return
 
     quoted_type = f'"{type_name}"'
+
+    if _label_exists(legacy_label):
+        try:
+            conn.execute(
+                text(
+                    f"ALTER TYPE {quoted_type} RENAME VALUE '{legacy_label}' "
+                    f"TO '{desired_label}'"
+                )
+            )
+            return
+        except Exception as exc:  # pragma: no cover - fallback if rename unsupported
+            current_app.logger.warning(
+                "Unable to rename legacy role enum value: %s", exc
+            )
+
     try:
         conn.execute(
-            text(f"ALTER TYPE {quoted_type} ADD VALUE IF NOT EXISTS 'verificationperiodique'")
+            text(
+                f"ALTER TYPE {quoted_type} ADD VALUE IF NOT EXISTS '{desired_label}'"
+            )
         )
     except ProgrammingError:
-        conn.execute(text(f"ALTER TYPE {quoted_type} ADD VALUE 'verificationperiodique'"))
+        conn.execute(text(f"ALTER TYPE {quoted_type} ADD VALUE '{desired_label}'"))
     except Exception as exc:  # pragma: no cover - garde-fou
         current_app.logger.warning("Unable to extend role enum: %s", exc)
 
