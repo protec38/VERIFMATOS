@@ -356,7 +356,7 @@ function renderUniqueParentRow(n){
 
   const left = el("div",{class:"left"},
     el("span",{class:"status-dot "+(s==="OK"?"dot-ok":(s==="NOT_OK"?"dot-bad":"dot-wait"))}),
-    el("span",{class:"label"}, "Qté sélectionnée"),
+    el("span",{class:"label"}, "Qté à charger"),
     el("span",{class:"qty"}, `Qté: ${qtyValue}`),
     statusChip(s),
     n.last_by ? el("span",{class:"meta"}, `• par ${n.last_by}`) : null

@@ -22,6 +22,8 @@ from .models import (
     EventShareLink,
     StockNode,
     NodeType,
+    EventTemplate,
+    EventTemplateKind,
     event_stock,
     User,
 )
@@ -40,6 +42,22 @@ def can_view() -> bool:
 
 def can_manage_event() -> bool:
     return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF)
+
+
+def _serialize_template(tpl: EventTemplate) -> dict:
+    return {
+        "id": tpl.id,
+        "name": tpl.name,
+        "kind": getattr(tpl.kind, "name", str(tpl.kind)).upper(),
+        "description": tpl.description,
+        "nodes": [
+            {
+                "id": node.node_id,
+                "quantity": node.quantity,
+            }
+            for node in sorted(tpl.nodes, key=lambda n: n.node_id)
+        ],
+    }
 
 # -------------------------
 # Auth HTML
@@ -132,7 +150,21 @@ def dashboard():
         .order_by(StockNode.name.asc())
         .all()
     )
-    return render_template("home.html", events=events, can_manage=can_manage_event(), roots=roots)
+    templates = (
+        EventTemplate.query
+        .order_by(EventTemplate.kind.asc(), EventTemplate.name.asc())
+        .all()
+    )
+    template_specs = [_serialize_template(t) for t in templates if t.kind == EventTemplateKind.TEMPLATE]
+    lot_specs = [_serialize_template(t) for t in templates if t.kind == EventTemplateKind.LOT]
+    return render_template(
+        "home.html",
+        events=events,
+        can_manage=can_manage_event(),
+        roots=roots,
+        templates=template_specs,
+        lots=lot_specs,
+    )
 
 # -------------------------
 # Page Événement (interne)

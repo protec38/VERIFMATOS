@@ -191,6 +191,44 @@ class VerificationRecord(db.Model):
     )
 
 # -------------------------------------------------------------------
+# Templates d'événement (sélections préenregistrées)
+# -------------------------------------------------------------------
+
+class EventTemplateKind(enum.Enum):
+    TEMPLATE = "template"
+    LOT = "lot"
+
+
+class EventTemplate(db.Model):
+    __tablename__ = "event_templates"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), unique=True, nullable=False)
+    kind = db.Column(db.Enum(EventTemplateKind), nullable=False, default=EventTemplateKind.TEMPLATE)
+    description = db.Column(db.Text, nullable=True)
+    created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    created_by = db.relationship("User")
+    nodes = db.relationship(
+        "EventTemplateNode",
+        backref="template",
+        cascade="all, delete-orphan",
+        lazy="joined",
+    )
+
+
+class EventTemplateNode(db.Model):
+    __tablename__ = "event_template_nodes"
+
+    template_id = db.Column(db.Integer, db.ForeignKey("event_templates.id"), primary_key=True)
+    node_id = db.Column(db.Integer, db.ForeignKey("stock_nodes.id"), primary_key=True)
+    quantity = db.Column(db.Integer, nullable=True)
+
+    node = db.relationship("StockNode")
+
+
+# -------------------------------------------------------------------
 # Statut par parent pour l'événement (chargé dans véhicule)
 # -------------------------------------------------------------------
 
