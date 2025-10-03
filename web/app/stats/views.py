@@ -18,7 +18,12 @@ bp = Blueprint("stats", __name__)
 # Droits
 # -------------------------------------------------
 def require_view() -> bool:
-    return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF, Role.VIEWER)
+    return current_user.is_authenticated and current_user.role in (
+        Role.ADMIN,
+        Role.CHEF,
+        Role.VIEWER,
+        getattr(Role, "VERIFICATIONPERIODIQUE", Role.VIEWER),
+    )
 
 # -------------------------------------------------
 # Statistiques d'un événement (existant)

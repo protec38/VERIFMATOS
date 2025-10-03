@@ -38,10 +38,23 @@ def is_admin() -> bool:
     return current_user.is_authenticated and current_user.role == Role.ADMIN
 
 def can_view() -> bool:
-    return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF, Role.VIEWER)
+    return current_user.is_authenticated and current_user.role in (
+        Role.ADMIN,
+        Role.CHEF,
+        Role.VIEWER,
+        getattr(Role, "VERIFICATIONPERIODIQUE", Role.VIEWER),
+    )
 
 def can_manage_event() -> bool:
     return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF)
+
+
+def can_periodic_verify() -> bool:
+    return current_user.is_authenticated and current_user.role in (
+        Role.ADMIN,
+        Role.CHEF,
+        getattr(Role, "VERIFICATIONPERIODIQUE", Role.CHEF),
+    )
 
 
 def _serialize_template(tpl: EventTemplate) -> dict:
@@ -306,3 +319,18 @@ def peremption_page():
     if not can_view():
         abort(403)
     return render_template("peremption.html")
+
+
+@bp.get("/verification-periodique")
+@login_required
+def verification_periodique_page():
+    if not can_periodic_verify():
+        abort(403)
+
+    roots = (
+        StockNode.query
+        .filter(StockNode.parent_id.is_(None))
+        .order_by(StockNode.name.asc())
+        .all()
+    )
+    return render_template("verification_periodique.html", roots=roots)

@@ -85,6 +85,7 @@ def create_app() -> Flask:
 
     # Verify contient aussi les routes publiques /public/event/<token>/...
     _register_bp_if_any(app, "app.verify.views")
+    _register_bp_if_any(app, "app.verification_periodique.views")
 
     # Events API (POST /events, GET /events/<id>/tree, etc.)
     _register_bp_if_any(app, "app.events.views", candidates=("bp", "bp_events", "bp_public"))

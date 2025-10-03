@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+{% set title = "Vérification périodique" %}
+{% block content %}
+
+<div class="grid cols-2">
+  <div class="card">
+    <div class="title">Vérification périodique du matériel</div>
+    <div class="subtitle">Sélectionne un parent racine pour afficher son contenu et enregistre les contrôles sans créer d’événement.</div>
+    <div class="alert" style="margin-top:10px;">
+      <div class="muted">Rôles autorisés : ADMIN, CHEF et VERIFICATIONPERIODIQUE.</div>
+      <div class="muted" style="margin-top:6px;">Clique sur un parent dans la liste pour charger son arbre puis marque chaque item comme conforme ou non conforme.</div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="title">Parents disponibles</div>
+    <div id="root-buttons" class="parents-bar" style="margin-top:8px;"></div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:12px;">
+  <div class="row space-between">
+    <div>
+      <div class="title" id="current-root-name">Sélectionne un parent</div>
+      <div class="muted">Actualise automatiquement après chaque vérification.</div>
+    </div>
+    <div class="row wrap" style="gap:10px;">
+      <span class="chip ok" id="stat-ok">OK : 0</span>
+      <span class="chip bad" id="stat-bad">Non conformes : 0</span>
+      <span class="chip wait" id="stat-wait">En attente : 0</span>
+    </div>
+  </div>
+  <div class="progress" style="margin-top:10px;"><div id="progress-bar" style="width:0%"></div></div>
+  <div class="muted" id="progress-text" style="margin-top:6px;">0 / 0 vérifiés</div>
+</div>
+
+<div class="card" style="margin-top:12px;">
+  <div class="row space-between">
+    <div class="title">Matériel à contrôler</div>
+    <div class="muted">Vert = tout OK • Rouge = au moins un non conforme • Bleu = en attente</div>
+  </div>
+  <div id="tree" class="tree" style="margin-top:10px;"></div>
+</div>
+
+<script>
+const ROOTS = {{ (roots or [])|tojson }};
+let CURRENT_ROOT_ID = ROOTS.length ? ROOTS[0].id : null;
+let TREE = [];
+
+const NODE_MAP = new Map();
+const GROUP_EL = new Map();
+const ITEM_EL = new Map();
+const ITEM_STATUS_TXT = new Map();
+const ITEM_QTY_TXT = new Map();
+
+function el(tag, attrs={}, ...children){
+  const e = document.createElement(tag);
+  for(const [k,v] of Object.entries(attrs||{})){
+    if(k==="class") e.className = v;
+    else if(k==="html") e.innerHTML = v;
+    else if(k.startsWith("on") && typeof v === "function") e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v);
+  }
+  for(const c of children){ if(c!=null) e.append(c.nodeType?c:document.createTextNode(c)); }
+  return e;
+}
+
+function indexTree(nodes){
+  NODE_MAP.clear();
+  (nodes||[]).forEach(function rec(n){
+    NODE_MAP.set(n.id, n);
+    (n.children||[]).forEach(rec);
+  });
+}
+
+const domSafeId = id => String(id).replace(/[^a-zA-Z0-9_-]/g, "-");
+const isItem = n => {
+  if(!n) return false;
+  if(n.unique_parent) return true;
+  const type = (n.type||"").toUpperCase();
+  return type === "ITEM" || (!!n.unique_item && !n.children?.length);
+};
+const isGroup = n => !isItem(n);
+const targetNodeId = n => (n && (n.target_node_id || n.id));
+function normStatus(s){
+  s = (s||"").toUpperCase();
+  if(s==="OK") return "OK";
+  if(s==="NOT_OK" || s==="NOT-OK" || s==="KO" || s==="NOK") return "NOT_OK";
+  return "PENDING";
+}
+
+function flattenItems(nodes){
+  const out=[];(nodes||[]).forEach(function rec(n){
+    if(isItem(n)) out.push(n);
+    (n.children||[]).forEach(rec);
+  });
+  return out;
+}
+function groupAllOk(n){
+  const items = flattenItems([n]);
+  return items.length>0 && items.every(i=>normStatus(i.last_status)==="OK");
+}
+function groupHasBad(n){
+  return flattenItems([n]).some(i=>normStatus(i.last_status)==="NOT_OK");
+}
+function groupStatus(n){
+  if(groupAllOk(n)) return "OK";
+  if(groupHasBad(n)) return "BAD";
+  return "WAIT";
+}
+
+function recomputeStats(stats){
+  if(!stats){
+    const items = flattenItems(TREE);
+    const total = items.length;
+    const ok = items.filter(i=>normStatus(i.last_status)==="OK").length;
+    const bad = items.filter(i=>normStatus(i.last_status)==="NOT_OK").length;
+    const wait = total - ok - bad;
+    updateStats(ok, bad, wait, total);
+  }else{
+    updateStats(stats.ok||0, stats.not_ok||0, stats.todo||0, stats.total||0);
+  }
+}
+
+function updateStats(ok, bad, wait, total){
+  document.getElementById("stat-ok").textContent = `OK : ${ok}`;
+  document.getElementById("stat-bad").textContent = `Non conformes : ${bad}`;
+  document.getElementById("stat-wait").textContent = `En attente : ${wait}`;
+  const pct = total ? Math.round(ok/total*100) : 0;
+  document.getElementById("progress-bar").style.width = pct+"%";
+  document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
+}
+
+function itemStateClass(n){
+  const s = normStatus(n.last_status);
+  if(s==="OK") return "state-ok";
+  if(s==="NOT_OK") return "state-bad";
+  return "state-wait";
+}
+function groupStateClass(n){
+  const s = groupStatus(n);
+  if(s==="OK") return "state-ok";
+  if(s==="BAD") return "state-bad";
+  return "state-wait";
+}
+function statusDot(isOk,isBad){
+  return el("span", {class:"status-dot "+(isOk?"dot-ok":(isBad?"dot-bad":"dot-wait"))});
+}
+
+function renderItem(n){
+  const s = normStatus(n.last_status);
+  const statusLbl = s==="OK" ? "✅ OK" : (s==="NOT_OK" ? "❌ Non conforme" : "⏳ En attente");
+  const by = n.last_by ? ` (${n.last_by})` : "";
+  const targetId = targetNodeId(n);
+  const safeId = domSafeId(n.id);
+  const qtyValue = n.selected_quantity ?? n.quantity ?? n.unique_quantity ?? 1;
+  const qtySpan = el("span", {class:"qty", id:`qty-${safeId}`}, `Qté: ${qtyValue}`);
+  ITEM_QTY_TXT.set(n.id, qtySpan);
+  const statusDiv = el("div", {class:"muted", id:`status-${safeId}`}, `Dernier statut: ${statusLbl}${by}`);
+  ITEM_STATUS_TXT.set(n.id, statusDiv);
+  const wrap = el("div", {class:"item "+itemStateClass(n), id:`item-${safeId}`},
+    el("div", null,
+      el("div", {class:"name"}, statusDot(s==="OK", s==="NOT_OK"), " ", n.name, " ", qtySpan),
+      statusDiv
+    ),
+    el("div", {class:"row"},
+      el("button", {class:"btn success", onclick:()=>verify(targetId,"OK")}, "OK"),
+      el("button", {class:"btn ghost", onclick:()=>verify(targetId,"NOT_OK")}, "Non conforme"),
+      el("button", {class:"btn", onclick:()=>verify(targetId,"TODO")}, "Remettre en attente")
+    )
+  );
+  ITEM_EL.set(n.id, wrap);
+  return wrap;
+}
+
+function renderGroup(n){
+  const header = el("div", {class:"header"},
+    el("div", {class:"name"}, statusDot(groupStatus(n)==="OK", groupStatus(n)==="BAD"), " ", n.name)
+  );
+  const bodyChildren = [];
+  if(n.unique_item || n.unique_parent){
+    bodyChildren.push(renderItem(n));
+  }
+  (n.children||[]).forEach(child => bodyChildren.push(renderNode(child)));
+  const children = el("div", {class:"childs"}, ...bodyChildren);
+  const box = el("div", {class:`node ${groupStateClass(n)}`, id:`node-${n.id}`}, header, children);
+  GROUP_EL.set(n.id, box);
+  return box;
+}
+function renderNode(n){ return isGroup(n) ? renderGroup(n) : renderItem(n); }
+
+function buildTree(){
+  const container = document.getElementById("tree");
+  container.innerHTML = "";
+  GROUP_EL.clear();
+  ITEM_EL.clear();
+  ITEM_STATUS_TXT.clear();
+  ITEM_QTY_TXT.clear();
+  (TREE||[]).forEach(n => container.appendChild(renderNode(n)));
+  buildParentsBar();
+}
+
+function buildParentsBar(){
+  const bar = document.getElementById("root-buttons");
+  bar.innerHTML = "";
+  ROOTS.forEach(root => {
+    const pill = el("div", {
+      class:"parent-pill "+(root.id===CURRENT_ROOT_ID?"pill-ok":"pill-wait"),
+      onclick:()=>loadRoot(root.id)
+    }, root.name);
+    if(root.id===CURRENT_ROOT_ID){
+      pill.classList.add("focus-ring");
+    }
+    bar.appendChild(pill);
+  });
+}
+
+function updateCurrentRootName(name){
+  const elmt = document.getElementById("current-root-name");
+  if(elmt) elmt.textContent = name || "Sélectionne un parent";
+}
+
+function loadRoot(rootId){
+  if(!rootId) return;
+  CURRENT_ROOT_ID = rootId;
+  document.getElementById("tree").innerHTML = "<div class='muted'>Chargement…</div>";
+  fetch(`/verification-periodique/tree/${rootId}`, {credentials:"include"})
+    .then(r => r.ok ? r.json() : r.text().then(txt=>Promise.reject(txt)))
+    .then(data => {
+      TREE = data.tree || [];
+      indexTree(TREE);
+      updateCurrentRootName(data.root?.name || "");
+      buildTree();
+      recomputeStats(data.stats);
+    })
+    .catch(err => {
+      document.getElementById("tree").innerHTML = `<div class='muted'>Erreur de chargement : ${err}</div>`;
+    });
+}
+
+function verify(nodeId, status){
+  fetch(`/verification-periodique/verify`, {
+    method:"POST",
+    credentials:"include",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({node_id: nodeId, status})
+  })
+  .then(r => r.ok ? r.json() : r.text().then(txt=>Promise.reject(txt)))
+  .then(()=> loadRoot(CURRENT_ROOT_ID))
+  .catch(err => alert(typeof err === "string" ? err : "Erreur réseau"));
+}
+
+(function init(){
+  if(!ROOTS.length){
+    document.getElementById("tree").innerHTML = "<div class='muted'>Aucun parent racine défini.</div>";
+    return;
+  }
+  buildParentsBar();
+  loadRoot(CURRENT_ROOT_ID);
+})();
+</script>
+{% endblock %}

@@ -37,7 +37,12 @@ def _is_manager() -> bool:
     return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF)
 
 def _can_view() -> bool:
-    return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF, Role.VIEWER)
+    return current_user.is_authenticated and current_user.role in (
+        Role.ADMIN,
+        Role.CHEF,
+        Role.VIEWER,
+        getattr(Role, "VERIFICATIONPERIODIQUE", Role.VIEWER),
+    )
 
 def _event_or_404(event_id: int) -> Event:
     ev = db.session.get(Event, int(event_id))
