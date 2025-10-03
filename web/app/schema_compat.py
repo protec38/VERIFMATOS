@@ -41,6 +41,7 @@ def ensure_schema_compatibility() -> None:
             _ensure_event_stock_columns(conn, inspector)
 
         _ensure_event_template_tables(conn, tables)
+        _ensure_reassort_tables(conn)
 
 
 def _ensure_stock_nodes_columns(conn: Connection, inspector) -> None:
@@ -82,6 +83,19 @@ def _ensure_event_template_tables(conn: Connection, tables: set[str]) -> None:
     if "event_template_nodes" not in tables:
         current_app.logger.info("Creating table event_template_nodes")
     EventTemplateNode.__table__.create(bind=conn, checkfirst=True)
+
+
+def _ensure_reassort_tables(conn: Connection) -> None:
+    try:
+        from .models import ReassortItem, ReassortBatch  # import tardif
+    except Exception:
+        return
+
+    try:
+        ReassortItem.__table__.create(bind=conn, checkfirst=True)
+        ReassortBatch.__table__.create(bind=conn, checkfirst=True)
+    except Exception as exc:  # pragma: no cover - garde-fou
+        current_app.logger.warning("Unable to ensure reassort tables: %s", exc)
 
 def _execute_ignore_duplicate(conn: Connection, sql: str) -> None:
     try:

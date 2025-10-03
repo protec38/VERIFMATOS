@@ -140,6 +140,49 @@ class StockItemExpiry(db.Model):
         CheckConstraint("(quantity IS NULL) OR (quantity >= 0)", name="ck_itemexpiry_qty_nonneg"),
     )
 
+# -------------------------------------------------------------------
+# Réassort (stock tampon pour remplacements)
+# -------------------------------------------------------------------
+
+
+class ReassortItem(db.Model):
+    __tablename__ = "reassort_items"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    note = db.Column(db.Text, nullable=True)
+
+    target_node_id = db.Column(db.Integer, db.ForeignKey("stock_nodes.id"), nullable=True, index=True)
+    target_node = db.relationship("StockNode")
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    batches = db.relationship(
+        "ReassortBatch",
+        backref="item",
+        cascade="all, delete-orphan",
+        lazy="dynamic",
+    )
+
+
+class ReassortBatch(db.Model):
+    __tablename__ = "reassort_batches"
+
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, db.ForeignKey("reassort_items.id"), nullable=False, index=True)
+    expiry_date = db.Column(db.Date, nullable=True, index=True)
+    quantity = db.Column(db.Integer, nullable=False, default=0)
+    lot = db.Column(db.String(64), nullable=True)
+    note = db.Column(db.String(255), nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("quantity >= 0", name="ck_reassort_batch_qty_nonneg"),
+    )
+
 # Association : racines de stock attachées à un événement
 event_stock = db.Table(
     "event_stock",
