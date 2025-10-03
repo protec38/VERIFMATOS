@@ -86,6 +86,10 @@
           <span id="peremp-badge" class="badge" style="display:none;margin-left:6px">0</span>
         </a>
 
+        {% if _cu.role and _cu.role.name in ['ADMIN', 'CHEF', 'VERIFICATIONPERIODIQUE'] %}
+          <a class="btn" href="/verification-periodique">✅ Vérification périodique</a>
+        {% endif %}
+
         {% if _cu.role and _cu.role.name in ['ADMIN', 'CHEF'] %}
           <a class="btn" href="/reassort">📦 Réassort</a>
         {% endif %}

@@ -15,7 +15,12 @@ bp_peremption = Blueprint("peremption", __name__)
 
 # ---------------- Helpers accès ----------------
 def _can_view() -> bool:
-    return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF, Role.VIEWER)
+    return current_user.is_authenticated and current_user.role in (
+        Role.ADMIN,
+        Role.CHEF,
+        Role.VIEWER,
+        getattr(Role, "VERIFICATIONPERIODIQUE", Role.VIEWER),
+    )
 
 # ---------------- Helpers data ----------------
 def _build_path(n: StockNode) -> str:

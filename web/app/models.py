@@ -19,6 +19,7 @@ class Role(enum.Enum):
     ADMIN = "admin"
     CHEF = "chef"
     VIEWER = "viewer"  # lecture seule
+    VERIFICATIONPERIODIQUE = "verificationperiodique"
 
 class User(db.Model, UserMixin):
     __tablename__ = "users"
@@ -307,3 +308,28 @@ class AuditLog(db.Model):
     meta = db.Column(JSONB, nullable=True)
 
     user = db.relationship("User")
+
+
+class PeriodicVerificationRecord(db.Model):
+    __tablename__ = "periodic_verification_records"
+
+    id = db.Column(db.Integer, primary_key=True)
+    node_id = db.Column(db.Integer, db.ForeignKey("stock_nodes.id"), nullable=False, index=True)
+    status = db.Column(db.Enum(ItemStatus), nullable=False, default=ItemStatus.OK)
+    verifier_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    verifier_name = db.Column(db.String(120), nullable=True)
+    comment = db.Column(db.Text, nullable=True)
+    issue_code = db.Column(db.Enum(IssueCode), nullable=True)
+    observed_qty = db.Column(db.Integer, nullable=True)
+    missing_qty = db.Column(db.Integer, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    node = db.relationship("StockNode")
+    verifier = db.relationship("User")
+
+    __table_args__ = (
+        Index("ix_periodic_verif_node_time", "node_id", "created_at"),
+        CheckConstraint("(observed_qty IS NULL) OR (observed_qty >= 0)", name="ck_periodic_observed_nonneg"),
+        CheckConstraint("(missing_qty  IS NULL) OR (missing_qty  >= 0)", name="ck_periodic_missing_nonneg"),
+    )

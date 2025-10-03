@@ -16,7 +16,12 @@ def _can_view_reports() -> bool:
         from ..models import Role  # import local pour éviter cycles
         return (
             current_user.is_authenticated
-            and getattr(current_user, "role", None) in (Role.ADMIN, Role.CHEF, Role.VIEWER)
+            and getattr(current_user, "role", None) in (
+                Role.ADMIN,
+                Role.CHEF,
+                Role.VIEWER,
+                getattr(Role, "VERIFICATIONPERIODIQUE", Role.VIEWER),
+            )
         )
     except Exception:
         # Si on ne peut pas importer, on restreint aux utilisateurs authentifiés
