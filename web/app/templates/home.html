@@ -28,6 +28,26 @@
           <span class="muted">Aucun parent racine disponible. Crée d’abord un stock parent dans 🧰 Stock.</span>
         {% endif %}
       </div>
+      <div class="row wrap" style="margin-top:12px;gap:8px;align-items:center">
+        <label for="template-select" class="muted">Template :</label>
+        <select id="template-select" style="min-width:220px">
+          <option value="">Sélectionner un template…</option>
+          {% for tpl in templates %}
+            <option value="{{ tpl.id }}">{{ tpl.name }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn" id="btn-save-template" type="button">💾 Enregistrer comme template</button>
+      </div>
+      <div class="row wrap" style="margin-top:8px;gap:8px;align-items:center">
+        <label for="lot-select" class="muted">Lot :</label>
+        <select id="lot-select" style="min-width:220px">
+          <option value="">Ajouter un lot…</option>
+          {% for lot in lots %}
+            <option value="{{ lot.id }}">{{ lot.name }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn" id="btn-save-lot" type="button">💾 Enregistrer comme lot</button>
+      </div>
     </div>
 
     <div class="row" style="margin-top:10px;">
@@ -72,6 +92,10 @@
 (function(){
   const byId = (id)=>document.getElementById(id);
   const rootSelections = new Map();
+  const templateSpecs = {{ templates|tojson }};
+  const lotSpecs = {{ lots|tojson }};
+  const templateMap = new Map((templateSpecs||[]).map(t => [String(t.id), t]));
+  const lotMap = new Map((lotSpecs||[]).map(t => [String(t.id), t]));
 
   function updateRootBadge(cb){
     const wrap = cb.closest('label');
@@ -132,6 +156,125 @@
       updateRootBadge(cb);
     });
   });
+
+  function clearSelection(){
+    document.querySelectorAll('.root-cb').forEach(cb => {
+      cb.checked = false;
+      const id = parseInt(cb.value, 10);
+      rootSelections.delete(id);
+      updateRootBadge(cb);
+    });
+  }
+
+  function applyNodes(nodes, {reset=false}={}){
+    if(reset){
+      clearSelection();
+    }
+    if(!Array.isArray(nodes)) return;
+    nodes.forEach(spec => {
+      if(!spec) return;
+      const id = parseInt(spec.id ?? spec.node_id, 10);
+      if(!id) return;
+      const cb = document.querySelector(`.root-cb[value="${id}"]`);
+      if(!cb) return;
+      cb.checked = true;
+      if(spec.quantity != null){
+        rootSelections.set(id, spec.quantity);
+      }else{
+        rootSelections.delete(id);
+      }
+      updateRootBadge(cb);
+    });
+  }
+
+  function buildSelectionPayload(){
+    const payload = [];
+    document.querySelectorAll('.root-cb:checked').forEach(cb => {
+      const id = parseInt(cb.value, 10);
+      if(!id) return;
+      const entry = {id};
+      if(rootSelections.has(id)){
+        entry.quantity = rootSelections.get(id);
+      }
+      payload.push(entry);
+    });
+    return payload;
+  }
+
+  const tplSelect = byId('template-select');
+  tplSelect?.addEventListener('change', () => {
+    const choice = tplSelect.value;
+    if(!choice) return;
+    const tpl = templateMap.get(choice);
+    if(tpl){
+      applyNodes(tpl.nodes || [], {reset:true});
+    }
+    tplSelect.value = '';
+  });
+
+  const lotSelect = byId('lot-select');
+  lotSelect?.addEventListener('change', () => {
+    const choice = lotSelect.value;
+    if(!choice) return;
+    const lot = lotMap.get(choice);
+    if(lot){
+      applyNodes(lot.nodes || [], {reset:false});
+    }
+    lotSelect.value = '';
+  });
+
+  async function saveSelection(kind){
+    const nodes = buildSelectionPayload();
+    if(nodes.length === 0){
+      alert('Sélectionne au moins un parent.');
+      return;
+    }
+    const label = kind === 'LOT' ? 'Nom du lot' : 'Nom du template';
+    const nameRaw = prompt(label + ' ?');
+    if(!nameRaw){
+      return;
+    }
+    const name = nameRaw.trim();
+    if(!name){
+      return;
+    }
+    try{
+      const res = await fetch('/events/templates', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json','Accept':'application/json'},
+        body: JSON.stringify({name, kind, nodes})
+      });
+      const text = await res.text();
+      if(!res.ok){
+        alert(text || 'Enregistrement impossible.');
+        return;
+      }
+      let data;
+      try{ data = JSON.parse(text); }catch{ data = null; }
+      if(!data){ return; }
+      if(kind === 'LOT'){
+        lotSpecs.push(data);
+        lotMap.set(String(data.id), data);
+        const opt = document.createElement('option');
+        opt.value = data.id;
+        opt.textContent = data.name;
+        lotSelect?.appendChild(opt);
+      }else{
+        templateSpecs.push(data);
+        templateMap.set(String(data.id), data);
+        const opt = document.createElement('option');
+        opt.value = data.id;
+        opt.textContent = data.name;
+        tplSelect?.appendChild(opt);
+      }
+      alert('Enregistré.');
+    }catch(err){
+      alert('Erreur: ' + err);
+    }
+  }
+
+  byId('btn-save-template')?.addEventListener('click', () => saveSelection('TEMPLATE'));
+  byId('btn-save-lot')?.addEventListener('click', () => saveSelection('LOT'));
 
   // -------- Création --------
   let creating = false;
