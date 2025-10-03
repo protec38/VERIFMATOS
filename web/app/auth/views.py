@@ -2,6 +2,11 @@
 from flask import Blueprint, request, jsonify, redirect, url_for
 from flask_login import login_user, logout_user, login_required, current_user
 from ..models import User
+from ..security import (
+    client_identifier,
+    current_login_rate_limiter,
+    retry_after_seconds,
+)
 
 bp = Blueprint("auth", __name__)
 
@@ -22,15 +27,38 @@ def login():
             return redirect(url_for("pages.login"))
         return jsonify(error="username and password required"), 400
 
-    user = User.query.filter_by(username=username).first()
-    if not user or not user.check_password(password):
+    limiter = current_login_rate_limiter()
+    client_id = client_identifier()
+    blocked, blocked_until = limiter.is_blocked(client_id)
+    if blocked:
         if request.form:
             return redirect(url_for("pages.login"))
-        return jsonify(error="Bad credentials"), 401
+        response = jsonify(error="Too many login attempts. Try again later.")
+        retry_after = retry_after_seconds(blocked_until)
+        if retry_after:
+            response.headers["Retry-After"] = str(retry_after)
+        return response, 429
+
+    user = User.query.filter_by(username=username).first()
+    if not user or not user.check_password(password):
+        blocked, blocked_until = limiter.register_failure(client_id)
+        if request.form:
+            return redirect(url_for("pages.login"))
+        status = 429 if blocked else 401
+        message = "Too many login attempts. Try again later." if blocked else "Bad credentials"
+        response = jsonify(error=message)
+        if blocked and blocked_until:
+            retry_after = retry_after_seconds(blocked_until)
+            if retry_after:
+                response.headers["Retry-After"] = str(retry_after)
+        return response, status
     if not user.is_active:
+        limiter.register_failure(client_id)
         if request.form:
             return redirect(url_for("pages.login"))
         return jsonify(error="User disabled"), 403
+
+    limiter.reset(client_id)
 
     login_user(user)
 

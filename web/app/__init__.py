@@ -9,6 +9,7 @@ from flask_login import LoginManager
 from flask_socketio import SocketIO
 
 from .config import get_config
+from .security import init_security
 
 # -----------------
 # Extensions (dÃ©clarÃ©es au niveau module)
@@ -20,7 +21,7 @@ login_manager = LoginManager()  # ne rien passer au ctor
 # Socket.IO en local (AUCUN Redis) â€” instance non liÃ©e, on fera init_app(app) aprÃ¨s
 socketio = SocketIO(
     async_mode="eventlet",
-    cors_allowed_origins="*",
+    cors_allowed_origins=[],  # mêmes origines uniquement
     message_queue=None,  # Redis dÃ©sactivÃ©
 )
 
@@ -47,6 +48,9 @@ def create_app() -> Flask:
     app = Flask(__name__)
     cfg = get_config()
     app.config.from_object(cfg)
+
+    # Sécurité (headers globaux, rate limiting login)
+    init_security(app)
 
     # Init extensions
     db.init_app(app)
