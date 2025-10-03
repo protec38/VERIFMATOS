@@ -130,6 +130,8 @@ def init_security(app) -> LoginRateLimiter:
     app.extensions["login_rate_limiter"] = limiter
 
     csp = app.config.get("CONTENT_SECURITY_POLICY")
+    if isinstance(csp, str):
+        csp = " ".join(segment for segment in csp.splitlines() if segment).strip() or None
     hsts = app.config.get("STRICT_TRANSPORT_SECURITY")
 
     @app.after_request
