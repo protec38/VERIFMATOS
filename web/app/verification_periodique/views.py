@@ -1,7 +1,8 @@
 """Periodic verification endpoints."""
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, jsonify, request, abort
 from flask_login import current_user, login_required
@@ -14,8 +15,11 @@ from ..models import (
     PeriodicVerificationRecord,
     ItemStatus,
     IssueCode,
+    ReassortItem,
+    ReassortBatch,
 )
 from ..tree_query import tree_stats
+from sqlalchemy import or_
 
 try:  # Optional table depending on migrations
     from ..models import StockItemExpiry
@@ -43,6 +47,63 @@ def _ensure_table() -> None:
         PeriodicVerificationRecord.__table__.create(bind=db.engine, checkfirst=True)
     except Exception:
         db.session.rollback()
+
+
+def _ensure_reassort_tables() -> None:
+    try:
+        ReassortItem.__table__.create(bind=db.engine, checkfirst=True)
+        ReassortBatch.__table__.create(bind=db.engine, checkfirst=True)
+    except Exception:
+        db.session.rollback()
+
+
+def _ensure_expiry_table() -> None:
+    if not HAS_EXP_MODEL:
+        return
+    try:
+        StockItemExpiry.__table__.create(bind=db.engine, checkfirst=True)  # type: ignore[union-attr]
+    except Exception:
+        db.session.rollback()
+
+
+def _sync_item_expiry(node_id: int) -> Optional[date]:
+    if not HAS_EXP_MODEL:
+        return None
+    try:
+        _ensure_expiry_table()
+        rows: List[StockItemExpiry] = (  # type: ignore[misc]
+            StockItemExpiry.query  # type: ignore[union-attr]
+            .filter_by(node_id=node_id)  # type: ignore[union-attr]
+            .order_by(  # type: ignore[union-attr]
+                StockItemExpiry.expiry_date.asc(),  # type: ignore[union-attr]
+                StockItemExpiry.id.asc(),  # type: ignore[union-attr]
+            )
+            .all()
+        )
+    except Exception:
+        db.session.rollback()
+        return None
+
+    next_date = rows[0].expiry_date if rows else None
+    node = db.session.get(StockNode, node_id)
+    if node is not None:
+        node.expiry_date = next_date
+        db.session.add(node)
+    return next_date
+
+
+def _serialize_reassort_batch(batch: ReassortBatch, node_id: int) -> Dict[str, Any]:
+    preferred = batch.item.target_node_id == node_id if batch.item else False
+    return {
+        "batch_id": batch.id,
+        "item_id": batch.item_id,
+        "item_name": batch.item.name if batch.item else None,
+        "quantity": batch.quantity,
+        "expiry_date": batch.expiry_date.isoformat() if batch.expiry_date else None,
+        "lot": batch.lot,
+        "note": batch.note,
+        "preferred": preferred,
+    }
 
 
 def _norm_status(value: Any) -> str:
@@ -312,3 +373,174 @@ def verify_item():
     db.session.commit()
 
     return jsonify({"ok": True, "record_id": rec.id})
+
+
+@bp.get("/reassort/<int:node_id>")
+@login_required
+def reassort_options(node_id: int):
+    if not _can_access():
+        return jsonify(error="Forbidden"), 403
+
+    _ensure_reassort_tables()
+
+    batches = (
+        ReassortBatch.query
+        .join(ReassortItem)
+        .filter(ReassortBatch.quantity > 0)
+        .filter(or_(ReassortItem.target_node_id == node_id, ReassortItem.target_node_id.is_(None)))
+        .all()
+    )
+    batches.sort(
+        key=lambda b: (
+            b.item.target_node_id != node_id if b.item else True,
+            (b.item.name.lower() if b.item and b.item.name else ""),
+            b.expiry_date or date.max,
+            b.id,
+        )
+    )
+
+    payload = [_serialize_reassort_batch(b, node_id) for b in batches]
+    return jsonify({"node_id": node_id, "items": payload})
+
+
+@bp.post("/replace")
+@login_required
+def replace_from_reassort():
+    if not _can_access():
+        return jsonify(error="Forbidden"), 403
+
+    _ensure_table()
+    _ensure_reassort_tables()
+
+    payload = request.get_json(silent=True) or {}
+
+    try:
+        node_id = int(payload.get("node_id") or 0)
+    except Exception:
+        return jsonify(error="node_id invalide"), 400
+
+    try:
+        batch_id = int(payload.get("batch_id") or 0)
+    except Exception:
+        return jsonify(error="batch_id invalide"), 400
+
+    try:
+        quantity = int(payload.get("quantity") or 1)
+    except Exception:
+        quantity = 1
+    if quantity <= 0:
+        quantity = 1
+
+    node = db.session.get(StockNode, node_id)
+    if not node:
+        return jsonify(error="Item introuvable"), 404
+    if node.type != NodeType.ITEM and not getattr(node, "unique_item", False):
+        return jsonify(error="Seuls les items peuvent être remplacés"), 400
+
+    batch = db.session.get(ReassortBatch, batch_id)
+    if not batch or batch.quantity <= 0:
+        return jsonify(error="Lot de réassort indisponible"), 404
+
+    use_qty = min(quantity, batch.quantity)
+    if use_qty <= 0:
+        return jsonify(error="Quantité de réassort insuffisante"), 400
+
+    batch.quantity -= use_qty
+    batch.updated_at = datetime.utcnow()
+    db.session.add(batch)
+
+    removed_expiry: Optional[date] = None
+    expiry_id = payload.get("expiry_id")
+    expiry_date_raw = payload.get("expiry_date")
+
+    if HAS_EXP_MODEL:
+        _ensure_expiry_table()
+        if expiry_id:
+            try:
+                exp = db.session.get(StockItemExpiry, int(expiry_id))  # type: ignore[arg-type]
+            except Exception:
+                exp = None
+            if exp and exp.node_id == node_id:
+                if exp.quantity and exp.quantity > use_qty:
+                    exp.quantity -= use_qty
+                    removed_expiry = exp.expiry_date
+                    db.session.add(exp)
+                else:
+                    removed_expiry = exp.expiry_date
+                    db.session.delete(exp)
+        elif expiry_date_raw:
+            try:
+                exp_date = date.fromisoformat(str(expiry_date_raw))
+            except Exception:
+                exp_date = None
+            if exp_date is not None:
+                exp = (
+                    StockItemExpiry.query  # type: ignore[union-attr]
+                    .filter_by(node_id=node_id, expiry_date=exp_date)  # type: ignore[union-attr]
+                    .order_by(StockItemExpiry.id.asc())  # type: ignore[union-attr]
+                    .first()
+                )
+                if exp:
+                    if exp.quantity and exp.quantity > use_qty:
+                        exp.quantity -= use_qty
+                        removed_expiry = exp.expiry_date
+                        db.session.add(exp)
+                    else:
+                        removed_expiry = exp.expiry_date
+                        db.session.delete(exp)
+
+    new_expiry = batch.expiry_date
+    if HAS_EXP_MODEL:
+        if new_expiry:
+            entry = StockItemExpiry(  # type: ignore[call-arg]
+                node_id=node_id,
+                expiry_date=new_expiry,
+                quantity=use_qty,
+                lot=batch.lot,
+                note=batch.note,
+            )
+            db.session.add(entry)
+        elif node.expiry_date and removed_expiry and node.expiry_date == removed_expiry:
+            node.expiry_date = None
+
+        next_date = _sync_item_expiry(node_id)
+        if next_date is None and new_expiry:
+            node.expiry_date = new_expiry
+            db.session.add(node)
+
+    parts = ["Remplacement via réassort"]
+    if batch.item and batch.item.name:
+        parts.append(f"Article: {batch.item.name}")
+    if batch.lot:
+        parts.append(f"Lot réassort: {batch.lot}")
+    if removed_expiry:
+        parts.append(f"Lot retiré: {removed_expiry.isoformat()}")
+    if new_expiry:
+        parts.append(f"Nouvelle exp.: {new_expiry.isoformat()}")
+    if use_qty > 1:
+        parts.append(f"Quantité: {use_qty}")
+
+    comment_extra = (payload.get("comment") or "").strip() or None
+    if comment_extra:
+        parts.append(comment_extra)
+
+    rec = PeriodicVerificationRecord(
+        node_id=node.id,
+        status=ItemStatus.OK,
+        verifier_id=current_user.id,
+        verifier_name=getattr(current_user, "username", None),
+        comment=" | ".join(parts),
+    )
+    db.session.add(rec)
+    db.session.commit()
+
+    return jsonify(
+        {
+            "ok": True,
+            "node_id": node.id,
+            "batch_id": batch.id,
+            "quantity": use_qty,
+            "new_expiry": new_expiry.isoformat() if new_expiry else None,
+            "remaining_batch": batch.quantity,
+        }
+    )
