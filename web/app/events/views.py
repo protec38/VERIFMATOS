@@ -114,6 +114,37 @@ def _parse_template_nodes(raw_nodes: Any) -> List[Dict[str, Any]]:
     return nodes
 
 
+def _assign_template_nodes(tpl: EventTemplate, nodes: List[Dict[str, Any]]) -> None:
+    tpl.nodes[:] = []
+    seen = set()
+    for spec in nodes:
+        node_id = spec["id"]
+        if node_id in seen:
+            continue
+        seen.add(node_id)
+        node = db.session.get(StockNode, node_id)
+        if not node:
+            abort(400, description=f"StockNode {node_id} introuvable")
+        if node.type != NodeType.GROUP or node.parent_id is not None:
+            abort(400, description=f"Le nœud {node.name} n'est pas un parent racine")
+
+        quantity = spec.get("quantity")
+        if getattr(node, "unique_item", False):
+            if quantity is None:
+                quantity = getattr(node, "unique_quantity", None)
+            max_qty = getattr(node, "unique_quantity", None)
+            if quantity is None:
+                abort(400, description=f"Quantité requise pour {node.name}")
+            if quantity < 0:
+                abort(400, description=f"Quantité négative pour {node.name}")
+            if max_qty is not None and quantity > max_qty:
+                abort(400, description=f"Quantité supérieure au maximum ({max_qty}) pour {node.name}")
+        else:
+            quantity = None
+
+        tpl.nodes.append(EventTemplateNode(node_id=node_id, quantity=quantity))
+
+
 # -------------------------------------------------
 # Routes internes
 # -------------------------------------------------
@@ -261,37 +292,58 @@ def create_template_api():
     )
     db.session.add(tpl)
     db.session.flush()
-
-    seen = set()
-    for spec in nodes:
-        node_id = spec["id"]
-        if node_id in seen:
-            continue
-        seen.add(node_id)
-        node = db.session.get(StockNode, node_id)
-        if not node:
-            abort(400, description=f"StockNode {node_id} introuvable")
-        if node.type != NodeType.GROUP or node.parent_id is not None:
-            abort(400, description=f"Le nœud {node.name} n'est pas un parent racine")
-
-        quantity = spec.get("quantity")
-        if getattr(node, "unique_item", False):
-            if quantity is None:
-                quantity = getattr(node, "unique_quantity", None)
-            max_qty = getattr(node, "unique_quantity", None)
-            if quantity is None:
-                abort(400, description=f"Quantité requise pour {node.name}")
-            if quantity < 0:
-                abort(400, description=f"Quantité négative pour {node.name}")
-            if max_qty is not None and quantity > max_qty:
-                abort(400, description=f"Quantité supérieure au maximum ({max_qty}) pour {node.name}")
-        else:
-            quantity = None
-
-        tpl.nodes.append(EventTemplateNode(node_id=node_id, quantity=quantity))
+    _assign_template_nodes(tpl, nodes)
 
     db.session.commit()
     return jsonify(_serialize_template(tpl)), 201
+
+
+@bp_events.put("/templates/<int:template_id>")
+@login_required
+def update_template_api(template_id: int):
+    if not _is_manager():
+        abort(403)
+
+    tpl = db.session.get(EventTemplate, template_id)
+    if not tpl:
+        abort(404)
+
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        abort(400, description="Nom requis")
+
+    existing = (
+        EventTemplate.query
+        .filter(EventTemplate.id != tpl.id)
+        .filter(EventTemplate.name == name)
+        .first()
+    )
+    if existing:
+        abort(400, description="Un template ou lot porte déjà ce nom")
+
+    kind_raw = (data.get("kind") or getattr(tpl.kind, "name", "TEMPLATE")).strip().upper()
+    try:
+        kind = EventTemplateKind[kind_raw]
+    except KeyError:
+        abort(400, description="kind doit être TEMPLATE ou LOT")
+
+    try:
+        nodes = _parse_template_nodes(data.get("nodes"))
+    except ValueError as exc:
+        abort(400, description=str(exc))
+
+    if not nodes:
+        abort(400, description="Sélection vide")
+
+    tpl.name = name
+    tpl.kind = kind
+    tpl.description = (data.get("description") or "").strip() or None
+
+    _assign_template_nodes(tpl, nodes)
+
+    db.session.commit()
+    return jsonify(_serialize_template(tpl))
 
 
 @bp_events.delete("/templates/<int:template_id>")

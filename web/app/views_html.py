@@ -179,6 +179,44 @@ def dashboard():
         lots=lot_specs,
     )
 
+
+@bp.get("/templates")
+@login_required
+def templates_manage_page():
+    if not can_manage_event():
+        abort(403)
+
+    roots = (
+        StockNode.query
+        .filter(StockNode.parent_id.is_(None), StockNode.type == NodeType.GROUP)
+        .order_by(StockNode.name.asc())
+        .all()
+    )
+    templates = (
+        EventTemplate.query
+        .order_by(EventTemplate.kind.asc(), EventTemplate.name.asc())
+        .all()
+    )
+    template_specs = [_serialize_template(t) for t in templates if t.kind == EventTemplateKind.TEMPLATE]
+    lot_specs = [_serialize_template(t) for t in templates if t.kind == EventTemplateKind.LOT]
+
+    root_specs = [
+        {
+            "id": r.id,
+            "name": r.name,
+            "unique_item": bool(getattr(r, "unique_item", False)),
+            "unique_quantity": getattr(r, "unique_quantity", None),
+        }
+        for r in roots
+    ]
+
+    return render_template(
+        "templates_manage.html",
+        roots=root_specs,
+        templates=template_specs,
+        lots=lot_specs,
+    )
+
 # -------------------------
 # Page Événement (interne)
 # -------------------------

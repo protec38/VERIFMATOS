@@ -1,0 +1,434 @@
+{% extends "base.html" %}
+{% set title = "Templates & lots" %}
+{% block content %}
+
+<style>
+  .grid.cols-2{align-items:start}
+  .table thead th.kind{width:110px}
+  .table thead th.nodes{width:45%}
+  .table tbody tr.active{background:rgba(45,123,191,.1)}
+  .table tbody tr.active td{background:transparent}
+  .muted{color:var(--muted)}
+  .section-title{font-weight:700;margin-top:0;margin-bottom:4px}
+  .entry-empty{padding:12px;text-align:center;color:var(--muted)}
+  .actions-row{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+  .alert{margin-top:14px}
+  .root-qty{margin-left:6px}
+</style>
+
+<div class="grid cols-2">
+  <div class="card">
+    <div class="title">Templates & lots enregistrés</div>
+    <div class="subtitle">Clique sur « Éditer » pour modifier un modèle existant.</div>
+    <table class="table" style="margin-top:12px">
+      <thead>
+        <tr>
+          <th>Nom</th>
+          <th class="kind">Type</th>
+          <th class="nodes">Parents inclus</th>
+          <th style="width:180px">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="templates-body">
+        <tr><td colspan="4" class="muted">Chargement…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="title" id="form-title">Créer un template ou un lot</div>
+    <div class="subtitle">Sélectionne les parents racines à inclure dans le modèle.</div>
+
+    <div class="grid" style="grid-template-columns:1fr 150px;gap:10px;margin-top:12px">
+      <div>
+        <label class="muted" for="tpl-name">Nom</label>
+        <input type="text" id="tpl-name" placeholder="Nom du modèle" required>
+      </div>
+      <div>
+        <label class="muted" for="tpl-kind">Type</label>
+        <select id="tpl-kind">
+          <option value="TEMPLATE">Template</option>
+          <option value="LOT">Lot</option>
+        </select>
+      </div>
+    </div>
+
+    <label class="muted" for="tpl-desc" style="display:block;margin-top:12px">Description (optionnel)</label>
+    <textarea id="tpl-desc" rows="3" placeholder="Notes complémentaires…"></textarea>
+
+    <div class="alert">
+      <div class="muted" style="margin-bottom:8px">Parents racines disponibles</div>
+      <div class="row wrap" id="root-checkboxes">
+        {% if roots and roots|length %}
+          {% for r in roots %}
+            <label class="btn ghost" style="cursor:pointer;">
+              <input type="checkbox" class="root-cb" value="{{ r.id }}" style="margin-right:6px"
+                     data-name="{{ r.name }}"
+                     data-unique="{{ 1 if r.unique_item else 0 }}"
+                     data-max="{{ r.unique_quantity if r.unique_quantity is not none else '' }}">
+              {{ r.name }}
+            </label>
+          {% endfor %}
+        {% else %}
+          <span class="muted">Aucun parent racine disponible. Crée d’abord un stock parent dans 🧰 Stock.</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="actions-row">
+      <button class="btn primary" type="button" id="btn-save">💾 Enregistrer</button>
+      <button class="btn" type="button" id="btn-reset">➕ Nouveau</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const byId = (id)=>document.getElementById(id);
+  const rootSelections = new Map();
+  const templateSpecs = {{ templates|tojson }};
+  const lotSpecs = {{ lots|tojson }};
+  const roots = {{ roots|tojson }};
+  const rootMap = new Map((roots||[]).map(r => [Number(r.id), r]));
+  let entries = [];
+  let currentEditId = null;
+
+  const tableBody = byId('templates-body');
+  const formTitle = byId('form-title');
+  const nameInput = byId('tpl-name');
+  const descInput = byId('tpl-desc');
+  const kindSelect = byId('tpl-kind');
+  const resetBtn = byId('btn-reset');
+  const saveBtn = byId('btn-save');
+
+  function refreshEntries(){
+    entries = [];
+    (templateSpecs||[]).forEach(t => entries.push(t));
+    (lotSpecs||[]).forEach(t => entries.push(t));
+    entries.sort((a,b) => a.name.localeCompare(b.name, 'fr')); // alphabetical
+  }
+
+  refreshEntries();
+
+  function describeNodes(entry){
+    if(!entry || !entry.nodes || !entry.nodes.length){ return '—'; }
+    const parts = [];
+    entry.nodes.forEach(spec => {
+      const id = Number(spec.id ?? spec.node_id);
+      const node = rootMap.get(id);
+      const label = node ? node.name : `#${id}`;
+      const qty = spec.quantity;
+      if(qty != null){
+        parts.push(`${label} (×${qty})`);
+      }else{
+        parts.push(label);
+      }
+    });
+    return parts.length ? parts.join(', ') : '—';
+  }
+
+  function renderTable(){
+    tableBody.innerHTML = '';
+    if(!entries.length){
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 4;
+      td.className = 'muted';
+      td.textContent = 'Aucun template ou lot enregistré.';
+      tr.appendChild(td);
+      tableBody.appendChild(tr);
+      return;
+    }
+    entries.forEach(entry => {
+      const tr = document.createElement('tr');
+      tr.dataset.id = String(entry.id);
+      if(entry.id === currentEditId){
+        tr.classList.add('active');
+      }
+      const tdName = document.createElement('td');
+      tdName.textContent = entry.name;
+      const tdKind = document.createElement('td');
+      tdKind.textContent = entry.kind === 'LOT' ? 'Lot' : 'Template';
+      const tdNodes = document.createElement('td');
+      tdNodes.textContent = describeNodes(entry);
+      const tdActions = document.createElement('td');
+      tdActions.className = 'row wrap';
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'btn';
+      editBtn.dataset.action = 'edit';
+      editBtn.textContent = 'Éditer';
+      const deleteBtn = document.createElement('button');
+      deleteBtn.type = 'button';
+      deleteBtn.className = 'btn danger';
+      deleteBtn.dataset.action = 'delete';
+      deleteBtn.textContent = 'Supprimer';
+      tdActions.appendChild(editBtn);
+      tdActions.appendChild(deleteBtn);
+      tr.appendChild(tdName);
+      tr.appendChild(tdKind);
+      tr.appendChild(tdNodes);
+      tr.appendChild(tdActions);
+      tableBody.appendChild(tr);
+    });
+  }
+
+  renderTable();
+
+  function updateRootBadge(cb){
+    const wrap = cb.closest('label');
+    if(!wrap) return;
+    let badge = wrap.querySelector('.root-qty');
+    const id = Number(cb.value);
+    const qty = rootSelections.get(id);
+    if(badge && (!cb.checked || qty == null)){
+      badge.remove();
+      badge = null;
+    }
+    if(cb.checked && qty != null){
+      if(!badge){
+        badge = document.createElement('span');
+        badge.className = 'badge root-qty';
+        wrap.appendChild(badge);
+      }
+      badge.textContent = `Qté: ${qty}`;
+    }
+  }
+
+  function clearSelection(){
+    document.querySelectorAll('.root-cb').forEach(cb => {
+      cb.checked = false;
+      rootSelections.delete(Number(cb.value));
+      updateRootBadge(cb);
+    });
+  }
+
+  function applyNodes(nodes, {reset=false}={}){
+    if(reset){
+      clearSelection();
+    }
+    if(!Array.isArray(nodes)) return;
+    nodes.forEach(spec => {
+      if(!spec) return;
+      const id = Number(spec.id ?? spec.node_id);
+      if(!id) return;
+      const cb = document.querySelector(`.root-cb[value="${id}"]`);
+      if(!cb) return;
+      cb.checked = true;
+      if(spec.quantity != null){
+        rootSelections.set(id, Number(spec.quantity));
+      }else{
+        rootSelections.delete(id);
+      }
+      updateRootBadge(cb);
+    });
+  }
+
+  document.querySelectorAll('.root-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const id = Number(cb.value);
+      const isUnique = cb.dataset.unique === '1';
+      if(cb.checked){
+        if(isUnique){
+          const maxRaw = cb.dataset.max;
+          const max = maxRaw ? Number(maxRaw) : null;
+          const current = rootSelections.get(id) ?? (max ?? 1);
+          const label = cb.dataset.name || 'parent';
+          let msg = `Quantité désirée pour ${label}`;
+          if(max != null){ msg += ` (max ${max})`; }
+          let input = prompt(msg, String(current));
+          if(input === null){
+            cb.checked = false;
+            return;
+          }
+          let qty = Number.parseInt(input, 10);
+          if(Number.isNaN(qty) || qty < 0){
+            alert('Quantité invalide');
+            cb.checked = false;
+            return;
+          }
+          if(max != null && qty > max){
+            alert(`Quantité supérieure au maximum (${max}).`);
+            cb.checked = false;
+            return;
+          }
+          rootSelections.set(id, qty);
+        }else{
+          rootSelections.delete(id);
+        }
+      }else{
+        rootSelections.delete(id);
+      }
+      updateRootBadge(cb);
+    });
+  });
+
+  function buildSelectionPayload(){
+    const payload = [];
+    document.querySelectorAll('.root-cb:checked').forEach(cb => {
+      const id = Number(cb.value);
+      if(!id) return;
+      const entry = {id};
+      if(rootSelections.has(id)){
+        entry.quantity = rootSelections.get(id);
+      }
+      payload.push(entry);
+    });
+    return payload;
+  }
+
+  function focusName(){
+    setTimeout(() => nameInput.focus(), 0);
+  }
+
+  function startNew(){
+    currentEditId = null;
+    formTitle.textContent = 'Créer un template ou un lot';
+    nameInput.value = '';
+    descInput.value = '';
+    kindSelect.value = 'TEMPLATE';
+    clearSelection();
+    renderTable();
+    focusName();
+  }
+
+  function loadEntry(id){
+    const entry = entries.find(e => e.id === id);
+    if(!entry){ return; }
+    currentEditId = id;
+    formTitle.textContent = `Éditer « ${entry.name} »`;
+    nameInput.value = entry.name || '';
+    descInput.value = entry.description || '';
+    if(entry.kind === 'LOT'){
+      kindSelect.value = 'LOT';
+    }else{
+      kindSelect.value = 'TEMPLATE';
+    }
+    applyNodes(entry.nodes || [], {reset:true});
+    renderTable();
+    focusName();
+  }
+
+  resetBtn?.addEventListener('click', () => {
+    startNew();
+  });
+
+  saveBtn?.addEventListener('click', async () => {
+    const name = (nameInput.value || '').trim();
+    if(!name){
+      alert('Nom requis');
+      nameInput.focus();
+      return;
+    }
+    const nodes = buildSelectionPayload();
+    if(nodes.length === 0){
+      alert('Sélectionne au moins un parent.');
+      return;
+    }
+    const payload = {
+      name,
+      kind: kindSelect.value || 'TEMPLATE',
+      description: (descInput.value || '').trim(),
+      nodes,
+    };
+    let url = '/events/templates';
+    let method = 'POST';
+    if(currentEditId){
+      url = `/events/templates/${currentEditId}`;
+      method = 'PUT';
+    }
+    try{
+      saveBtn.disabled = true;
+      const res = await fetch(url, {
+        method,
+        headers: {'Content-Type':'application/json','Accept':'application/json'},
+        body: JSON.stringify(payload),
+      });
+      const text = await res.text();
+      if(!res.ok){
+        alert(text || 'Enregistrement impossible.');
+        return;
+      }
+      let data;
+      try{ data = JSON.parse(text); }catch{ data = null; }
+      if(!data){ return; }
+      if(method === 'POST'){
+        if(data.kind === 'LOT'){ lotSpecs.push(data); }
+        else { templateSpecs.push(data); }
+      }else{
+        // mise à jour: remplace dans les deux listes
+        const targetList = data.kind === 'LOT' ? lotSpecs : templateSpecs;
+        const otherList = data.kind === 'LOT' ? templateSpecs : lotSpecs;
+        // supprime de l'autre liste si déplacé
+        for(let i=otherList.length-1;i>=0;i--){
+          if(otherList[i].id === data.id){
+            otherList.splice(i,1);
+          }
+        }
+        let replaced = false;
+        for(let i=0;i<targetList.length;i++){
+          if(targetList[i].id === data.id){
+            targetList[i] = data;
+            replaced = true;
+            break;
+          }
+        }
+        if(!replaced){
+          targetList.push(data);
+        }
+      }
+      refreshEntries();
+      loadEntry(data.id);
+      alert('Enregistré.');
+    }catch(err){
+      alert('Erreur: ' + err);
+    }finally{
+      saveBtn.disabled = false;
+    }
+  });
+
+  tableBody?.addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('button[data-action]');
+    if(!btn) return;
+    const action = btn.dataset.action;
+    const tr = btn.closest('tr[data-id]');
+    if(!tr) return;
+    const id = Number(tr.dataset.id);
+    if(!id) return;
+    if(action === 'edit'){
+      loadEntry(id);
+      return;
+    }
+    if(action === 'delete'){
+      if(!confirm('Supprimer ce modèle ?')) return;
+      try{
+        const res = await fetch(`/events/templates/${id}`, {
+          method: 'DELETE',
+          headers: {'Accept':'application/json'},
+        });
+        if(!res.ok){
+          const text = await res.text();
+          alert(text || 'Suppression impossible.');
+          return;
+        }
+        [templateSpecs, lotSpecs].forEach(list => {
+          for(let i=list.length-1;i>=0;i--){
+            if(list[i].id === id){ list.splice(i,1); }
+          }
+        });
+        refreshEntries();
+        if(currentEditId === id){
+          startNew();
+        }else{
+          renderTable();
+        }
+      }catch(err){
+        alert('Erreur: ' + err);
+      }
+    }
+  });
+
+  startNew();
+})();
+</script>
+{% endblock %}
