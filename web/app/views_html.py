@@ -239,6 +239,7 @@ def event_page(event_id: int):
         tree=tree,
         event_status=status_txt,
         allow_verify=allow_verify,
+        can_manage=can_manage_event(),
     )
 
 # -------------------------

@@ -153,7 +153,14 @@ def get_roots():
         return _bad_request("Forbidden", 403)
     roots = list_roots()
     return jsonify([
-        {"id": r.id, "name": r.name, "type": r.type.name, "level": r.level}
+        {
+            "id": r.id,
+            "name": r.name,
+            "type": r.type.name,
+            "level": r.level,
+            "unique_item": bool(getattr(r, "unique_item", False)),
+            "unique_quantity": getattr(r, "unique_quantity", None),
+        }
         for r in roots
     ])
 
