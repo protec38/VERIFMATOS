@@ -284,6 +284,16 @@ function groupHasBad(n){ return flattenItems([n]).some(i=>normStatus(i.last_stat
 function groupStatus(n){ if(groupAllOk(n)) return "OK"; if(groupHasBad(n)) return "BAD"; return "WAIT"; }
 function canChargeGroup(n){ return groupAllOk(n); }
 
+function collectNodeIds(nodes, out){
+  (nodes||[]).forEach(n=>{
+    if(!n || typeof n.id === "undefined") return;
+    out.add(n.id);
+    if(Array.isArray(n.children) && n.children.length){
+      collectNodeIds(n.children, out);
+    }
+  });
+}
+
 /* ====== Stats ====== */
 function recomputeGlobalStats(){
   const items = flattenItems(TREE);
@@ -471,6 +481,10 @@ function indexTree(nodes){
   });
 }
 function buildUIOnce(){
+  NODE_MAP.clear();
+  GROUP_EL.clear();
+  ITEM_EL.clear();
+  VEH_LABEL.clear();
   const root = document.getElementById("tree");
   root.innerHTML = "";
   indexTree(TREE);
@@ -655,6 +669,22 @@ function syncTreeIncoming(incomingRoots){
   recomputeGlobalStats();
 }
 
+function pruneStateForIds(validIds){
+  Array.from(COLLAPSED.keys()).forEach(id=>{
+    if(!validIds.has(id)){
+      COLLAPSED.delete(id);
+    }
+  });
+}
+
+function rebuildTree(latest){
+  TREE = Array.isArray(latest) ? latest : [];
+  const ids = new Set();
+  collectNodeIds(TREE, ids);
+  pruneStateForIds(ids);
+  buildUIOnce();
+}
+
 /* ===== API ===== */
 async function fetchTree(){
   const r = await fetch(`/public/event/{{ token }}/tree`);
@@ -664,9 +694,9 @@ async function fetchTree(){
 async function refreshTree(){
   try{
     const latest = await fetchTree();
-    if(TREE.length===0){
-      TREE = latest;
-      buildUIOnce();
+    const normalized = Array.isArray(latest) ? latest : [];
+    if(TREE.length===0 || NODE_MAP.size===0){
+      rebuildTree(normalized);
       NODE_MAP.forEach((n,id)=>{
         if(isGroup(n)){
           COLLAPSED.set(id,true);
@@ -675,9 +705,31 @@ async function refreshTree(){
           if(chev) chev.textContent = "▸";
         }
       });
-    }else{
-      syncTreeIncoming(latest);
+      return;
     }
+
+    const knownIds = new Set(NODE_MAP.keys());
+    const incomingIds = new Set();
+    collectNodeIds(normalized, incomingIds);
+
+    let structureChanged = knownIds.size !== incomingIds.size;
+    if(!structureChanged){
+      for(const id of incomingIds){
+        if(!knownIds.has(id)){ structureChanged = true; break; }
+      }
+    }
+    if(!structureChanged){
+      for(const id of knownIds){
+        if(!incomingIds.has(id)){ structureChanged = true; break; }
+      }
+    }
+
+    if(structureChanged){
+      rebuildTree(normalized);
+      return;
+    }
+
+    syncTreeIncoming(normalized);
   }catch(_){}
 }
 function verify(nodeId, status, extra={}){
