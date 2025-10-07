@@ -44,6 +44,14 @@
   .pill-bad{border-color:#75212f;background:#2a0e14;color:#ffd5dc}
   .pill-wait{border-color:#24344f;background:#101c2e;color:#b7c7dc}
   .focus-ring{outline:2px solid var(--pc-orange); outline-offset:2px; transition:outline-color .6s ease}
+  .manage-card .parent-pill{cursor:default}
+  .manage-card .parent-pill .btn{margin-left:6px}
+  .btn.sm{padding:6px 8px;font-size:12px;border-radius:8px}
+  .btn.sm:disabled{opacity:.6;cursor:not-allowed}
+  #event-roots-status{margin-top:8px;font-size:13px;display:none;color:var(--muted)}
+  #event-roots-status.success{color:#bff3e7}
+  #event-roots-status.error{color:#ffd5dc}
+  #event-roots-hint{margin-top:6px;font-size:13px;color:var(--muted)}
 
   .vehicle{font-size:12px; opacity:.9; padding:2px 6px; border-radius:6px; border:1px dashed var(--border); margin-left:8px}
   .vehicle.on{background:#0e2a24; color:#bff3e7; border-color:#1d6e5d}
@@ -90,6 +98,22 @@
   <div id="parents-bar" class="parents-bar"></div>
 </div>
 
+{% if can_manage %}
+<div class="card manage-card" id="event-roots-card" style="margin-top:12px;">
+  <div class="title">Gestion des parents</div>
+  <div class="muted" style="margin-top:4px;">Ajoute ou retire des parents racines pour cet événement.</div>
+  <div id="event-roots-list" class="row wrap" style="margin-top:12px;gap:8px;"></div>
+  <div class="row wrap" style="margin-top:12px;gap:8px;">
+    <select id="event-root-add-select" style="min-width:220px">
+      <option value="">Ajouter un parent…</option>
+    </select>
+    <button class="btn primary sm manage-action" id="btn-add-root">Ajouter</button>
+  </div>
+  <div id="event-roots-hint"></div>
+  <div id="event-roots-status" class="muted"></div>
+</div>
+{% endif %}
+
 <div class="card" style="margin-top:12px;">
   <div class="row space-between">
     <div class="title">Matériel à vérifier</div>
@@ -116,6 +140,12 @@ const ITEM_STATUS_TXT = new Map();
 const ITEM_QTY_TXT = new Map();
 const VEH_LABEL = new Map();
 const COLLAPSED = new Map();
+const CAN_MANAGE = {{ 'true' if can_manage else 'false' }};
+const EVENT_ROOTS = new Map();
+const ROOT_CHOICES_MAP = new Map();
+let ROOTS_STATUS_TIMER = null;
+let ROOTS_SAVING = false;
+let FULL_RELOAD_IN_PROGRESS = false;
 
 /* ---------- Utils ---------- */
 function indexTree(nodes){
@@ -179,6 +209,358 @@ function flattenItems(nodes){
     (n.children||[]).forEach(rec);
   });
   return out;
+}
+
+/* ---------- Gestion parents événement ---------- */
+function setRootsStatus(message, type="info", autoHideMs){
+  if(!CAN_MANAGE) return;
+  const el = document.getElementById("event-roots-status");
+  if(!el) return;
+  if(ROOTS_STATUS_TIMER){
+    clearTimeout(ROOTS_STATUS_TIMER);
+    ROOTS_STATUS_TIMER = null;
+  }
+  el.classList.remove("success", "error");
+  if(!message){
+    el.textContent = "";
+    el.style.display = "none";
+    return;
+  }
+  if(type === "success") el.classList.add("success");
+  else if(type === "error") el.classList.add("error");
+  el.textContent = message;
+  el.style.display = "block";
+  if(autoHideMs){
+    ROOTS_STATUS_TIMER = setTimeout(() => {
+      const target = document.getElementById("event-roots-status");
+      if(target){
+        target.textContent = "";
+        target.style.display = "none";
+        target.classList.remove("success", "error");
+      }
+      ROOTS_STATUS_TIMER = null;
+    }, autoHideMs);
+  }
+}
+
+function setRootsControlsDisabled(flag){
+  if(!CAN_MANAGE) return;
+  document.querySelectorAll('#event-roots-card .manage-action').forEach(btn => {
+    btn.disabled = flag;
+  });
+  const select = document.getElementById("event-root-add-select");
+  if(select){
+    if(flag){
+      select.disabled = true;
+    }else{
+      select.disabled = false;
+      updateAddSelect();
+    }
+  }
+}
+
+function updateAddSelect(){
+  if(!CAN_MANAGE) return;
+  const select = document.getElementById("event-root-add-select");
+  const hint = document.getElementById("event-roots-hint");
+  const addBtn = document.getElementById("btn-add-root");
+  if(!select) return;
+
+  const available = [];
+  ROOT_CHOICES_MAP.forEach(info => {
+    if(!EVENT_ROOTS.has(info.id)){
+      available.push(info);
+    }
+  });
+  available.sort((a,b)=> (a.name||"").localeCompare(b.name||"", 'fr', {sensitivity:'base'}));
+
+  const current = select.value;
+  select.innerHTML = '<option value="">Ajouter un parent…</option>';
+  available.forEach(info => {
+    const opt = document.createElement('option');
+    opt.value = String(info.id);
+    opt.textContent = info.name || `Parent ${info.id}`;
+    select.appendChild(opt);
+  });
+  if(current && available.some(info => String(info.id) === current)){
+    select.value = current;
+  }
+  const disabled = (available.length === 0) || ROOTS_SAVING;
+  select.disabled = disabled;
+  if(addBtn){
+    addBtn.disabled = disabled || ROOTS_SAVING;
+  }
+  if(hint){
+    hint.textContent = available.length === 0
+      ? "Tous les parents racines sont déjà associés à l'événement."
+      : "";
+  }
+}
+
+function renderManageRoots(){
+  if(!CAN_MANAGE) return;
+  const holder = document.getElementById("event-roots-list");
+  if(!holder) return;
+  holder.innerHTML = "";
+
+  if(EVENT_ROOTS.size === 0){
+    holder.appendChild(el("div", {class:"muted"}, "Aucun parent sélectionné pour cet événement."));
+  } else {
+    EVENT_ROOTS.forEach(spec => {
+      const node = NODE_MAP.get(spec.id);
+      const status = node ? groupStatus(node) : "WAIT";
+      const pillClass = status === "OK" ? "pill-ok" : (status === "BAD" ? "pill-bad" : "pill-wait");
+      const pill = el("div", {class:`parent-pill ${pillClass}`},
+        statusDot(status === "OK", status === "BAD"),
+        el("span", {class:"strong"}, spec.name || `Parent ${spec.id}`)
+      );
+      if(spec.unique_item){
+        const qtyVal = (spec.quantity != null)
+          ? spec.quantity
+          : (spec.unique_quantity != null ? spec.unique_quantity : 1);
+        pill.append(
+          el("button", {
+            class:"btn ghost sm manage-action",
+            title:"Modifier la quantité",
+            onclick:()=>changeRootQuantity(spec.id)
+          }, `Qté: ${qtyVal}`)
+        );
+      }
+      pill.append(
+        el("button", {
+          class:"btn danger sm manage-action",
+          onclick:()=>removeRootFromEvent(spec.id)
+        }, "Retirer")
+      );
+      holder.appendChild(pill);
+    });
+  }
+  updateAddSelect();
+}
+
+function syncCurrentRootsFromTree(){
+  if(!CAN_MANAGE) return;
+  EVENT_ROOTS.clear();
+  (TREE||[]).forEach(root => {
+    if(!root || !isGroup(root)) return;
+    const uniqQty = root.unique_quantity != null && root.unique_quantity !== ''
+      ? Number.parseInt(root.unique_quantity, 10)
+      : null;
+    let selected = null;
+    if(root.selected_quantity != null && root.selected_quantity !== ''){
+      const parsed = Number.parseInt(root.selected_quantity, 10);
+      selected = Number.isNaN(parsed) ? selected : parsed;
+    } else if(root.quantity != null && root.quantity !== ''){
+      const parsed = Number.parseInt(root.quantity, 10);
+      selected = Number.isNaN(parsed) ? selected : parsed;
+    } else if(uniqQty != null){
+      selected = uniqQty;
+    }
+    EVENT_ROOTS.set(root.id, {
+      id: root.id,
+      name: root.name,
+      unique_item: !!root.unique_item,
+      unique_quantity: Number.isNaN(uniqQty) ? null : uniqQty,
+      quantity: Number.isNaN(selected) ? null : selected,
+    });
+  });
+  renderManageRoots();
+}
+
+async function ensureRootChoicesLoaded(){
+  if(!CAN_MANAGE) return;
+  if(ROOT_CHOICES_MAP.size > 0){
+    updateAddSelect();
+    return;
+  }
+  try{
+    const res = await fetch('/stock/roots', {credentials:'include'});
+    if(!res.ok) return;
+    const data = await res.json();
+    if(!Array.isArray(data)) return;
+    ROOT_CHOICES_MAP.clear();
+    data.forEach(entry => {
+      if(!entry) return;
+      const id = Number.parseInt(entry.id, 10);
+      if(!id) return;
+      const max = entry.unique_quantity != null ? Number.parseInt(entry.unique_quantity, 10) : null;
+      ROOT_CHOICES_MAP.set(id, {
+        id,
+        name: entry.name || `Parent ${id}`,
+        unique_item: !!entry.unique_item,
+        unique_quantity: Number.isNaN(max) ? null : max,
+      });
+    });
+    updateAddSelect();
+  }catch(_){ }
+}
+
+function promptQuantityForRoot(info, initialValue){
+  const label = info && info.name ? info.name : "ce parent";
+  const max = info && info.unique_quantity != null ? info.unique_quantity : null;
+  let current = (initialValue != null && !Number.isNaN(initialValue))
+    ? Number(initialValue)
+    : (max != null ? max : 1);
+  while(true){
+    const input = prompt(`Quantité désirée pour ${label}${max != null ? ` (max ${max})` : ''}`, String(current));
+    if(input === null) return null;
+    const qty = Number.parseInt(input, 10);
+    if(Number.isNaN(qty) || qty < 0){
+      alert('Quantité invalide');
+      continue;
+    }
+    if(max != null && qty > max){
+      alert(`Quantité supérieure au maximum (${max}).`);
+      current = max;
+      continue;
+    }
+    return qty;
+  }
+}
+
+function buildRootsPayload(){
+  const payload = [];
+  EVENT_ROOTS.forEach(spec => {
+    const entry = {id: spec.id};
+    if(spec.unique_item){
+      let qty = spec.quantity;
+      if(qty == null){
+        qty = spec.unique_quantity != null ? spec.unique_quantity : 1;
+      }
+      entry.quantity = qty;
+    } else if(spec.quantity != null){
+      entry.quantity = spec.quantity;
+    }
+    payload.push(entry);
+  });
+  return payload;
+}
+
+async function persistRoots(){
+  if(!CAN_MANAGE) return false;
+  const payload = buildRootsPayload();
+  if(payload.length === 0){
+    alert("Sélectionne au moins un parent");
+    return false;
+  }
+  ROOTS_SAVING = true;
+  setRootsControlsDisabled(true);
+  setRootsStatus("Enregistrement en cours…", "info");
+  try{
+    const res = await fetch(`/events/${EVENT_ID}/roots`, {
+      method:"PUT",
+      credentials:"include",
+      headers:{"Content-Type":"application/json", "Accept":"application/json"},
+      body: JSON.stringify({roots: payload})
+    });
+    const text = await res.text();
+    if(!res.ok){
+      setRootsStatus("", "info");
+      alert(text || "Impossible d'enregistrer la sélection.");
+      return false;
+    }
+    setRootsStatus("Modifications enregistrées.", "success", 3200);
+    return true;
+  }catch(_){
+    setRootsStatus("", "info");
+    alert("Erreur réseau");
+    return false;
+  }finally{
+    ROOTS_SAVING = false;
+    setRootsControlsDisabled(false);
+  }
+}
+
+async function reloadTreeFull(){
+  if(FULL_RELOAD_IN_PROGRESS) return;
+  FULL_RELOAD_IN_PROGRESS = true;
+  try{
+    const res = await fetch(`/events/${EVENT_ID}/tree`, {credentials:"include"});
+    if(!res.ok) return;
+    const latest = await res.json();
+    TREE = latest;
+    buildUIOnce();
+  }catch(_){
+  }finally{
+    FULL_RELOAD_IN_PROGRESS = false;
+  }
+}
+
+async function addRootToEvent(rootId){
+  if(!CAN_MANAGE || !rootId) return;
+  if(EVENT_ROOTS.has(rootId)){
+    alert("Ce parent est déjà associé à l'événement.");
+    return;
+  }
+  if(!ROOT_CHOICES_MAP.has(rootId)){
+    await ensureRootChoicesLoaded();
+  }
+  const info = ROOT_CHOICES_MAP.get(rootId);
+  if(!info){
+    alert("Parent introuvable.");
+    return;
+  }
+  let quantity = null;
+  if(info.unique_item){
+    const chosen = promptQuantityForRoot(info, info.unique_quantity);
+    if(chosen === null) return;
+    quantity = chosen;
+  }
+  const backup = new Map(EVENT_ROOTS);
+  EVENT_ROOTS.set(rootId, {
+    id: rootId,
+    name: info.name,
+    unique_item: !!info.unique_item,
+    unique_quantity: info.unique_quantity,
+    quantity,
+  });
+  renderManageRoots();
+  const ok = await persistRoots();
+  if(!ok){
+    EVENT_ROOTS.clear();
+    backup.forEach((value, key) => EVENT_ROOTS.set(key, value));
+    renderManageRoots();
+    return;
+  }
+  await reloadTreeFull();
+}
+
+async function removeRootFromEvent(rootId){
+  if(!CAN_MANAGE || !EVENT_ROOTS.has(rootId)) return;
+  const spec = EVENT_ROOTS.get(rootId);
+  const label = spec && spec.name ? spec.name : "ce parent";
+  if(!confirm(`Retirer ${label} de l'événement ?`)) return;
+  const backup = new Map(EVENT_ROOTS);
+  EVENT_ROOTS.delete(rootId);
+  renderManageRoots();
+  const ok = await persistRoots();
+  if(!ok){
+    EVENT_ROOTS.clear();
+    backup.forEach((value, key) => EVENT_ROOTS.set(key, value));
+    renderManageRoots();
+    return;
+  }
+  await reloadTreeFull();
+}
+
+async function changeRootQuantity(rootId){
+  if(!CAN_MANAGE) return;
+  const spec = EVENT_ROOTS.get(rootId);
+  if(!spec || !spec.unique_item) return;
+  const info = ROOT_CHOICES_MAP.get(rootId) || {name: spec.name, unique_quantity: spec.unique_quantity};
+  const current = spec.quantity != null ? spec.quantity : (spec.unique_quantity != null ? spec.unique_quantity : 1);
+  const chosen = promptQuantityForRoot(info, current);
+  if(chosen === null || chosen === spec.quantity) return;
+  const previous = spec.quantity;
+  spec.quantity = chosen;
+  renderManageRoots();
+  const ok = await persistRoots();
+  if(!ok){
+    spec.quantity = previous;
+    renderManageRoots();
+    return;
+  }
+  await reloadTreeFull();
 }
 
 /* ---------- Stats ---------- */
@@ -329,13 +711,23 @@ function updateStatusUI(){
 
 function buildUIOnce(){
   const root = document.getElementById("tree");
+  if(!root) return;
   root.innerHTML = "";
+  NODE_MAP.clear();
+  GROUP_EL.clear();
+  ITEM_EL.clear();
+  ITEM_STATUS_TXT.clear();
+  ITEM_QTY_TXT.clear();
+  VEH_LABEL.clear();
   indexTree(TREE);
   (TREE||[]).forEach(n => root.appendChild(renderNode(n)));
   buildParentsBar();
   recomputeStats();
   updateActionButtons();
   updateStatusUI();
+  if(CAN_MANAGE){
+    syncCurrentRootsFromTree();
+  }
 }
 
 /* ---------- MAJ incrémentales ---------- */
@@ -453,6 +845,9 @@ function syncTreeIncoming(incomingRoots){
   updateParentsBarOnly();
   recomputeStats();
   updateActionButtons();
+  if(CAN_MANAGE){
+    renderManageRoots();
+  }
 }
 
 /* ---------- Barre Parents ---------- */
@@ -497,6 +892,7 @@ function scrollToParent(id){
 
 /* ---------- API ---------- */
 async function refreshTree(){
+  if(FULL_RELOAD_IN_PROGRESS || ROOTS_SAVING) return;
   try{
     const r = await fetch(`/events/${EVENT_ID}/tree`, {credentials:"include"});
     if(!r.ok) return;
@@ -558,6 +954,23 @@ document.getElementById("btn-close").addEventListener("click", ()=>{
 /* ---------- Init (polling, comme avant) ---------- */
 (function init(){
   buildUIOnce();
+  if(CAN_MANAGE){
+    ensureRootChoicesLoaded();
+    const addBtn = document.getElementById("btn-add-root");
+    if(addBtn){
+      addBtn.addEventListener("click", async () => {
+        const select = document.getElementById("event-root-add-select");
+        if(!select) return;
+        const value = Number.parseInt(select.value, 10);
+        if(!value){
+          alert("Sélectionne un parent à ajouter.");
+          return;
+        }
+        await addRootToEvent(value);
+        select.value = "";
+      });
+    }
+  }
   setInterval(refreshTree, 2000);
 })();
 </script>

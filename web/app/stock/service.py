@@ -3,7 +3,15 @@ from __future__ import annotations
 from typing import Optional, Dict, Any, List
 
 from .. import db
-from ..models import StockNode, NodeType, PeriodicVerificationRecord
+from ..models import (
+    StockNode,
+    NodeType,
+    PeriodicVerificationRecord,
+    VerificationRecord,
+    EventNodeStatus,
+    EventTemplateNode,
+    event_stock,
+)
 from .validators import (
     ensure_level_valid,
     ensure_item_quantity,
@@ -174,6 +182,18 @@ def delete_node(node_id: int):
     if node_ids:
         db.session.query(PeriodicVerificationRecord).filter(
             PeriodicVerificationRecord.node_id.in_(node_ids)
+        ).delete(synchronize_session=False)
+        VerificationRecord.query.filter(
+            VerificationRecord.node_id.in_(node_ids)
+        ).delete(synchronize_session=False)
+        EventNodeStatus.query.filter(
+            EventNodeStatus.node_id.in_(node_ids)
+        ).delete(synchronize_session=False)
+        db.session.execute(
+            event_stock.delete().where(event_stock.c.node_id.in_(node_ids))
+        )
+        db.session.query(EventTemplateNode).filter(
+            EventTemplateNode.node_id.in_(node_ids)
         ).delete(synchronize_session=False)
 
     def rec(n: StockNode):

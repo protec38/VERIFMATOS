@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import secrets
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Set, Tuple
 from datetime import datetime
 
 from flask import Blueprint, request, jsonify, abort
@@ -145,6 +145,101 @@ def _assign_template_nodes(tpl: EventTemplate, nodes: List[Dict[str, Any]]) -> N
         tpl.nodes.append(EventTemplateNode(node_id=node_id, quantity=quantity))
 
 
+def _extract_root_specs(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Normalise les données "roots" / "root_ids" venant du front."""
+
+    root_specs: List[Dict[str, Any]] = []
+    raw_roots = payload.get("roots")
+
+    if isinstance(raw_roots, list) and raw_roots:
+        for entry in raw_roots:
+            if isinstance(entry, dict):
+                root_specs.append(
+                    {
+                        "id": entry.get("id") or entry.get("node_id"),
+                        "quantity": entry.get("quantity"),
+                    }
+                )
+            else:
+                root_specs.append({"id": entry, "quantity": None})
+    else:
+        root_ids = payload.get("root_ids") or payload.get("root_node_ids") or []
+        if isinstance(root_ids, list):
+            for rid in root_ids:
+                root_specs.append({"id": rid, "quantity": None})
+
+    return root_specs
+
+
+def _validate_root_selection(
+    specs: List[Dict[str, Any]]
+) -> List[Tuple[StockNode, Optional[int]]]:
+    """Valide les parents racines sélectionnés pour un événement."""
+
+    seen: Set[int] = set()
+    result: List[Tuple[StockNode, Optional[int]]] = []
+
+    for spec in specs:
+        nid = spec.get("id")
+        try:
+            node_id = int(nid)
+        except Exception:
+            abort(400, description=f"root_id invalide: {nid}")
+
+        if node_id in seen:
+            continue
+        seen.add(node_id)
+
+        node = db.session.get(StockNode, node_id)
+        if not node:
+            abort(400, description=f"StockNode {node_id} introuvable.")
+        if node.type != NodeType.GROUP:
+            abort(400, description=f"StockNode {node_id} doit être de type GROUP.")
+
+        selected_qty: Optional[int] = None
+        if getattr(node, "unique_item", False):
+            qty_raw = spec.get("quantity")
+            if qty_raw is None:
+                qty_val = getattr(node, "unique_quantity", None)
+                if qty_val is None:
+                    abort(400, description=f"Quantité requise pour le parent {node.name}.")
+            else:
+                try:
+                    qty_val = int(qty_raw)
+                except Exception:
+                    abort(400, description=f"Quantité invalide pour le parent {node.name}.")
+            if qty_val < 0:
+                abort(400, description=f"Quantité négative pour le parent {node.name}.")
+            max_qty = getattr(node, "unique_quantity", None)
+            if max_qty is not None and qty_val > max_qty:
+                abort(
+                    400,
+                    description=(
+                        f"Quantité demandée supérieure au maximum ({max_qty}) pour {node.name}."
+                    ),
+                )
+            selected_qty = qty_val
+
+        result.append((node, selected_qty))
+
+    return result
+
+
+def _collect_subtree_node_ids(root: StockNode) -> List[int]:
+    """Retourne la liste des ids du sous-arbre (racine incluse)."""
+
+    ids: List[int] = []
+    stack: List[StockNode] = [root]
+    while stack:
+        current = stack.pop()
+        try:
+            ids.append(int(current.id))
+        except Exception:
+            continue
+        stack.extend(list(current.children))
+    return ids
+
+
 # -------------------------------------------------
 # Routes internes
 # -------------------------------------------------
@@ -158,25 +253,13 @@ def create_event():
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
     date_raw = (data.get("date") or "").strip() or None
-    raw_roots = data.get("roots")
-    root_specs: List[Dict[str, Any]] = []
-    if isinstance(raw_roots, list) and raw_roots:
-        for entry in raw_roots:
-            if isinstance(entry, dict):
-                root_specs.append({
-                    "id": entry.get("id"),
-                    "quantity": entry.get("quantity"),
-                })
-            else:
-                root_specs.append({"id": entry, "quantity": None})
-    else:
-        root_ids = data.get("root_ids") or data.get("root_node_ids") or []
-        if isinstance(root_ids, list):
-            for rid in root_ids:
-                root_specs.append({"id": rid, "quantity": None})
-
+    root_specs = _extract_root_specs(data)
     if not name or not root_specs:
         abort(400, description="name et roots requis.")
+
+    validated_roots = _validate_root_selection(root_specs)
+    if not validated_roots:
+        abort(400, description="Sélection vide")
 
     # date optionnelle
     dt = None
@@ -195,43 +278,11 @@ def create_event():
     db.session.add(ev)
     db.session.flush()
 
-    seen = set()
-    for spec in root_specs:
-        nid = spec.get("id")
-        try:
-            nid_i = int(nid)
-        except Exception:
-            abort(400, description=f"root_id invalide: {nid}")
-        if nid_i in seen:
-            continue
-        seen.add(nid_i)
-        node = db.session.get(StockNode, nid_i)
-        if not node:
-            abort(400, description=f"StockNode {nid_i} introuvable.")
-        if node.type != NodeType.GROUP:
-            abort(400, description=f"StockNode {nid_i} doit être de type GROUP.")
-        selected_qty = None
-        if getattr(node, "unique_item", False):
-            qty_raw = spec.get("quantity")
-            if qty_raw is None:
-                qty_val = getattr(node, "unique_quantity", None)
-                if qty_val is None:
-                    abort(400, description=f"Quantité requise pour le parent {node.name}.")
-            else:
-                try:
-                    qty_val = int(qty_raw)
-                except Exception:
-                    abort(400, description=f"Quantité invalide pour le parent {node.name}.")
-            if qty_val < 0:
-                abort(400, description=f"Quantité négative pour le parent {node.name}.")
-            max_qty = getattr(node, "unique_quantity", None)
-            if max_qty is not None and qty_val > max_qty:
-                abort(400, description=f"Quantité demandée supérieure au maximum ({max_qty}) pour {node.name}.")
-            selected_qty = qty_val
+    for node, selected_qty in validated_roots:
         db.session.execute(
             event_stock.insert().values(
                 event_id=ev.id,
-                node_id=nid_i,
+                node_id=node.id,
                 selected_quantity=selected_qty,
             )
         )
@@ -386,6 +437,100 @@ def event_tree(event_id: int):
     ev = _event_or_404(event_id)
     tree = build_event_tree(ev.id)
     return jsonify(tree)
+
+
+@bp_events.put("/<int:event_id>/roots")
+@login_required
+def update_event_roots(event_id: int):
+    if not _is_manager():
+        abort(403)
+
+    ev = _event_or_404(event_id)
+
+    data = request.get_json(silent=True) or {}
+    root_specs = _extract_root_specs(data)
+    if not root_specs:
+        abort(400, description="Sélection vide")
+
+    validated_roots = _validate_root_selection(root_specs)
+    if not validated_roots:
+        abort(400, description="Sélection vide")
+
+    new_roots: Dict[int, Optional[int]] = {
+        int(node.id): qty for (node, qty) in validated_roots
+    }
+    if not new_roots:
+        abort(400, description="Au moins un parent est requis")
+
+    rows = db.session.execute(
+        select(event_stock.c.node_id, event_stock.c.selected_quantity)
+        .where(event_stock.c.event_id == ev.id)
+    ).all()
+    existing_roots: Dict[int, Optional[int]] = {
+        int(row.node_id): row.selected_quantity for row in rows
+    }
+
+    to_remove = [nid for nid in existing_roots.keys() if nid not in new_roots]
+    to_add = [nid for nid in new_roots.keys() if nid not in existing_roots]
+    to_update = [
+        nid
+        for nid in new_roots.keys()
+        if nid in existing_roots and existing_roots[nid] != new_roots[nid]
+    ]
+
+    if to_remove:
+        subtree_ids: Set[int] = set()
+        for nid in to_remove:
+            node = db.session.get(StockNode, nid)
+            if not node:
+                continue
+            subtree_ids.update(_collect_subtree_node_ids(node))
+
+        if subtree_ids:
+            VerificationRecord.query.filter(
+                VerificationRecord.event_id == ev.id,
+                VerificationRecord.node_id.in_(subtree_ids),
+            ).delete(synchronize_session=False)
+            EventNodeStatus.query.filter(
+                EventNodeStatus.event_id == ev.id,
+                EventNodeStatus.node_id.in_(subtree_ids),
+            ).delete(synchronize_session=False)
+
+        db.session.execute(
+            event_stock.delete().where(
+                (event_stock.c.event_id == ev.id)
+                & (event_stock.c.node_id.in_(to_remove))
+            )
+        )
+
+    for nid in to_add:
+        db.session.execute(
+            event_stock.insert().values(
+                event_id=ev.id,
+                node_id=nid,
+                selected_quantity=new_roots[nid],
+            )
+        )
+
+    for nid in to_update:
+        db.session.execute(
+            event_stock.update()
+            .where(
+                (event_stock.c.event_id == ev.id)
+                & (event_stock.c.node_id == nid)
+            )
+            .values(selected_quantity=new_roots[nid])
+        )
+
+    db.session.commit()
+
+    _emit("event_update", {"type": "roots_changed", "event_id": ev.id})
+
+    payload = [
+        {"id": node_id, "quantity": qty}
+        for node_id, qty in new_roots.items()
+    ]
+    return jsonify({"ok": True, "roots": payload})
 
 
 @bp_events.post("/<int:event_id>/verify")
