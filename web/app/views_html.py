@@ -230,7 +230,16 @@ def event_page(event_id: int):
         abort(404)
     tree = build_event_tree(event_id)
     current_app.logger.info("[EVENT PAGE] ev_id=%s tree_roots=%s", ev.id, len(tree))
-    return render_template("event.html", event=ev, tree=tree)
+    status_raw = getattr(ev.status, "name", ev.status)
+    status_txt = str(status_raw).upper()
+    allow_verify = current_user.is_authenticated and current_user.role == Role.ADMIN
+    return render_template(
+        "event.html",
+        event=ev,
+        tree=tree,
+        event_status=status_txt,
+        allow_verify=allow_verify,
+    )
 
 # -------------------------
 # Page publique (secouristes via lien partagé)
