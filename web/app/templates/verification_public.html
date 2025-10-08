@@ -1,28 +1,271 @@
 {% extends "base.html" %}
 {% set title = "Vérification périodique — Lien public" %}
 {% block content %}
-  <div class="card" style="max-width:620px;margin:32px auto;">
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<style>
+  .public-wrap{max-width:980px;margin:32px auto;display:flex;flex-direction:column;gap:18px;padding:0 12px}
+  .card{position:relative}
+  .identity-card .title{font-size:20px;font-weight:800}
+  .identity-card form{display:flex;flex-direction:column;gap:12px;margin-top:16px}
+  .identity-row{display:flex;flex-wrap:wrap;gap:10px}
+  .identity-row input{flex:1;min-width:200px;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0b1120;color:var(--text)}
+  .identity-card textarea{min-height:90px;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0b1120;color:var(--text)}
+  .identity-card .alert{margin-top:14px;border-radius:12px;padding:12px;font-weight:600}
+  .identity-card .alert.success{border:1px solid #1d6e5d;background:#0f3b33;color:#bff3e7}
+  .identity-card .alert.error{border:1px solid #75212f;background:#2a0e14;color:#ffd5dc}
+
+  .tree-card .title{font-size:20px;font-weight:800}
+  .chipbar{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+  .chip{padding:4px 10px;border-radius:999px;font-weight:800;font-size:12px;border:1px solid var(--border)}
+  .chip.ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
+  .chip.wait{background:#101c2e;color:#b7c7dc;border-color:#24344f}
+  .progress{height:8px;border-radius:8px;overflow:hidden;background:rgba(255,255,255,.08);margin-top:12px}
+  .progress > div{height:100%;width:0;background:var(--pc-orange);transition:width .2s ease}
+  .tree-note{font-size:13px;color:var(--muted);margin-top:10px}
+
+  .tree{margin-top:16px;display:flex;flex-direction:column;gap:12px}
+  .node{border:1px solid var(--border);border-radius:14px;background:#0f1a2a;padding:10px 12px}
+  .state-ok{border-color:var(--success)!important;background:radial-gradient(600px 200px at top left, rgba(18,184,134,.15), transparent),#0f1e2f;box-shadow:0 0 0 1px rgba(18,184,134,.35) inset,0 0 18px rgba(18,184,134,.15)}
+  .state-wait{border-color:var(--border)!important;background:radial-gradient(600px 200px at top left, rgba(45,123,191,.08), transparent),var(--bg-2)}
+  .header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0;font-weight:700}
+  .header .name{display:flex;align-items:center;gap:8px}
+  .header .meta{font-size:12px;color:var(--muted)}
+  .childs{display:flex;flex-direction:column;gap:12px;margin-top:10px;padding-left:20px}
+  .item{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:14px;border-radius:12px;border:1px solid var(--border);background:#0f1e2f}
+  .item .left{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-weight:700}
+  .item .qty{font-size:12px;border:1px dashed var(--border);padding:2px 8px;border-radius:8px;opacity:.85}
+  .item .right{display:flex;gap:8px;flex-wrap:wrap}
+  .item .btn{padding:10px 14px;border-radius:10px}
+  .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+  .dot-ok{background:var(--success)}
+  .dot-wait{background:#37527a}
+
+  @media (max-width:600px){
+    .public-wrap{padding:0 8px}
+    .childs{padding-left:14px}
+    .item{flex-direction:column;align-items:flex-start}
+    .item .right{width:100%}
+    .item .btn{width:100%}
+  }
+</style>
+
+<div class="public-wrap">
+  <div class="card identity-card">
     <div class="title">Vérification du parent</div>
     <p class="muted" style="margin-top:6px;">Parent contrôlé : <strong>{{ root.name }}</strong></p>
-    <p class="muted" style="margin-top:4px;">Merci de renseigner votre prénom et votre nom pour confirmer que la vérification a été réalisée.</p>
+    <p class="muted" style="margin-top:4px;">Renseigne ton prénom et ton nom pour enregistrer la vérification.</p>
 
     {% if success %}
-      <div class="alert" style="margin-top:14px;border-color:#1d6e5d;background:#0f3b33;color:#bff3e7;">
-        ✅ Merci {{ recorded_name or '' }} ! La vérification a été enregistrée.
-      </div>
-      <p class="muted" style="margin-top:12px;">Vous pouvez fermer cette page ou en soumettre une nouvelle si nécessaire.</p>
+      <div class="alert success">✅ Merci {{ recorded_name or '' }} ! La vérification a été enregistrée.</div>
+      <p class="muted" style="margin-top:12px;">Tu peux fermer cette page ou recommencer une nouvelle vérification si besoin.</p>
     {% else %}
       {% if error %}
-        <div class="alert" style="margin-top:14px;border-color:#75212f;background:#2a0e14;color:#ffd5dc;font-weight:600;">{{ error }}</div>
+        <div class="alert error">{{ error }}</div>
       {% endif %}
-      <form method="post" class="row" style="flex-direction:column;gap:12px;margin-top:16px;">
-        <div class="row wrap" style="gap:10px;">
-          <input name="first_name" placeholder="Prénom" required style="flex:1;min-width:180px;">
-          <input name="last_name" placeholder="Nom" required style="flex:1;min-width:180px;">
+      <form method="post">
+        <div class="identity-row">
+          <input name="first_name" placeholder="Prénom" required value="{{ first_prefill or '' }}">
+          <input name="last_name" placeholder="Nom" required value="{{ last_prefill or '' }}">
         </div>
-        <textarea name="comment" placeholder="Commentaire (optionnel)" style="min-height:80px;"></textarea>
+        <textarea name="comment" placeholder="Commentaire (optionnel)">{{ comment_prefill or '' }}</textarea>
         <button class="btn primary" type="submit" style="align-self:flex-end;">Enregistrer la vérification</button>
       </form>
     {% endif %}
   </div>
+
+  <div class="card tree-card">
+    <div class="title">Matériel à vérifier</div>
+    <p class="tree-note">Clique sur <strong>OK</strong> pour marquer les éléments contrôlés. Ces validations sont sauvegardées localement sur ce navigateur et ne synchronisent pas les autres personnes.</p>
+    <div class="chipbar">
+      <span class="chip ok" id="public-stat-ok">OK : 0</span>
+      <span class="chip wait" id="public-stat-wait">En attente : 0</span>
+    </div>
+    <div class="progress"><div id="public-progress-bar"></div></div>
+    <div class="muted" id="public-progress-text" style="margin-top:6px;">0 / 0 vérifiés</div>
+    <div id="public-tree" class="tree"></div>
+  </div>
+</div>
+
+<script>
+const RAW_TREE = {{ tree_data|tojson }};
+const TREE_DATA = Array.isArray(RAW_TREE) ? RAW_TREE : [];
+const PUBLIC_TOKEN = {{ token|tojson }};
+const STORAGE_KEY = PUBLIC_TOKEN ? `periodic_public_${PUBLIC_TOKEN}` : 'periodic_public';
+const STATE = new Map();
+
+function loadState(){
+  STATE.clear();
+  try{
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if(!raw) return;
+    const parsed = JSON.parse(raw);
+    if(!parsed || typeof parsed !== 'object') return;
+    Object.entries(parsed).forEach(([key, value]) => {
+      if(String(value).toUpperCase() === 'OK'){
+        const id = Number(key);
+        if(!Number.isNaN(id)){
+          STATE.set(id, 'OK');
+        }
+      }
+    });
+  }catch(err){
+    // Ignored: storage may be unavailable (private mode, etc.)
+  }
+}
+
+function saveState(){
+  try{
+    const payload = {};
+    STATE.forEach((value, key) => {
+      if(String(value).toUpperCase() === 'OK'){
+        payload[key] = 'OK';
+      }
+    });
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  }catch(err){
+    // Ignore storage errors
+  }
+}
+
+function el(tag, attrs={}, ...children){
+  const element = document.createElement(tag);
+  Object.entries(attrs || {}).forEach(([key, value]) => {
+    if(value == null) return;
+    if(key === 'class') element.className = value;
+    else if(key === 'html') element.innerHTML = value;
+    else if(key.startsWith('on') && typeof value === 'function') element.addEventListener(key.slice(2), value);
+    else element.setAttribute(key, value);
+  });
+  children.forEach(child => {
+    if(child == null) return;
+    element.append(child.nodeType ? child : document.createTextNode(child));
+  });
+  return element;
+}
+
+const isItem = node => {
+  if(!node) return false;
+  if(node.unique_parent) return true;
+  const type = String(node.type || '').toUpperCase();
+  return type === 'ITEM' || (!!node.unique_item && !(node.children || []).length);
+};
+const isGroup = node => !isItem(node);
+
+function getItemStatus(node){
+  const status = STATE.get(Number(node.id));
+  return String(status || '').toUpperCase() === 'OK' ? 'OK' : 'WAIT';
+}
+
+function groupStatus(node){
+  let hasWait = false;
+  let hasOk = false;
+  const scan = n => {
+    if(!n) return;
+    if(isItem(n)){
+      const st = getItemStatus(n);
+      if(st === 'OK') hasOk = true;
+      else hasWait = true;
+      return;
+    }
+    (n.children || []).forEach(scan);
+  };
+  scan(node);
+  if(hasOk && !hasWait) return 'OK';
+  return 'WAIT';
+}
+
+const itemClass = node => getItemStatus(node) === 'OK' ? 'state-ok' : 'state-wait';
+const groupClass = node => groupStatus(node) === 'OK' ? 'state-ok' : 'state-wait';
+const statusDot = status => {
+  const cls = status === 'OK' ? 'dot-ok' : 'dot-wait';
+  return el('span', {class: `status-dot ${cls}`});
+};
+
+function toggleItem(node){
+  if(!node) return;
+  const current = getItemStatus(node) === 'OK';
+  if(current){
+    STATE.delete(Number(node.id));
+  }else{
+    STATE.set(Number(node.id), 'OK');
+  }
+  saveState();
+  renderTree();
+}
+
+function renderItem(node){
+  const status = getItemStatus(node);
+  const qty = node.selected_quantity ?? node.quantity ?? node.unique_quantity ?? 1;
+  const left = el('div', {class:'left'},
+    statusDot(status),
+    el('span', {class:'name'}, node.name || 'Item'),
+    el('span', {class:'qty'}, `Qté : ${qty}`)
+  );
+  const toggleBtn = el('button', {class:`btn ${status === 'OK' ? 'ghost' : 'success'}`}, status === 'OK' ? 'Annuler' : 'OK');
+  toggleBtn.addEventListener('click', () => toggleItem(node));
+  const right = el('div', {class:'right'}, toggleBtn);
+  return el('div', {class:`item ${itemClass(node)}`}, left, right);
+}
+
+function renderGroup(node){
+  const status = groupStatus(node);
+  const header = el('div', {class:'header'},
+    el('div', {class:'name'}, statusDot(status), node.name || 'Groupe'),
+    el('div', {class:'meta'}, status === 'OK' ? 'Tous les éléments sont OK' : 'En attente')
+  );
+  const bodyChildren = [];
+  (node.children || []).forEach(child => {
+    bodyChildren.push(renderNode(child));
+  });
+  if(node.unique_item || node.unique_parent){
+    bodyChildren.unshift(renderItem(node));
+  }
+  const body = el('div', {class:'childs'}, ...bodyChildren);
+  return el('div', {class:`node ${groupClass(node)}`}, header, body);
+}
+
+function renderNode(node){
+  return isGroup(node) ? renderGroup(node) : renderItem(node);
+}
+
+function flattenItems(nodes, acc=[]){
+  (nodes || []).forEach(node => {
+    if(isItem(node)) acc.push(node);
+    (node.children || []).forEach(child => flattenItems([child], acc));
+  });
+  return acc;
+}
+
+function updateStats(){
+  const items = flattenItems(TREE_DATA, []);
+  const total = items.length;
+  const ok = items.filter(item => getItemStatus(item) === 'OK').length;
+  const wait = total - ok;
+  const okEl = document.getElementById('public-stat-ok');
+  if(okEl) okEl.textContent = `OK : ${ok}`;
+  const waitEl = document.getElementById('public-stat-wait');
+  if(waitEl) waitEl.textContent = `En attente : ${wait}`;
+  const bar = document.getElementById('public-progress-bar');
+  if(bar) bar.style.width = total ? `${Math.round((ok / Math.max(total, 1)) * 100)}%` : '0%';
+  const txt = document.getElementById('public-progress-text');
+  if(txt) txt.textContent = `${ok} / ${total} vérifiés`;
+}
+
+function renderTree(){
+  const container = document.getElementById('public-tree');
+  if(!container) return;
+  container.innerHTML = '';
+  if(!TREE_DATA.length){
+    container.appendChild(el('div', {class:'muted'}, 'Aucun matériel à vérifier pour ce parent.'));
+    updateStats();
+    return;
+  }
+  TREE_DATA.forEach(node => container.appendChild(renderNode(node)));
+  updateStats();
+}
+
+loadState();
+renderTree();
+</script>
 {% endblock %}

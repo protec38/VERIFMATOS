@@ -93,13 +93,12 @@
   <div class="row space-between">
     <div>
       <div class="title" id="current-root-name">Sélectionne un parent</div>
-      <div class="muted">Actualise automatiquement après chaque vérification.</div>
+      <div class="muted">Se met à jour instantanément après chaque vérification.</div>
     </div>
     <div class="row wrap" style="gap:10px;align-items:center;justify-content:flex-end;">
       <span class="chip ok" id="stat-ok">OK : 0</span>
       <span class="chip bad" id="stat-bad">Non conformes : 0</span>
       <span class="chip wait" id="stat-wait">En attente : 0</span>
-      <button class="btn ghost" id="reset-all-btn">Tout remettre en attente</button>
     </div>
   </div>
   <div class="progress" style="margin-top:10px;"><div id="progress-bar" style="width:0%"></div></div>
@@ -123,9 +122,9 @@
 
 <script>
 const ROOTS = {{ (roots or [])|tojson }};
+const CURRENT_USER_NAME = {{ (current_user_name or '')|tojson }};
 let CURRENT_ROOT_ID = ROOTS.length ? ROOTS[0].id : null;
 let TREE = [];
-let IS_RESETTING = false;
 let CURRENT_SHARE_INFO = null;
 
 const NODE_MAP = new Map();
@@ -202,13 +201,10 @@ function flattenItems(nodes){
 }
 
 function updateResetButtonState(){
-  const btn = document.getElementById("reset-all-btn");
   const finishBtn = document.getElementById("finish-verification-btn");
   const shareBtn = document.getElementById("public-link-btn");
   const hasItems = flattenItems(TREE).length > 0;
-  const resetDisabled = IS_RESETTING || !CURRENT_ROOT_ID || !hasItems;
-  const finishDisabled = IS_RESETTING || !CURRENT_ROOT_ID;
-  if(btn) btn.disabled = resetDisabled;
+  const finishDisabled = !CURRENT_ROOT_ID || !hasItems;
   if(finishBtn) finishBtn.disabled = finishDisabled;
   if(shareBtn) shareBtn.disabled = !CURRENT_ROOT_ID;
 }
@@ -334,8 +330,7 @@ function renderItem(n){
     ),
     el("div", {class: "row"},
       el("button", {class: "btn success", onclick: ()=>markOk(n)}, "OK"),
-      el("button", {class: "btn ghost", onclick: ()=>openNotOkModal(n)}, "Non conforme"),
-      el("button", {class: "btn", onclick: ()=>markTodo(n)}, "Remettre en attente")
+      el("button", {class: "btn ghost", onclick: ()=>openNotOkModal(n)}, "Non conforme")
     )
   );
   ITEM_EL.set(n.id, wrap);
@@ -427,20 +422,6 @@ async function fetchShareInfo(rootId){
   return res.json();
 }
 
-async function createShareLink(rootId, rotate=false){
-  const res = await fetch(`/verification-periodique/share/${rootId}`, {
-    method:'POST',
-    credentials:'include',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({rotate})
-  });
-  if(!res.ok){
-    const txt = await res.text().catch(()=>null);
-    throw new Error(txt || "Impossible de générer le lien public");
-  }
-  return res.json();
-}
-
 function copyShareLink(url, btn){
   if(!url) return;
   const onSuccess = () => {
@@ -473,9 +454,10 @@ function renderShareModal(data){
   const rootName = data?.root?.name || '';
   const link = data?.link || null;
   const header = el('h3',{}, rootName ? `Lien public — ${rootName}` : 'Lien public');
-  const subtitle = el('div',{class:'muted'}, link
-    ? 'Partage le lien ou le QR code pour permettre la vérification sans compte.'
-    : 'Génère un lien public afin de partager ce parent.');
+  const subtitleText = link
+    ? 'Le lien public est unique pour ce parent. Copie-le ou partage le QR code.'
+    : "Le lien public n'a pas pu être généré automatiquement. Merci de réessayer plus tard.";
+  const subtitle = el('div',{class:'muted'}, subtitleText);
 
   const elements = [header, subtitle];
 
@@ -486,19 +468,7 @@ function renderShareModal(data){
     const copyBtn = el('button',{class:'btn'},'Copier le lien');
     copyBtn.addEventListener('click', ()=>copyShareLink(url, copyBtn));
     const openBtn = el('a',{class:'btn', href:url, target:'_blank', rel:'noopener'},'Ouvrir');
-    const rotateBtn = el('button',{class:'btn ghost'},'Régénérer');
-    rotateBtn.addEventListener('click', async ()=>{
-      rotateBtn.disabled = true;
-      try{
-        const fresh = await createShareLink(CURRENT_ROOT_ID, true);
-        renderShareModal(fresh);
-      }catch(err){
-        handleError(err);
-      }finally{
-        rotateBtn.disabled = false;
-      }
-    });
-    const actions = el('div',{class:'share-actions'}, copyBtn, openBtn, rotateBtn);
+    const actions = el('div',{class:'share-actions'}, copyBtn, openBtn);
     const metaParts = [];
     if(link.created_at) metaParts.push(`Créé le ${formatDateTime(link.created_at)}`);
     if(link.last_used_at) metaParts.push(`Dernière utilisation ${formatDateTime(link.last_used_at)}`);
@@ -514,20 +484,6 @@ function renderShareModal(data){
     if(meta) body.appendChild(meta);
     if(qr) body.appendChild(qr);
     elements.push(body);
-  }else{
-    const createBtn = el('button',{class:'btn primary'},'Générer un lien public');
-    createBtn.addEventListener('click', async ()=>{
-      createBtn.disabled = true;
-      try{
-        const fresh = await createShareLink(CURRENT_ROOT_ID, false);
-        renderShareModal(fresh);
-      }catch(err){
-        handleError(err);
-      }finally{
-        createBtn.disabled = false;
-      }
-    });
-    elements.push(el('div',{class:'share-actions'}, createBtn));
   }
 
   const closeBtn = el('button',{class:'btn ghost', onclick: closeModal},'Fermer');
@@ -537,7 +493,7 @@ function renderShareModal(data){
 
 async function openShareModal(){
   if(!CURRENT_ROOT_ID){
-    alert('Sélectionne un parent pour générer un lien public.');
+    alert('Sélectionne un parent pour afficher le lien public.');
     return;
   }
   const btn = document.getElementById('public-link-btn');
@@ -655,37 +611,8 @@ function loadRoot(rootId){
     });
 }
 
-function resetAllToTodo(){
-  if(!CURRENT_ROOT_ID || IS_RESETTING) return;
-  if(!confirm("Confirmer la remise en attente de tous les éléments ?")) return;
-  IS_RESETTING = true;
-  updateResetButtonState();
-  fetch(`/verification-periodique/reset`, {
-    method: "POST",
-    credentials: "include",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({root_id: CURRENT_ROOT_ID})
-  })
-    .then(r => {
-      if(r.ok) return r.json();
-      return r.text().then(txt => Promise.reject(txt || "Réinitialisation impossible"));
-    })
-    .then(data => {
-      if(!data || data.error){
-        throw data?.error || "Réinitialisation impossible";
-      }
-      return loadRoot(CURRENT_ROOT_ID);
-    })
-    .catch(err => {
-      handleError(err);
-    })
-    .finally(() => {
-      IS_RESETTING = false;
-      updateResetButtonState();
-    });
-}
-
-function verify(nodeId, status, extra={}){
+function verify(nodeId, status, extra={}, options={}){
+  const opts = Object.assign({refresh: true}, options || {});
   const payload = Object.assign({node_id: nodeId, status}, extra || {});
   return fetch(`/verification-periodique/verify`, {
     method: "POST",
@@ -695,17 +622,48 @@ function verify(nodeId, status, extra={}){
   }).then(r => {
     if(r.ok) return r.json();
     return r.text().then(txt => Promise.reject(txt || "Vérification refusée."));
-  }).then(() => loadRoot(CURRENT_ROOT_ID));
+  }).then(data => {
+    if(opts.refresh){
+      return loadRoot(CURRENT_ROOT_ID).then(() => data);
+    }
+    return data;
+  });
 }
 
 function markOk(item){
   const targetId = targetNodeId(item);
-  verify(targetId, "OK").catch(handleError);
-}
-
-function markTodo(item){
-  const targetId = targetNodeId(item);
-  verify(targetId, "TODO").catch(handleError);
+  verify(targetId, "OK", {}, {refresh: false})
+    .then(() => {
+      const targetNode = NODE_MAP.get(targetId) || null;
+      const nodesToUpdate = [];
+      if(item) nodesToUpdate.push(item);
+      if(targetNode && targetNode !== item) nodesToUpdate.push(targetNode);
+      const nowIso = new Date().toISOString();
+      nodesToUpdate.forEach(node => {
+        if(!node) return;
+        node.last_status = "OK";
+        node.comment = null;
+        node.issue_code = null;
+        node.observed_qty = null;
+        node.missing_qty = null;
+        node.last_at = nowIso;
+        if(CURRENT_USER_NAME){
+          node.last_by = CURRENT_USER_NAME;
+        }
+      });
+      indexTree(TREE);
+      if(CURRENT_ROOT_ID){
+        const rootNode = TREE.length ? TREE[0] : null;
+        const status = determineRootStatus(rootNode);
+        ROOT_STATUS.set(CURRENT_ROOT_ID, status);
+        const found = ROOTS.find(r => r.id === CURRENT_ROOT_ID);
+        if(found) found.status = status;
+      }
+      buildTree();
+      recomputeStats();
+      updateResetButtonState();
+    })
+    .catch(handleError);
 }
 
 async function completeVerification(){
@@ -912,11 +870,6 @@ function openNotOkModal(item){
   );
 
   openModal(content);
-}
-
-const resetBtn = document.getElementById("reset-all-btn");
-if(resetBtn){
-  resetBtn.addEventListener("click", resetAllToTodo);
 }
 
 const finishBtn = document.getElementById("finish-verification-btn");

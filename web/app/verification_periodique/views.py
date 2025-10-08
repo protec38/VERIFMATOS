@@ -347,6 +347,50 @@ def _generate_share_token() -> str:
     raise RuntimeError("Impossible de générer un lien unique")
 
 
+def _get_or_create_public_link(
+    root: StockNode,
+    *,
+    created_by_id: Optional[int],
+) -> Optional[PeriodicVerificationLink]:
+    query = (
+        PeriodicVerificationLink.query
+        .filter_by(root_id=root.id, active=True)
+        .order_by(PeriodicVerificationLink.created_at.desc())
+    )
+    active_links = query.all()
+    if active_links:
+        primary = active_links[0]
+        extras = active_links[1:]
+        if extras:
+            for entry in extras:
+                entry.active = False
+                db.session.add(entry)
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+        return primary
+
+    try:
+        token = _generate_share_token()
+    except RuntimeError:
+        return None
+
+    link = PeriodicVerificationLink(
+        token=token,
+        root_id=root.id,
+        active=True,
+        created_by_id=created_by_id,
+    )
+    db.session.add(link)
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return None
+    return link
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -610,14 +654,11 @@ def get_share(root_id: int):
     if not root:
         return jsonify(error="Parent introuvable"), 404
 
-    link = (
-        PeriodicVerificationLink.query
-        .filter_by(root_id=root.id, active=True)
-        .order_by(PeriodicVerificationLink.created_at.desc())
-        .first()
-    )
+    link = _get_or_create_public_link(root, created_by_id=getattr(current_user, "id", None))
+    if not link:
+        return jsonify(error="Impossible de générer le lien public"), 500
 
-    payload = _share_payload(link) if link else None
+    payload = _share_payload(link)
     return jsonify({"root": {"id": root.id, "name": root.name}, "link": payload})
 
 
@@ -634,35 +675,12 @@ def create_or_rotate_share(root_id: int):
         return jsonify(error="Parent introuvable"), 404
 
     payload = request.get_json(silent=True) or {}
-    rotate = bool(payload.get("rotate"))
+    if payload.get("rotate"):
+        return jsonify(error="La rotation du lien public est désactivée."), 400
 
-    query = (
-        PeriodicVerificationLink.query
-        .filter_by(root_id=root.id, active=True)
-        .order_by(PeriodicVerificationLink.created_at.desc())
-    )
-    existing = query.first()
-
-    if existing and not rotate:
-        return jsonify({"root": {"id": root.id, "name": root.name}, "link": _share_payload(existing)})
-
-    if existing and rotate:
-        existing.active = False
-
-    token = _generate_share_token()
-    link = PeriodicVerificationLink(
-        token=token,
-        root_id=root.id,
-        active=True,
-        created_by_id=getattr(current_user, "id", None),
-    )
-    db.session.add(link)
-
-    try:
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-        return jsonify(error="Impossible de générer le lien"), 500
+    link = _get_or_create_public_link(root, created_by_id=getattr(current_user, "id", None))
+    if not link:
+        return jsonify(error="Impossible de générer le lien public"), 500
 
     return jsonify({"root": {"id": root.id, "name": root.name}, "link": _share_payload(link)})
 
@@ -674,6 +692,8 @@ def public_share(token: str):
 
     _ensure_link_table()
     _ensure_session_table()
+    _ensure_table()
+    _ensure_expiry_table()
 
     link = (
         PeriodicVerificationLink.query
@@ -719,6 +739,27 @@ def public_share(token: str):
                 success = True
                 recorded_name = full_name
 
+    tree_payload = _build_tree(root)
+
+    def _strip_statuses(nodes: List[Dict[str, Any]]):
+        for node in nodes:
+            node["last_status"] = "TODO"
+            node["comment"] = None
+            node["last_by"] = None
+            node["last_at"] = None
+            node["issue_code"] = None
+            node["observed_qty"] = None
+            node["missing_qty"] = None
+            children = node.get("children") or []
+            if children:
+                _strip_statuses(children)
+
+    _strip_statuses(tree_payload)
+
+    first_prefill = (request.form.get("first_name") or "") if request.method == "POST" else ""
+    last_prefill = (request.form.get("last_name") or "") if request.method == "POST" else ""
+    comment_prefill = (request.form.get("comment") or "") if request.method == "POST" else ""
+
     return render_template(
         "verification_public.html",
         root=root,
@@ -726,6 +767,11 @@ def public_share(token: str):
         error=error,
         success=success,
         recorded_name=recorded_name,
+        tree_data=tree_payload,
+        token=token,
+        first_prefill=first_prefill,
+        last_prefill=last_prefill,
+        comment_prefill=comment_prefill,
     )
 
 
