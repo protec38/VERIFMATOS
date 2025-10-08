@@ -5,7 +5,6 @@ from datetime import datetime
 from flask import (
     Blueprint,
     render_template,
-    render_template_string,
     request,
     redirect,
     url_for,
@@ -26,6 +25,7 @@ from .models import (
     EventTemplateKind,
     event_stock,
     User,
+    AuditLog,
 )
 from .tree_query import build_event_tree
 
@@ -77,15 +77,8 @@ def _serialize_template(tpl: EventTemplate) -> dict:
 # -------------------------
 @bp.route("/login", methods=["GET"])
 def login():
-    return render_template_string(
-        '{% extends "base.html" %}{% block content %}'
-        '<div class="card"><div class="title">Connexion</div>'
-        '<form method="post" action="/login" class="row" style="margin-top:10px;">'
-        '<input name="username" placeholder="Nom d’utilisateur" required>'
-        '<input name="password" type="password" placeholder="Mot de passe" required>'
-        '<button class="btn primary" type="submit">Se connecter</button>'
-        '</form></div>{% endblock %}'
-    )
+    error = (request.args.get("error") or "").strip()
+    return render_template("login.html", error=error)
 
 @bp.get("/logout")
 @login_required
@@ -357,6 +350,27 @@ def admin_page():
 
     users = User.query.order_by(User.username.asc()).all()
     return render_template("admin.html", users=users, Role=Role)
+
+
+@bp.get("/admin/logins")
+@login_required
+def admin_login_logs():
+    if not is_admin():
+        abort(403)
+
+    try:
+        AuditLog.__table__.create(bind=db.engine, checkfirst=True)
+    except Exception:
+        db.session.rollback()
+
+    logs = (
+        AuditLog.query
+        .filter(AuditLog.action.in_(["login.success", "login.failure"]))
+        .order_by(AuditLog.ts.desc())
+        .limit(200)
+        .all()
+    )
+    return render_template("admin_login_logs.html", logs=logs)
 
 # -------------------------
 # Page Péremptions

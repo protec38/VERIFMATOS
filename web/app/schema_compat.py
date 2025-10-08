@@ -43,6 +43,8 @@ def ensure_schema_compatibility() -> None:
         _ensure_event_template_tables(conn, tables)
         _ensure_reassort_tables(conn)
         _ensure_periodic_verification_table(conn)
+        _ensure_periodic_session_tables(conn)
+        _ensure_audit_table(conn)
         _ensure_role_enum_value(conn)
 
 
@@ -110,6 +112,31 @@ def _ensure_periodic_verification_table(conn: Connection) -> None:
         PeriodicVerificationRecord.__table__.create(bind=conn, checkfirst=True)
     except Exception as exc:  # pragma: no cover - garde-fou
         current_app.logger.warning("Unable to ensure periodic verification table: %s", exc)
+
+
+def _ensure_periodic_session_tables(conn: Connection) -> None:
+    try:
+        from .models import PeriodicVerificationLink, PeriodicVerificationSession  # import tardif
+    except Exception:
+        return
+
+    for model in (PeriodicVerificationLink, PeriodicVerificationSession):
+        try:
+            model.__table__.create(bind=conn, checkfirst=True)
+        except Exception as exc:  # pragma: no cover - garde-fou
+            current_app.logger.warning("Unable to ensure %s table: %s", model.__tablename__, exc)
+
+
+def _ensure_audit_table(conn: Connection) -> None:
+    try:
+        from .models import AuditLog  # import tardif
+    except Exception:
+        return
+
+    try:
+        AuditLog.__table__.create(bind=conn, checkfirst=True)
+    except Exception as exc:  # pragma: no cover - garde-fou
+        current_app.logger.warning("Unable to ensure audit log table: %s", exc)
 
 
 def _ensure_role_enum_value(conn: Connection) -> None:

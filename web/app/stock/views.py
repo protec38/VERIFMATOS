@@ -437,8 +437,10 @@ def export_stock_json():
 
     def _serialize_tree_full(n: StockNode) -> Dict[str, Any]:
         out = {
+            "id": n.id,
             "name": n.name,
             "type": n.type.name,
+            "level": n.level,
             "quantity": n.quantity if n.type == NodeType.ITEM else None,
             "unique_item": bool(getattr(n, "unique_item", False)),
             "unique_quantity": getattr(n, "unique_quantity", None) if getattr(n, "unique_item", False) else None,
@@ -446,6 +448,9 @@ def export_stock_json():
             "expiry_date": n.expiry_date.isoformat() if getattr(n, "expiry_date", None) else None,
             "children": [],
         }
+        children = sorted(n.children, key=lambda child: (child.type.name, child.name.lower() if child.name else "", child.id))
+        for child in children:
+            out["children"].append(_serialize_tree_full(child))
         # (Optionnel) tu peux ajouter ici "expiries": [...] si tu veux exporter les lots
         return out
 

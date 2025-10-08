@@ -333,3 +333,41 @@ class PeriodicVerificationRecord(db.Model):
         CheckConstraint("(observed_qty IS NULL) OR (observed_qty >= 0)", name="ck_periodic_observed_nonneg"),
         CheckConstraint("(missing_qty  IS NULL) OR (missing_qty  >= 0)", name="ck_periodic_missing_nonneg"),
     )
+
+
+class PeriodicVerificationLink(db.Model):
+    __tablename__ = "periodic_verification_links"
+
+    id = db.Column(db.Integer, primary_key=True)
+    token = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    root_id = db.Column(db.Integer, db.ForeignKey("stock_nodes.id"), nullable=False, index=True)
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    last_used_at = db.Column(db.DateTime, nullable=True)
+
+    root = db.relationship("StockNode")
+    created_by = db.relationship("User", foreign_keys=[created_by_id])
+
+
+class PeriodicVerificationSession(db.Model):
+    __tablename__ = "periodic_verification_sessions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    root_id = db.Column(db.Integer, db.ForeignKey("stock_nodes.id"), nullable=False, index=True)
+    verifier_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    verifier_name = db.Column(db.String(180), nullable=True)
+    verifier_first_name = db.Column(db.String(120), nullable=True)
+    verifier_last_name = db.Column(db.String(120), nullable=True)
+    source = db.Column(db.String(32), nullable=False, default="internal")
+    comment = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    link_id = db.Column(db.Integer, db.ForeignKey("periodic_verification_links.id"), nullable=True, index=True)
+
+    root = db.relationship("StockNode")
+    verifier = db.relationship("User")
+    link = db.relationship("PeriodicVerificationLink", backref="sessions")
+
+    __table_args__ = (
+        Index("ix_periodic_session_root_time", "root_id", "created_at"),
+    )
