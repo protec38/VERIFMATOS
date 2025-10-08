@@ -6,14 +6,19 @@
 <style>
   .public-wrap{max-width:980px;margin:32px auto;display:flex;flex-direction:column;gap:18px;padding:0 12px}
   .card{position:relative}
-  .identity-card .title{font-size:20px;font-weight:800}
-  .identity-card form{display:flex;flex-direction:column;gap:12px;margin-top:16px}
+  .finish-card .title{font-size:20px;font-weight:800}
+  .finish-card form{display:flex;flex-direction:column;gap:12px;margin-top:16px}
   .identity-row{display:flex;flex-wrap:wrap;gap:10px}
   .identity-row input{flex:1;min-width:200px;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0b1120;color:var(--text)}
-  .identity-card textarea{min-height:90px;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0b1120;color:var(--text)}
-  .identity-card .alert{margin-top:14px;border-radius:12px;padding:12px;font-weight:600}
-  .identity-card .alert.success{border:1px solid #1d6e5d;background:#0f3b33;color:#bff3e7}
-  .identity-card .alert.error{border:1px solid #75212f;background:#2a0e14;color:#ffd5dc}
+  .finish-card textarea{min-height:90px;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0b1120;color:var(--text)}
+  .finish-card .alert{margin-top:14px;border-radius:12px;padding:12px;font-weight:600}
+  .finish-card .alert.success{border:1px solid #1d6e5d;background:#0f3b33;color:#bff3e7}
+  .finish-card .alert.error{border:1px solid #75212f;background:#2a0e14;color:#ffd5dc}
+  .finish-header{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+  .finish-meta{display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:14px;color:var(--muted)}
+  .finish-meta .btn{padding:6px 10px;font-size:12px}
+  .finish-actions{display:flex;justify-content:flex-end}
+  .finish-actions .btn[disabled]{opacity:.5;cursor:not-allowed}
 
   .tree-card .title{font-size:20px;font-weight:800}
   .chipbar{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
@@ -41,6 +46,16 @@
   .dot-ok{background:var(--success)}
   .dot-wait{background:#37527a}
 
+  .name-modal-backdrop{position:fixed;inset:0;background:rgba(3,7,18,.85);display:none;align-items:center;justify-content:center;padding:20px;z-index:100}
+  .name-modal-backdrop.visible{display:flex}
+  .name-modal{background:#0f1e2f;border-radius:18px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.45);display:flex;flex-direction:column;gap:16px}
+  .name-modal h2{margin:0;font-size:22px;font-weight:800}
+  .name-modal p{margin:0;font-size:14px;color:var(--muted)}
+  .name-modal form{display:flex;flex-direction:column;gap:16px}
+  .name-modal .identity-row input{background:#0b1120;border:1px solid var(--border)}
+  .name-modal .modal-actions{display:flex;justify-content:flex-end;gap:10px}
+  .name-modal .alert{border-radius:12px;padding:12px;font-weight:600;border:1px solid #75212f;background:#2a0e14;color:#ffd5dc}
+
   @media (max-width:600px){
     .public-wrap{padding:0 8px}
     .childs{padding-left:14px}
@@ -51,29 +66,6 @@
 </style>
 
 <div class="public-wrap">
-  <div class="card identity-card">
-    <div class="title">Vérification du parent</div>
-    <p class="muted" style="margin-top:6px;">Parent contrôlé : <strong>{{ root.name }}</strong></p>
-    <p class="muted" style="margin-top:4px;">Renseigne ton prénom et ton nom pour enregistrer la vérification.</p>
-
-    {% if success %}
-      <div class="alert success">✅ Merci {{ recorded_name or '' }} ! La vérification a été enregistrée.</div>
-      <p class="muted" style="margin-top:12px;">Tu peux fermer cette page ou recommencer une nouvelle vérification si besoin.</p>
-    {% else %}
-      {% if error %}
-        <div class="alert error">{{ error }}</div>
-      {% endif %}
-      <form method="post">
-        <div class="identity-row">
-          <input name="first_name" placeholder="Prénom" required value="{{ first_prefill or '' }}">
-          <input name="last_name" placeholder="Nom" required value="{{ last_prefill or '' }}">
-        </div>
-        <textarea name="comment" placeholder="Commentaire (optionnel)">{{ comment_prefill or '' }}</textarea>
-        <button class="btn primary" type="submit" style="align-self:flex-end;">Enregistrer la vérification</button>
-      </form>
-    {% endif %}
-  </div>
-
   <div class="card tree-card">
     <div class="title">Matériel à vérifier</div>
     <p class="tree-note">Clique sur <strong>OK</strong> pour marquer les éléments contrôlés. Ces validations sont sauvegardées localement sur ce navigateur et ne synchronisent pas les autres personnes.</p>
@@ -85,7 +77,57 @@
     <div class="muted" id="public-progress-text" style="margin-top:6px;">0 / 0 vérifiés</div>
     <div id="public-tree" class="tree"></div>
   </div>
+
+  <div class="card finish-card">
+    <div class="title">Finaliser la vérification</div>
+    <p class="muted" style="margin-top:6px;">Parent contrôlé : <strong>{{ root.name }}</strong></p>
+
+    {% if success %}
+      <div class="alert success">✅ Merci {{ recorded_name or '' }} ! La vérification a été enregistrée.</div>
+      <p class="muted" style="margin-top:12px;">Tu peux fermer cette page ou recommencer une nouvelle vérification si besoin.</p>
+    {% else %}
+      <div class="finish-header">
+        <div class="finish-meta">
+          <span>Vérificateur : <strong id="captured-name">Non renseigné</strong></span>
+          <button type="button" class="btn ghost" id="edit-name-btn">Modifier le nom</button>
+        </div>
+        <div class="muted" id="finish-guard">Valide tous les éléments pour pouvoir finir la vérification.</div>
+      </div>
+
+      {% if error %}
+        <div class="alert error">{{ error }}</div>
+      {% endif %}
+
+      <form method="post" id="verification-form">
+        <input type="hidden" name="first_name" id="final-first-name" value="{{ first_prefill or '' }}">
+        <input type="hidden" name="last_name" id="final-last-name" value="{{ last_prefill or '' }}">
+        <textarea name="comment" placeholder="Commentaire (optionnel)">{{ comment_prefill or '' }}</textarea>
+        <div class="finish-actions">
+          <button class="btn primary" type="submit" id="finish-verification-btn" disabled>Finir la vérification</button>
+        </div>
+      </form>
+    {% endif %}
+  </div>
 </div>
+
+{% if not success %}
+<div class="name-modal-backdrop" id="name-modal">
+  <div class="name-modal">
+    <h2>Avant de commencer</h2>
+    <p>Indique ton prénom et ton nom pour enregistrer cette vérification.</p>
+    <form id="name-capture-form">
+      <div class="identity-row">
+        <input id="modal-first-name" placeholder="Prénom" autocomplete="given-name" value="{{ first_prefill or '' }}">
+        <input id="modal-last-name" placeholder="Nom" autocomplete="family-name" value="{{ last_prefill or '' }}">
+      </div>
+      <div class="modal-actions">
+        <button type="submit" class="btn primary">Continuer</button>
+      </div>
+      <div class="alert error" id="name-modal-error" style="display:none;">Merci de renseigner ton prénom et ton nom.</div>
+    </form>
+  </div>
+</div>
+{% endif %}
 
 <script>
 const RAW_TREE = {{ tree_data|tojson }};
@@ -93,6 +135,78 @@ const TREE_DATA = Array.isArray(RAW_TREE) ? RAW_TREE : [];
 const PUBLIC_TOKEN = {{ token|tojson }};
 const STORAGE_KEY = PUBLIC_TOKEN ? `periodic_public_${PUBLIC_TOKEN}` : 'periodic_public';
 const STATE = new Map();
+let LAST_TOTAL = 0;
+let LAST_OK = 0;
+
+const FINISH_BUTTON = document.getElementById('finish-verification-btn');
+const FINISH_GUARD = document.getElementById('finish-guard');
+const NAME_DISPLAY = document.getElementById('captured-name');
+const FIRST_FIELD = document.getElementById('final-first-name');
+const LAST_FIELD = document.getElementById('final-last-name');
+const NAME_MODAL = document.getElementById('name-modal');
+const NAME_FORM = document.getElementById('name-capture-form');
+const MODAL_FIRST_INPUT = document.getElementById('modal-first-name');
+const MODAL_LAST_INPUT = document.getElementById('modal-last-name');
+const NAME_MODAL_ERROR = document.getElementById('name-modal-error');
+const EDIT_NAME_BTN = document.getElementById('edit-name-btn');
+const VERIFICATION_FORM = document.getElementById('verification-form');
+
+function updateNameDisplay(){
+  if(!NAME_DISPLAY) return;
+  const first = (FIRST_FIELD && FIRST_FIELD.value ? FIRST_FIELD.value : '').trim();
+  const last = (LAST_FIELD && LAST_FIELD.value ? LAST_FIELD.value : '').trim();
+  const full = `${first} ${last}`.trim();
+  NAME_DISPLAY.textContent = full || 'Non renseigné';
+}
+
+function updateFinishState(){
+  const hasButton = !!FINISH_BUTTON;
+  const hasGuard = !!FINISH_GUARD;
+  if(!hasButton && !hasGuard && !NAME_DISPLAY) return;
+  const hasNames = Boolean((FIRST_FIELD && FIRST_FIELD.value ? FIRST_FIELD.value.trim() : '') && (LAST_FIELD && LAST_FIELD.value ? LAST_FIELD.value.trim() : ''));
+  const total = LAST_TOTAL;
+  const ok = LAST_OK;
+  const allOk = total === 0 || ok === total;
+  if(FINISH_BUTTON){
+    FINISH_BUTTON.disabled = !(allOk && hasNames);
+  }
+  if(FINISH_GUARD){
+    if(!hasNames){
+      FINISH_GUARD.textContent = 'Renseigne ton prénom et ton nom pour pouvoir finir la vérification.';
+    }else if(!allOk){
+      FINISH_GUARD.textContent = 'Valide tous les éléments pour pouvoir finir la vérification.';
+    }else{
+      FINISH_GUARD.textContent = 'Tous les éléments sont vérifiés.';
+    }
+  }
+  updateNameDisplay();
+}
+
+function populateNameModalInputs(){
+  if(MODAL_FIRST_INPUT && FIRST_FIELD){
+    MODAL_FIRST_INPUT.value = FIRST_FIELD.value || '';
+  }
+  if(MODAL_LAST_INPUT && LAST_FIELD){
+    MODAL_LAST_INPUT.value = LAST_FIELD.value || '';
+  }
+}
+
+function openNameModal(){
+  if(!NAME_MODAL) return;
+  populateNameModalInputs();
+  NAME_MODAL.classList.add('visible');
+  requestAnimationFrame(() => {
+    if(MODAL_FIRST_INPUT){
+      MODAL_FIRST_INPUT.focus();
+      MODAL_FIRST_INPUT.select();
+    }
+  });
+}
+
+function closeNameModal(){
+  if(!NAME_MODAL) return;
+  NAME_MODAL.classList.remove('visible');
+}
 
 function loadState(){
   STATE.clear();
@@ -242,6 +356,8 @@ function updateStats(){
   const total = items.length;
   const ok = items.filter(item => getItemStatus(item) === 'OK').length;
   const wait = total - ok;
+  LAST_TOTAL = total;
+  LAST_OK = ok;
   const okEl = document.getElementById('public-stat-ok');
   if(okEl) okEl.textContent = `OK : ${ok}`;
   const waitEl = document.getElementById('public-stat-wait');
@@ -250,6 +366,7 @@ function updateStats(){
   if(bar) bar.style.width = total ? `${Math.round((ok / Math.max(total, 1)) * 100)}%` : '0%';
   const txt = document.getElementById('public-progress-text');
   if(txt) txt.textContent = `${ok} / ${total} vérifiés`;
+  updateFinishState();
 }
 
 function renderTree(){
@@ -267,5 +384,82 @@ function renderTree(){
 
 loadState();
 renderTree();
+updateFinishState();
+
+if(NAME_FORM){
+  NAME_FORM.addEventListener('submit', event => {
+    event.preventDefault();
+    if(!MODAL_FIRST_INPUT || !MODAL_LAST_INPUT){
+      if(FIRST_FIELD && LAST_FIELD){
+        closeNameModal();
+        updateFinishState();
+      }
+      return;
+    }
+    const first = MODAL_FIRST_INPUT.value.trim();
+    const last = MODAL_LAST_INPUT.value.trim();
+    if(!first || !last){
+      if(NAME_MODAL_ERROR){
+        NAME_MODAL_ERROR.style.display = 'block';
+      }
+      if(!first && MODAL_FIRST_INPUT){
+        MODAL_FIRST_INPUT.focus();
+      }else if(!last && MODAL_LAST_INPUT){
+        MODAL_LAST_INPUT.focus();
+      }
+      return;
+    }
+    if(NAME_MODAL_ERROR){
+      NAME_MODAL_ERROR.style.display = 'none';
+    }
+    if(FIRST_FIELD) FIRST_FIELD.value = first;
+    if(LAST_FIELD) LAST_FIELD.value = last;
+    closeNameModal();
+    updateFinishState();
+  });
+}
+
+if(EDIT_NAME_BTN){
+  EDIT_NAME_BTN.addEventListener('click', () => {
+    if(NAME_MODAL_ERROR){
+      NAME_MODAL_ERROR.style.display = 'none';
+    }
+    openNameModal();
+  });
+}
+
+if(VERIFICATION_FORM){
+  VERIFICATION_FORM.addEventListener('submit', event => {
+    const hasNames = Boolean((FIRST_FIELD && FIRST_FIELD.value ? FIRST_FIELD.value.trim() : '') && (LAST_FIELD && LAST_FIELD.value ? LAST_FIELD.value.trim() : ''));
+    const allOk = LAST_TOTAL === 0 || LAST_OK === LAST_TOTAL;
+    if(!hasNames){
+      event.preventDefault();
+      if(NAME_MODAL_ERROR){
+        NAME_MODAL_ERROR.style.display = 'none';
+      }
+      openNameModal();
+      return;
+    }
+    if(!allOk){
+      event.preventDefault();
+      updateFinishState();
+    }
+  });
+}
+
+if(NAME_MODAL){
+  openNameModal();
+}
+
+[MODAL_FIRST_INPUT, MODAL_LAST_INPUT].forEach(input => {
+  if(!input) return;
+  input.addEventListener('input', () => {
+    if(NAME_MODAL_ERROR && NAME_MODAL_ERROR.style.display !== 'none'){
+      if((MODAL_FIRST_INPUT ? MODAL_FIRST_INPUT.value.trim() : '') && (MODAL_LAST_INPUT ? MODAL_LAST_INPUT.value.trim() : '')){
+        NAME_MODAL_ERROR.style.display = 'none';
+      }
+    }
+  });
+});
 </script>
 {% endblock %}
