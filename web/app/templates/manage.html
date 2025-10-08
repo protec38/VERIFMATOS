@@ -21,6 +21,14 @@
   .root.active{outline:2px solid #37527a}
   .root .name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .root .meta{opacity:.8;font-size:12px}
+  .root-groups{display:flex;flex-direction:column;gap:12px}
+  .root-group{border:1px solid var(--border);border-radius:10px;padding:10px;background:#0f1e2f}
+  .root-group-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .root-group-label{font-weight:600}
+  .root-group-actions{display:flex;gap:6px;flex-wrap:wrap}
+  .root-group-actions .btn{padding:4px 8px;font-size:12px}
+  .root-group-list{display:flex;flex-direction:column;gap:6px}
+  .root-group-empty{font-size:12px;color:var(--muted)}
 
   .empty{border:1px dashed var(--border);border-radius:12px;padding:20px;text-align:center;opacity:.9}
 
@@ -82,14 +90,17 @@
   <div class="card">
     <div class="hd">
       <div style="font-weight:700">Parents racines</div>
-      <button class="btn primary" id="btn-root-add">➕ Parent racine</button>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+        <button class="btn" id="btn-root-cat-add">➕ Catégorie</button>
+        <button class="btn primary" id="btn-root-add">➕ Parent racine</button>
+      </div>
     </div>
     <div class="bd">
       <div id="roots-empty" class="empty" style="display:none">
         Aucun parent racine. <br><br>
         <button class="btn primary" onclick="openAddModal(null,'GROUP')">➕ Créer un parent racine</button>
       </div>
-      <div id="roots" class="roots"></div>
+      <div id="roots" class="roots root-groups"></div>
     </div>
   </div>
 
@@ -154,6 +165,12 @@
       </div>
     </div>
     <div id="add-group-fields" style="display:none;margin-top:8px">
+      <div id="add-root-category-field" class="row" style="display:none;gap:10px;align-items:center;margin-bottom:8px">
+        <label style="margin:0;min-width:100px">Catégorie</label>
+        <select id="add-root-category" style="flex:1;min-width:160px">
+          <option value="">Sans catégorie</option>
+        </select>
+      </div>
       <label style="display:flex;align-items:center;gap:8px">
         <input id="add-unique" type="checkbox">
         Objet unique (demande une quantité lors de l'ajout à un événement)
@@ -192,6 +209,12 @@
       </div>
     </div>
     <div id="edit-group-fields" style="display:none;margin-top:8px">
+      <div id="edit-root-category-field" class="row" style="display:none;gap:10px;align-items:center;margin-bottom:8px">
+        <label style="margin:0;min-width:100px">Catégorie</label>
+        <select id="edit-root-category" style="flex:1;min-width:160px">
+          <option value="">Sans catégorie</option>
+        </select>
+      </div>
       <label style="display:flex;align-items:center;gap:8px">
         <input id="edit-unique" type="checkbox">
         Objet unique (demande une quantité lors de l'ajout à un événement)
@@ -283,6 +306,7 @@ async function api(url, opts={}){
 
 // ------- State -------
 let ROOTS = [];
+let ROOT_CATEGORIES = [];
 let CURRENT_ROOT_ID = null;
 let TREE = null;
 let ALL_NODES = [];
@@ -292,6 +316,20 @@ let DUP_NODE_ID = null;
 let EDIT_NODE_ID = null;
 
 // ------- Roots -------
+function createRootRow(r){
+  const row = document.createElement('div');
+  row.className = 'root'+(r.id===CURRENT_ROOT_ID?' active':'');
+  row.onclick = ()=>{ CURRENT_ROOT_ID = r.id; loadTree(); renderRoots(); };
+  const name = document.createElement('div');
+  name.className = 'name';
+  name.textContent = r.name;
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  meta.textContent = `id ${r.id}`;
+  row.append(name, meta);
+  return row;
+}
+
 function renderRoots(){
   const wrap = document.getElementById('roots');
   const empty = document.getElementById('roots-empty');
@@ -301,22 +339,94 @@ function renderRoots(){
     return;
   }
   empty.style.display = 'none';
-  ROOTS.forEach(r=>{
-    const row = document.createElement('div');
-    row.className = 'root'+(r.id===CURRENT_ROOT_ID?' active':'');
-    row.onclick = ()=>{ CURRENT_ROOT_ID = r.id; loadTree(); renderRoots(); };
-    const name = document.createElement('div');
-    name.className = 'name';
-    name.textContent = r.name;
-    const meta = document.createElement('div');
-    meta.className = 'meta';
-    meta.textContent = `id ${r.id}`;
-    row.append(name, meta);
-    wrap.appendChild(row);
+
+  const groups = [];
+  (ROOT_CATEGORIES||[]).forEach(cat => {
+    const nodes = ROOTS.filter(r => (r.root_category && r.root_category.id === cat.id));
+    groups.push({category: cat, nodes});
+  });
+  const unassigned = ROOTS.filter(r => !r.root_category);
+  if(unassigned.length || !ROOT_CATEGORIES.length){
+    groups.push({category: null, nodes: unassigned});
+  }
+
+  groups.forEach(group => {
+    const section = document.createElement('div');
+    section.className = 'root-group';
+    const header = document.createElement('div');
+    header.className = 'root-group-header';
+    const label = document.createElement('div');
+    label.className = 'root-group-label';
+    label.textContent = group.category ? group.category.name : 'Sans catégorie';
+    header.appendChild(label);
+
+    if(group.category){
+      const actions = document.createElement('div');
+      actions.className = 'root-group-actions';
+
+      const idx = ROOT_CATEGORIES.findIndex(c => c.id === group.category.id);
+
+      const renameBtn = document.createElement('button');
+      renameBtn.className = 'btn';
+      renameBtn.textContent = 'Renommer';
+      renameBtn.onclick = (e)=>{ e.stopPropagation(); renameCategory(group.category); };
+      actions.appendChild(renameBtn);
+
+      const upBtn = document.createElement('button');
+      upBtn.className = 'btn';
+      upBtn.textContent = '↑';
+      upBtn.disabled = idx <= 0;
+      upBtn.onclick = (e)=>{ e.stopPropagation(); moveCategory(group.category, -1); };
+      actions.appendChild(upBtn);
+
+      const downBtn = document.createElement('button');
+      downBtn.className = 'btn';
+      downBtn.textContent = '↓';
+      downBtn.disabled = idx === -1 || idx >= ROOT_CATEGORIES.length - 1;
+      downBtn.onclick = (e)=>{ e.stopPropagation(); moveCategory(group.category, 1); };
+      actions.appendChild(downBtn);
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'btn danger';
+      deleteBtn.textContent = 'Supprimer';
+      deleteBtn.disabled = (group.nodes || []).length > 0;
+      deleteBtn.onclick = (e)=>{ e.stopPropagation(); deleteCategory(group.category); };
+      actions.appendChild(deleteBtn);
+
+      header.appendChild(actions);
+    }
+
+    section.appendChild(header);
+
+    if(group.nodes && group.nodes.length){
+      const list = document.createElement('div');
+      list.className = 'root-group-list';
+      group.nodes.forEach(r => list.appendChild(createRootRow(r)));
+      section.appendChild(list);
+    }else{
+      const emptyMsg = document.createElement('div');
+      emptyMsg.className = 'root-group-empty';
+      emptyMsg.textContent = 'Aucun parent dans cette catégorie.';
+      section.appendChild(emptyMsg);
+    }
+
+    wrap.appendChild(section);
   });
 }
+
+async function loadRootCategories(){
+  try{
+    const data = await api('/stock/root-categories');
+    ROOT_CATEGORIES = Array.isArray(data) ? data : [];
+  }catch(e){
+    ROOT_CATEGORIES = [];
+    console.warn('Erreur /stock/root-categories :', e);
+  }
+}
+
 async function loadRoots(){
   try{
+    await loadRootCategories();
     const data = await api('/stock/roots');
     ROOTS = Array.isArray(data) ? data : [];
     if(!ROOTS.length){ CURRENT_ROOT_ID = null; renderRoots(); renderTreeEmpty(); return; }
@@ -327,6 +437,88 @@ async function loadRoots(){
   }catch(e){
     alert('Erreur /stock/roots : '+(e.message||e));
   }
+}
+
+async function createCategoryPrompt(){
+  const raw = prompt('Nom de la nouvelle catégorie ?');
+  if(!raw) return;
+  const name = raw.trim();
+  if(!name) return;
+  try{
+    await api('/stock/root-categories', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name})
+    });
+    await loadRoots();
+  }catch(e){
+    alert('Création impossible: '+(e.message||e));
+  }
+}
+
+async function renameCategory(cat){
+  if(!cat) return;
+  const raw = prompt('Nouveau nom pour la catégorie ?', cat.name || '');
+  if(!raw) return;
+  const name = raw.trim();
+  if(!name || name === cat.name) return;
+  try{
+    await api(`/stock/root-categories/${cat.id}`, {
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name})
+    });
+    await loadRoots();
+  }catch(e){
+    alert('Renommage impossible: '+(e.message||e));
+  }
+}
+
+async function deleteCategory(cat){
+  if(!cat) return;
+  if(!confirm(`Supprimer la catégorie "${cat.name}" ?`)) return;
+  try{
+    await api(`/stock/root-categories/${cat.id}`, {method:'DELETE'});
+    await loadRoots();
+  }catch(e){
+    alert('Suppression impossible: '+(e.message||e));
+  }
+}
+
+async function moveCategory(cat, direction){
+  if(!cat || !direction) return;
+  const index = ROOT_CATEGORIES.findIndex(c => c.id === cat.id);
+  if(index === -1) return;
+  const newPos = index + direction;
+  if(newPos < 0 || newPos >= ROOT_CATEGORIES.length) return;
+  try{
+    await api(`/stock/root-categories/${cat.id}`, {
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({position: newPos})
+    });
+    await loadRoots();
+  }catch(e){
+    alert('Déplacement impossible: '+(e.message||e));
+  }
+}
+
+function populateCategorySelect(selectEl, selectedId=null){
+  if(!selectEl) return;
+  selectEl.innerHTML = '';
+  const optNone = document.createElement('option');
+  optNone.value = '';
+  optNone.textContent = 'Sans catégorie';
+  selectEl.appendChild(optNone);
+  (ROOT_CATEGORIES||[]).forEach(cat => {
+    const opt = document.createElement('option');
+    opt.value = String(cat.id);
+    opt.textContent = cat.name;
+    if(selectedId != null && Number(selectedId) === Number(cat.id)){
+      opt.selected = true;
+    }
+    selectEl.appendChild(opt);
+  });
 }
 
 // ------- Tree -------
@@ -730,6 +922,8 @@ function openEditModal(nodeId){
   const uniqueCb = document.getElementById('edit-unique');
   const uniqueQtyWrap = document.getElementById('edit-unique-qty-wrap');
   const uniqueQtyInput = document.getElementById('edit-unique-qty');
+  const editCatField = document.getElementById('edit-root-category-field');
+  const editCatSelect = document.getElementById('edit-root-category');
   if(n.type === 'ITEM'){
     qtyWrap.style.display = '';
     expWrap.style.display = '';
@@ -765,6 +959,19 @@ function openEditModal(nodeId){
       }
     }
   }
+  if(editCatField){
+    if(n.parent_id === null && n.type === 'GROUP'){
+      editCatField.style.display = '';
+      const rootInfo = ROOTS.find(r => r.id === n.id);
+      const selectedId = (typeof n.root_category_id !== 'undefined' && n.root_category_id !== null)
+        ? n.root_category_id
+        : (rootInfo && rootInfo.root_category ? rootInfo.root_category.id : null);
+      populateCategorySelect(editCatSelect, selectedId);
+    }else{
+      editCatField.style.display = 'none';
+      if(editCatSelect) editCatSelect.value = '';
+    }
+  }
   document.getElementById('editModal').classList.add('show');
 }
 function closeEditModal(){
@@ -785,9 +992,13 @@ function closeEditModal(){
   const groupFields = document.getElementById('edit-group-fields');
   const uniqueQtyWrap = document.getElementById('edit-unique-qty-wrap');
   const uniqueCb = document.getElementById('edit-unique');
+  const editCatField = document.getElementById('edit-root-category-field');
+  const editCatSelect = document.getElementById('edit-root-category');
   if(groupFields) groupFields.style.display = 'none';
   if(uniqueQtyWrap) uniqueQtyWrap.style.display = 'none';
   if(uniqueCb) uniqueCb.checked = false;
+  if(editCatField) editCatField.style.display = 'none';
+  if(editCatSelect) editCatSelect.value = '';
   ['edit-exp-new-date','edit-exp-new-qty','edit-exp-new-lot','edit-exp-new-note'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.value = '';
@@ -816,6 +1027,17 @@ async function confirmEdit(){
         payload.unique_quantity = uq;
       }
     }
+    if(n.parent_id === null){
+      const catSelect = document.getElementById('edit-root-category');
+      if(catSelect){
+        if(catSelect.value){
+          const catId = parseInt(catSelect.value, 10);
+          payload.root_category_id = isNaN(catId) ? null : catId;
+        }else{
+          payload.root_category_id = null;
+        }
+      }
+    }
   }
   try{
     await api('/stock/'+nodeId, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
@@ -838,15 +1060,34 @@ function openAddModal(parentId, defaultType){
   const uniqueCb = document.getElementById('add-unique');
   const uniqueQtyWrap = document.getElementById('add-unique-qty-wrap');
   const uniqueQtyInput = document.getElementById('add-unique-qty');
+  const addCatField = document.getElementById('add-root-category-field');
+  const addCatSelect = document.getElementById('add-root-category');
   if(addItemFields) addItemFields.style.display = (typeSel.value === 'ITEM') ? '' : 'none';
   if(addGroupFields) addGroupFields.style.display = (typeSel.value === 'GROUP') ? '' : 'none';
   if(uniqueCb){ uniqueCb.checked = false; }
   if(uniqueQtyInput){ uniqueQtyInput.value = 1; }
   if(uniqueQtyWrap){ uniqueQtyWrap.style.display = 'none'; }
+  if(addCatField){
+    const showCategory = (ADD_PARENT_ID === null && typeSel.value === 'GROUP');
+    addCatField.style.display = showCategory ? '' : 'none';
+    if(showCategory){
+      populateCategorySelect(addCatSelect);
+      if(addCatSelect) addCatSelect.value = '';
+    }else if(addCatSelect){
+      addCatSelect.value = '';
+    }
+  }
   document.getElementById('addModal').classList.add('show');
   document.getElementById('add-name').focus();
 }
-function closeAddModal(){ document.getElementById('addModal').classList.remove('show'); ADD_PARENT_ID = null; }
+function closeAddModal(){
+  document.getElementById('addModal').classList.remove('show');
+  ADD_PARENT_ID = null;
+  const addCatField = document.getElementById('add-root-category-field');
+  const addCatSelect = document.getElementById('add-root-category');
+  if(addCatField) addCatField.style.display = 'none';
+  if(addCatSelect) addCatSelect.value = '';
+}
 document.addEventListener('change', (e)=>{
   if(e.target && e.target.id === 'add-type'){
     const isItem = (e.target.value === 'ITEM');
@@ -854,6 +1095,17 @@ document.addEventListener('change', (e)=>{
     const addGroupFields = document.getElementById('add-group-fields');
     if(addItemFields) addItemFields.style.display = isItem ? '' : 'none';
     if(addGroupFields) addGroupFields.style.display = isItem ? 'none' : '';
+    const addCatField = document.getElementById('add-root-category-field');
+    const addCatSelect = document.getElementById('add-root-category');
+    if(addCatField){
+      const showCategory = (ADD_PARENT_ID === null && e.target.value === 'GROUP');
+      addCatField.style.display = showCategory ? '' : 'none';
+      if(showCategory){
+        populateCategorySelect(addCatSelect);
+      }else if(addCatSelect){
+        addCatSelect.value = '';
+      }
+    }
   }
   if(e.target && e.target.id === 'add-unique'){
     const wrap = document.getElementById('add-unique-qty-wrap');
@@ -882,6 +1134,17 @@ async function confirmAdd(){
       if(isNaN(uq) || uq < 0){ alert('Quantité maximale invalide'); return; }
       payload.unique_item = true;
       payload.unique_quantity = uq;
+    }
+    if(ADD_PARENT_ID === null){
+      const catSelect = document.getElementById('add-root-category');
+      if(catSelect){
+        if(catSelect.value){
+          const catId = parseInt(catSelect.value, 10);
+          payload.root_category_id = isNaN(catId) ? null : catId;
+        }else{
+          payload.root_category_id = null;
+        }
+      }
     }
   }
   try{
@@ -938,7 +1201,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
 document.addEventListener('DOMContentLoaded', ()=>{
   // Buttons
   document.getElementById('btn-import').onclick = doImport;
-  document.getElementById('btn-root-add').onclick = ()=> openAddModal(null,'GROUP');
+document.getElementById('btn-root-add').onclick = ()=> openAddModal(null,'GROUP');
+const btnCatAdd = document.getElementById('btn-root-cat-add');
+if(btnCatAdd){ btnCatAdd.onclick = createCategoryPrompt; }
   const expAddBtn = document.getElementById('edit-exp-add');
   if(expAddBtn){
     expAddBtn.addEventListener('click', async ()=>{

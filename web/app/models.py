@@ -84,6 +84,15 @@ class NodeType(enum.Enum):
     GROUP = "group"   # nœud parent
     ITEM  = "item"    # feuille vérifiable
 
+class StockRootCategory(db.Model):
+    __tablename__ = "stock_root_categories"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False, unique=True)
+    position = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
 class StockNode(db.Model):
     __tablename__ = "stock_nodes"
 
@@ -93,6 +102,16 @@ class StockNode(db.Model):
     level = db.Column(db.Integer, nullable=False, default=0)  # 0 = racine
     parent_id = db.Column(db.Integer, db.ForeignKey("stock_nodes.id"), nullable=True, index=True)
     parent = db.relationship("StockNode", remote_side=[id], backref="children")
+    root_category_id = db.Column(
+        db.Integer,
+        db.ForeignKey("stock_root_categories.id"),
+        nullable=True,
+        index=True,
+    )
+    root_category = db.relationship(
+        "StockRootCategory",
+        backref=db.backref("nodes", lazy="dynamic"),
+    )
 
     # Quantité cible pour les ITEMS uniquement
     quantity = db.Column(db.Integer, nullable=True)
