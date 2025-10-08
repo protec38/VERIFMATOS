@@ -1,6 +1,7 @@
 # app/views_html.py — Pages HTML (Jinja)
 from __future__ import annotations
 from datetime import datetime
+import secrets
 
 from flask import (
     Blueprint,
@@ -26,6 +27,7 @@ from .models import (
     event_stock,
     User,
     AuditLog,
+    PeriodicVerificationLink,
 )
 from .tree_query import build_event_tree
 
@@ -395,6 +397,53 @@ def verification_periodique_page():
         .order_by(StockNode.name.asc())
         .all()
     )
+
+    try:
+        PeriodicVerificationLink.__table__.create(bind=db.engine, checkfirst=True)
+    except Exception:
+        db.session.rollback()
+
+    def _generate_link_token() -> str | None:
+        for _ in range(10):
+            token = secrets.token_urlsafe(16)
+            if not PeriodicVerificationLink.query.filter_by(token=token).first():
+                return token
+        return None
+
+    created_links = False
+    for root in roots:
+        existing = (
+            PeriodicVerificationLink.query
+            .filter_by(root_id=root.id, active=True)
+            .order_by(PeriodicVerificationLink.created_at.desc())
+            .first()
+        )
+        if existing:
+            continue
+        token = _generate_link_token()
+        if not token:
+            current_app.logger.warning(
+                "Impossible de générer un lien public pour le parent %s", root.id
+            )
+            continue
+        link = PeriodicVerificationLink(
+            token=token,
+            root_id=root.id,
+            active=True,
+            created_by_id=getattr(current_user, "id", None),
+        )
+        db.session.add(link)
+        created_links = True
+
+    if created_links:
+        try:
+            db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            current_app.logger.warning(
+                "Impossible d'enregistrer automatiquement les liens publics : %s", exc
+            )
+
     root_payload = [
         {
             "id": root.id,
@@ -402,4 +451,9 @@ def verification_periodique_page():
         }
         for root in roots
     ]
-    return render_template("verification_periodique.html", roots=root_payload)
+    current_user_name = getattr(current_user, "username", None)
+    return render_template(
+        "verification_periodique.html",
+        roots=root_payload,
+        current_user_name=current_user_name,
+    )
