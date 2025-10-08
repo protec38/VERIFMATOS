@@ -65,10 +65,13 @@ def _ens_map(event_id: int) -> Dict[int, EventNodeStatus]:
     return {int(r.node_id): r for r in rows}
 
 
-def _extract_charge_meta(ens: EventNodeStatus) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+def _extract_charge_meta(
+    ens: EventNodeStatus,
+) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
     """Decode vehicle / operator names stored in the comment JSON fallback."""
     vehicle: Optional[str] = getattr(ens, "charged_vehicle_name", None)
     operator: Optional[str] = None
+    reassort_note: Optional[str] = None
     comment = getattr(ens, "comment", None)
 
     display_comment: Optional[str] = None
@@ -90,24 +93,33 @@ def _extract_charge_meta(ens: EventNodeStatus) -> Tuple[Optional[str], Optional[
                         _, _, rest = part.partition(":")
                         if rest.strip():
                             operator = operator or rest.strip()
+                    elif low.startswith("réassort"):
+                        _, _, rest = part.partition(":")
+                        if rest.strip():
+                            reassort_note = reassort_note or rest.strip()
             else:
                 if isinstance(data, dict):
                     veh_val = data.get("vehicle_name")
                     op_val = data.get("operator_name")
+                    note_val = data.get("reassort_note")
                     if veh_val:
                         vehicle = veh_val.strip() or vehicle
                     if op_val:
                         operator = op_val.strip() or operator
+                    if note_val is not None:
+                        reassort_note = str(note_val).strip() or reassort_note
                     parts: List[str] = []
                     if vehicle:
                         parts.append(f"Véhicule: {vehicle}")
                     if operator:
                         parts.append(f"Par: {operator}")
+                    if reassort_note:
+                        parts.append(f"Réassort : {reassort_note}")
                     display_comment = " | ".join(parts) if parts else None
                 else:
                     display_comment = raw
 
-    return vehicle, operator, display_comment
+    return vehicle, operator, display_comment, reassort_note
 
 def _expiries_for_items(item_ids: List[int]) -> Dict[int, List[StockItemExpiry]]:
     """Batch: récupère toutes les lignes d'expiration pour les items donnés."""
@@ -212,7 +224,7 @@ def _serialize(node: StockNode,
     ens = ens_map.get(int(node.id))
     if ens:
         base["charged_vehicle"] = getattr(ens, "charged_vehicle", None)
-        vehicle, operator, display_comment = _extract_charge_meta(ens)
+        vehicle, operator, display_comment, reassort_note = _extract_charge_meta(ens)
         base["charged_vehicle_name"] = vehicle
         if operator is not None:
             base["charged_operator_name"] = operator
@@ -220,6 +232,8 @@ def _serialize(node: StockNode,
             base["comment"] = display_comment
         elif getattr(ens, "comment", None):
             base["comment"] = ens.comment
+        if reassort_note:
+            base["reassort_note"] = reassort_note
 
     base["unique_item"] = is_unique
     if is_unique:
