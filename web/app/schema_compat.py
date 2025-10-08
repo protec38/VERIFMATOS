@@ -34,6 +34,8 @@ def ensure_schema_compatibility() -> None:
         inspector = inspect(conn)
         tables = set(inspector.get_table_names())
 
+        _ensure_stock_root_categories_table(conn, tables)
+
         if "stock_nodes" in tables:
             _ensure_stock_nodes_columns(conn, inspector)
 
@@ -63,6 +65,34 @@ def _ensure_stock_nodes_columns(conn: Connection, inspector) -> None:
         _execute_ignore_duplicate(
             conn,
             "ALTER TABLE stock_nodes ADD COLUMN unique_quantity INTEGER",
+        )
+
+    if "root_category_id" not in columns:
+        current_app.logger.info("Adding column stock_nodes.root_category_id")
+        _execute_ignore_duplicate(
+            conn,
+            "ALTER TABLE stock_nodes ADD COLUMN root_category_id INTEGER",
+        )
+        _execute_ignore_duplicate(
+            conn,
+            "CREATE INDEX IF NOT EXISTS ix_stock_nodes_root_category_id ON stock_nodes(root_category_id)",
+        )
+
+
+def _ensure_stock_root_categories_table(conn: Connection, tables: set[str]) -> None:
+    try:
+        from .models import StockRootCategory  # type: ignore
+    except Exception:
+        return
+
+    if "stock_root_categories" not in tables:
+        current_app.logger.info("Creating table stock_root_categories")
+
+    try:
+        StockRootCategory.__table__.create(bind=conn, checkfirst=True)
+    except Exception as exc:  # pragma: no cover - garde-fou
+        current_app.logger.warning(
+            "Unable to ensure stock_root_categories table: %s", exc
         )
 
 

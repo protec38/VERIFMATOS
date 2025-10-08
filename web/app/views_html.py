@@ -21,6 +21,7 @@ from .models import (
     Role,
     EventShareLink,
     StockNode,
+    StockRootCategory,
     NodeType,
     EventTemplate,
     EventTemplateKind,
@@ -30,6 +31,7 @@ from .models import (
     PeriodicVerificationLink,
 )
 from .tree_query import build_event_tree
+from .stock.service import list_roots
 
 bp = Blueprint("pages", __name__)
 
@@ -72,6 +74,16 @@ def _serialize_template(tpl: EventTemplate) -> dict:
             }
             for node in sorted(tpl.nodes, key=lambda n: n.node_id)
         ],
+    }
+
+
+def _root_payload(node: StockNode) -> dict:
+    return {
+        "id": node.id,
+        "name": node.name,
+        "unique_item": bool(getattr(node, "unique_item", False)),
+        "unique_quantity": getattr(node, "unique_quantity", None),
+        "root_category_id": getattr(node, "root_category_id", None),
     }
 
 # -------------------------
@@ -152,12 +164,27 @@ def dashboard():
         abort(403)
 
     events = Event.query.order_by(Event.created_at.desc()).all()
-    roots = (
-        StockNode.query
-        .filter(StockNode.parent_id.is_(None), StockNode.type == NodeType.GROUP)
-        .order_by(StockNode.name.asc())
+    roots = list_roots()
+    categories = (
+        StockRootCategory.query
+        .order_by(StockRootCategory.position.asc(), StockRootCategory.name.asc())
         .all()
     )
+    root_specs = [_root_payload(r) for r in roots]
+    grouped_roots = []
+    used_root_ids: set[int] = set()
+    for cat in categories:
+        nodes = [payload for payload in root_specs if payload["root_category_id"] == cat.id]
+        grouped_roots.append(
+            {
+                "category": {"id": cat.id, "name": cat.name},
+                "nodes": nodes,
+            }
+        )
+        used_root_ids.update(node["id"] for node in nodes)
+    remaining = [payload for payload in root_specs if payload["id"] not in used_root_ids]
+    if remaining:
+        grouped_roots.append({"category": None, "nodes": remaining})
     templates = (
         EventTemplate.query
         .order_by(EventTemplate.kind.asc(), EventTemplate.name.asc())
@@ -169,7 +196,8 @@ def dashboard():
         "home.html",
         events=events,
         can_manage=can_manage_event(),
-        roots=roots,
+        root_groups=grouped_roots,
+        roots_flat=root_specs,
         templates=template_specs,
         lots=lot_specs,
     )
@@ -181,10 +209,10 @@ def templates_manage_page():
     if not can_manage_event():
         abort(403)
 
-    roots = (
-        StockNode.query
-        .filter(StockNode.parent_id.is_(None), StockNode.type == NodeType.GROUP)
-        .order_by(StockNode.name.asc())
+    roots = list_roots()
+    categories = (
+        StockRootCategory.query
+        .order_by(StockRootCategory.position.asc(), StockRootCategory.name.asc())
         .all()
     )
     templates = (
@@ -195,19 +223,26 @@ def templates_manage_page():
     template_specs = [_serialize_template(t) for t in templates if t.kind == EventTemplateKind.TEMPLATE]
     lot_specs = [_serialize_template(t) for t in templates if t.kind == EventTemplateKind.LOT]
 
-    root_specs = [
-        {
-            "id": r.id,
-            "name": r.name,
-            "unique_item": bool(getattr(r, "unique_item", False)),
-            "unique_quantity": getattr(r, "unique_quantity", None),
-        }
-        for r in roots
-    ]
+    root_specs = [_root_payload(r) for r in roots]
+    grouped_roots = []
+    used_root_ids: set[int] = set()
+    for cat in categories:
+        nodes = [payload for payload in root_specs if payload["root_category_id"] == cat.id]
+        grouped_roots.append(
+            {
+                "category": {"id": cat.id, "name": cat.name},
+                "nodes": nodes,
+            }
+        )
+        used_root_ids.update(node["id"] for node in nodes)
+    remaining = [payload for payload in root_specs if payload["id"] not in used_root_ids]
+    if remaining:
+        grouped_roots.append({"category": None, "nodes": remaining})
 
     return render_template(
         "templates_manage.html",
-        roots=root_specs,
+        root_groups=grouped_roots,
+        roots_flat=root_specs,
         templates=template_specs,
         lots=lot_specs,
     )

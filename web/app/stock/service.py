@@ -2,10 +2,14 @@
 from __future__ import annotations
 from typing import Optional, Dict, Any, List
 
+from sqlalchemy import case
+from sqlalchemy.orm import joinedload
+
 from .. import db
 from ..models import (
     StockNode,
     NodeType,
+    StockRootCategory,
     PeriodicVerificationRecord,
     VerificationRecord,
     EventNodeStatus,
@@ -19,6 +23,8 @@ from .validators import (
     ensure_can_add_child,
     MAX_LEVEL,
 )
+
+_ROOT_CATEGORY_SENTINEL = object()
 
 # -------------------------------------------------
 # Utils internes
@@ -60,6 +66,7 @@ def create_node(
     quantity: Optional[int],
     unique_item: bool = False,
     unique_quantity: Optional[int] = None,
+    root_category_id: Optional[int] = None,
 ) -> StockNode:
     """
     Crée un noeud:
@@ -72,6 +79,15 @@ def create_node(
     level = compute_new_level(parent)
     ensure_level_valid(level)
     ensure_item_quantity(type_, quantity)
+
+    root_category: Optional[StockRootCategory] = None
+    if parent is None and root_category_id is not None:
+        category = db.session.get(StockRootCategory, int(root_category_id))
+        if not category:
+            raise ValueError("root_category_id not found")
+        root_category = category
+    elif parent is not None and root_category_id is not None:
+        raise ValueError("root_category_id only allowed for root nodes")
 
     node = StockNode(
         name=name,
@@ -93,6 +109,12 @@ def create_node(
     else:
         node.unique_item = False
         node.unique_quantity = None
+
+    if parent is None:
+        node.root_category = root_category
+    else:
+        node.root_category = None
+
     db.session.add(node)
     db.session.commit()
     return node
@@ -105,6 +127,7 @@ def update_node(
     quantity: Optional[int] = None,
     unique_item: Optional[bool] = None,
     unique_quantity: Optional[int] = None,
+    root_category_id: object = _ROOT_CATEGORY_SENTINEL,
 ) -> StockNode:
     """
     Met à jour un noeud:
@@ -143,7 +166,8 @@ def update_node(
             node.unique_quantity = None
 
     # Reparentage uniquement si changement effectif
-    if parent_id != node.parent_id:
+    parent_changed = parent_id != node.parent_id
+    if parent_changed:
         parent = db.session.get(StockNode, parent_id) if parent_id else None
         if parent is not None:
             ensure_can_add_child(parent)
@@ -158,6 +182,21 @@ def update_node(
 
         node.parent = parent
         _apply_level_rec(node, new_level)
+
+    if parent_changed and node.parent is not None:
+        node.root_category = None
+
+    if root_category_id is not _ROOT_CATEGORY_SENTINEL:
+        if node.parent is not None:
+            node.root_category = None
+        else:
+            if root_category_id is None:
+                node.root_category = None
+            else:
+                category = db.session.get(StockRootCategory, int(root_category_id))
+                if not category:
+                    raise ValueError("root_category_id not found")
+                node.root_category = category
 
     db.session.commit()
     return node
@@ -245,6 +284,10 @@ def duplicate_subtree(root_id: int, *, new_name: Optional[str] = None, new_paren
         else:
             copy.unique_item = False
             copy.unique_quantity = None
+        if parent_new is None:
+            copy.root_category_id = getattr(n, "root_category_id", None)
+        else:
+            copy.root_category_id = None
         # Copier la péremption pour ITEM
         if n.type == NodeType.ITEM:
             copy.expiry_date = getattr(n, "expiry_date", None)
@@ -267,6 +310,7 @@ def serialize_tree(node: StockNode) -> Dict[str, Any]:
         "name": node.name,
         "type": node.type.name,
         "level": node.level,
+        "parent_id": node.parent_id,
         "quantity": node.quantity if node.type == NodeType.ITEM else None,
         "unique_item": bool(getattr(node, "unique_item", False)),
         "unique_quantity": getattr(node, "unique_quantity", None) if getattr(node, "unique_item", False) else None,
@@ -274,6 +318,8 @@ def serialize_tree(node: StockNode) -> Dict[str, Any]:
         "expiry_date": node.expiry_date.isoformat() if getattr(node, "expiry_date", None) else None,
         "children": [],
     }
+    if node.parent_id is None:
+        out["root_category_id"] = getattr(node, "root_category_id", None)
     for c in sorted(node.children, key=lambda x: (x.level, x.id)):
         out["children"].append(serialize_tree(c))
     return out
@@ -282,4 +328,17 @@ def list_roots() -> List[StockNode]:
     """
     Liste ordonnée de toutes les racines (parent_id=None).
     """
-    return StockNode.query.filter_by(parent_id=None).order_by(StockNode.id).all()
+    query = (
+        StockNode.query
+        .options(joinedload(StockNode.root_category))
+        .filter(StockNode.parent_id.is_(None))
+        .outerjoin(StockRootCategory, StockNode.root_category_id == StockRootCategory.id)
+        .order_by(
+            case((StockRootCategory.id.is_(None), 1), else_=0),
+            StockRootCategory.position.asc(),
+            StockRootCategory.name.asc(),
+            StockNode.name.asc(),
+            StockNode.id.asc(),
+        )
+    )
+    return query.all()

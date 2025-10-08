@@ -2,6 +2,14 @@
 {% set title = "Tableau de bord" %}
 {% block content %}
 
+<style>
+  .root-groups{display:flex;flex-direction:column;gap:12px;margin-top:12px}
+  .root-group{border:1px solid var(--border);border-radius:12px;padding:12px;background:#0f1e2f}
+  .root-group-title{font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+  .root-group-nodes{display:flex;flex-wrap:wrap;gap:8px}
+  .root-group-empty{font-size:13px;color:var(--muted)}
+</style>
+
 <div class="grid cols-2">
   <div class="card">
     <div class="title">Créer un événement</div>
@@ -31,21 +39,37 @@
           {% endfor %}
         </select>
       </div>
-      <div class="row wrap" style="margin-top:12px">
-        {% if roots and roots|length %}
-          {% for r in roots %}
-            <label class="btn ghost" style="cursor:pointer;">
-              <input type="checkbox" class="root-cb" value="{{ r.id }}" style="margin-right:6px"
-                     data-name="{{ r.name }}"
-                     data-unique="{{ 1 if r.unique_item else 0 }}"
-                     data-max="{{ r.unique_quantity if r.unique_quantity is not none else '' }}">
-              {{ r.name }}
-            </label>
+      {% if root_groups and root_groups|length %}
+        <div class="root-groups">
+          {% for group in root_groups %}
+            <div class="root-group">
+              <div class="root-group-title">
+                {{ group.category.name if group.category else "Sans catégorie" }}
+                {% if group.nodes %}
+                  <span class="badge" style="font-size:12px;">{{ group.nodes|length }} parent{{ 's' if group.nodes|length > 1 else '' }}</span>
+                {% endif %}
+              </div>
+              {% if group.nodes and group.nodes|length %}
+                <div class="root-group-nodes">
+                  {% for r in group.nodes %}
+                    <label class="btn ghost" style="cursor:pointer;">
+                      <input type="checkbox" class="root-cb" value="{{ r.id }}" style="margin-right:6px"
+                             data-name="{{ r.name }}"
+                             data-unique="{{ 1 if r.unique_item else 0 }}"
+                             data-max="{{ r.unique_quantity if r.unique_quantity is not none else '' }}">
+                      {{ r.name }}
+                    </label>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="root-group-empty">Aucun parent dans cette catégorie.</div>
+              {% endif %}
+            </div>
           {% endfor %}
-        {% else %}
-          <span class="muted">Aucun parent racine disponible. Crée d’abord un stock parent dans 🧰 Stock.</span>
-        {% endif %}
-      </div>
+        </div>
+      {% else %}
+        <span class="muted">Aucun parent racine disponible. Crée d’abord un stock parent dans 🧰 Stock.</span>
+      {% endif %}
     </div>
 
     <div class="row" style="margin-top:10px;">

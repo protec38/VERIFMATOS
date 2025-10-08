@@ -8,11 +8,11 @@ from typing import Any, Dict, List, Optional
 from flask import Blueprint, request, jsonify, Response, render_template, abort
 from flask_login import login_required, current_user
 
-from sqlalchemy import text
+from sqlalchemy import text, func
 from sqlalchemy.exc import ProgrammingError, OperationalError
 
 from .. import db
-from ..models import Role, NodeType, StockNode
+from ..models import Role, NodeType, StockNode, StockRootCategory
 from .service import (
     create_node,
     update_node,
@@ -20,6 +20,7 @@ from .service import (
     duplicate_subtree,
     serialize_tree,
     list_roots,
+    _ROOT_CATEGORY_SENTINEL,
 )
 
 # --- modèle optionnel (si présent dans app.models) ---
@@ -30,6 +31,49 @@ try:
 except Exception:
     StockItemExpiry = None  # type: ignore
     HAS_EXP_MODEL = False
+
+
+def _serialize_root_node(root: StockNode) -> Dict[str, Any]:
+    category = getattr(root, "root_category", None)
+    return {
+        "id": root.id,
+        "name": root.name,
+        "type": root.type.name,
+        "level": root.level,
+        "unique_item": bool(getattr(root, "unique_item", False)),
+        "unique_quantity": getattr(root, "unique_quantity", None),
+        "root_category": (
+            {
+                "id": category.id,
+                "name": category.name,
+                "position": category.position,
+            }
+            if category
+            else None
+        ),
+    }
+
+
+def _serialize_root_category(category: StockRootCategory) -> Dict[str, Any]:
+    return {
+        "id": category.id,
+        "name": category.name,
+        "position": category.position,
+        "root_count": category.nodes.count() if category.nodes is not None else 0,
+    }
+
+
+def _reorder_root_category(category: StockRootCategory, new_position: int) -> None:
+    categories = (
+        StockRootCategory.query
+        .order_by(StockRootCategory.position.asc(), StockRootCategory.id.asc())
+        .all()
+    )
+    categories = [c for c in categories if c.id != category.id]
+    new_position = max(0, min(int(new_position), len(categories)))
+    categories.insert(new_position, category)
+    for idx, cat in enumerate(categories):
+        cat.position = idx
 
 
 def _sync_item_legacy_expiry(item: Optional[StockNode]) -> Dict[str, Any]:
@@ -144,6 +188,104 @@ def _ensure_expiry_table() -> bool:
 
 
 # -------------------------------------------------
+# ROOT CATEGORIES
+# -------------------------------------------------
+@bp.get("/stock/root-categories")
+@login_required
+def list_root_categories_api():
+    if not _can_read_stock():
+        return _bad_request("Forbidden", 403)
+    categories = (
+        StockRootCategory.query
+        .order_by(StockRootCategory.position.asc(), StockRootCategory.name.asc())
+        .all()
+    )
+    return jsonify([_serialize_root_category(cat) for cat in categories])
+
+
+@bp.post("/stock/root-categories")
+@login_required
+def create_root_category_api():
+    if not _can_write_stock():
+        return _bad_request("Forbidden", 403)
+    data = request.get_json() or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return _bad_request("name required")
+
+    existing = (
+        StockRootCategory.query
+        .filter(func.lower(StockRootCategory.name) == name.lower())
+        .first()
+    )
+    if existing:
+        return _bad_request("Une catégorie porte déjà ce nom")
+
+    max_position = db.session.query(func.max(StockRootCategory.position)).scalar()
+    next_position = (max_position + 1) if max_position is not None else 0
+    category = StockRootCategory(name=name, position=next_position)
+    db.session.add(category)
+    db.session.commit()
+    return jsonify(_serialize_root_category(category)), 201
+
+
+@bp.patch("/stock/root-categories/<int:category_id>")
+@login_required
+def update_root_category_api(category_id: int):
+    if not _can_write_stock():
+        return _bad_request("Forbidden", 403)
+    category = db.session.get(StockRootCategory, category_id)
+    if not category:
+        return _bad_request("Not found", 404)
+
+    data = request.get_json() or {}
+    changed = False
+
+    if "name" in data:
+        new_name = (data.get("name") or "").strip()
+        if not new_name:
+            return _bad_request("name required")
+        duplicate = (
+            StockRootCategory.query
+            .filter(func.lower(StockRootCategory.name) == new_name.lower())
+            .filter(StockRootCategory.id != category.id)
+            .first()
+        )
+        if duplicate:
+            return _bad_request("Une catégorie porte déjà ce nom")
+        category.name = new_name
+        changed = True
+
+    if "position" in data:
+        try:
+            new_position = int(data.get("position"))
+        except Exception:
+            return _bad_request("position invalid")
+        _reorder_root_category(category, new_position)
+        changed = True
+
+    if changed:
+        db.session.commit()
+
+    return jsonify(_serialize_root_category(category))
+
+
+@bp.delete("/stock/root-categories/<int:category_id>")
+@login_required
+def delete_root_category_api(category_id: int):
+    if not _can_write_stock():
+        return _bad_request("Forbidden", 403)
+    category = db.session.get(StockRootCategory, category_id)
+    if not category:
+        return _bad_request("Not found", 404)
+    if category.nodes.count():
+        return _bad_request("Impossible de supprimer une catégorie non vide")
+    db.session.delete(category)
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+# -------------------------------------------------
 # ROOTS (lecture ouverte aux connectés)
 # -------------------------------------------------
 @bp.get("/stock/roots")
@@ -152,17 +294,7 @@ def get_roots():
     if not _can_read_stock():
         return _bad_request("Forbidden", 403)
     roots = list_roots()
-    return jsonify([
-        {
-            "id": r.id,
-            "name": r.name,
-            "type": r.type.name,
-            "level": r.level,
-            "unique_item": bool(getattr(r, "unique_item", False)),
-            "unique_quantity": getattr(r, "unique_quantity", None),
-        }
-        for r in roots
-    ])
+    return jsonify([_serialize_root_node(r) for r in roots])
 
 
 # -------------------------------------------------
@@ -217,6 +349,16 @@ def create_node_api():
         type_ = _parse_node_type(type_str)
         if parent_id is not None:
             parent_id = int(parent_id)
+        root_category_id = data.get("root_category_id")
+        if root_category_id in ("", None):
+            root_category_id = None
+        elif parent_id is None:
+            try:
+                root_category_id = int(root_category_id)
+            except Exception:
+                return _bad_request("root_category_id invalid")
+        else:
+            root_category_id = None
         if type_ == NodeType.ITEM:
             quantity = int(quantity or 0)
         else:
@@ -242,6 +384,7 @@ def create_node_api():
             quantity=quantity,
             unique_item=unique_item if type_ == NodeType.GROUP else False,
             unique_quantity=unique_quantity if type_ == NodeType.GROUP else None,
+            root_category_id=root_category_id if parent_id is None else None,
         )
         node = db.session.get(StockNode, node.id)
 
@@ -306,6 +449,17 @@ def update_node_api(node_id: int):
         if parent_id is not None:
             parent_id = int(parent_id)
 
+        root_category_param = _ROOT_CATEGORY_SENTINEL
+        if "root_category_id" in data:
+            raw_cat = data.get("root_category_id")
+            if raw_cat in ("", None):
+                root_category_param = None
+            else:
+                try:
+                    root_category_param = int(raw_cat)
+                except Exception:
+                    return _bad_request("root_category_id invalid")
+
         # qty only for ITEM
         qty = data.get("quantity", node.quantity)
         unique_item_raw = data.get("unique_item")
@@ -337,6 +491,7 @@ def update_node_api(node_id: int):
             quantity=qty,
             unique_item=unique_item_bool if unique_item_raw is not None else None,
             unique_quantity=unique_quantity if node.type == NodeType.GROUP else None,
+            root_category_id=root_category_param,
         )
 
         needs_commit = False
@@ -448,16 +603,40 @@ def export_stock_json():
             "expiry_date": n.expiry_date.isoformat() if getattr(n, "expiry_date", None) else None,
             "children": [],
         }
+        if n.parent_id is None:
+            category = getattr(n, "root_category", None)
+            out["root_category"] = (
+                {
+                    "id": category.id,
+                    "name": category.name,
+                    "position": category.position,
+                }
+                if category
+                else None
+            )
         children = sorted(n.children, key=lambda child: (child.type.name, child.name.lower() if child.name else "", child.id))
         for child in children:
             out["children"].append(_serialize_tree_full(child))
         # (Optionnel) tu peux ajouter ici "expiries": [...] si tu veux exporter les lots
         return out
 
+    categories = (
+        StockRootCategory.query
+        .order_by(StockRootCategory.position.asc(), StockRootCategory.name.asc())
+        .all()
+    )
     payload = {
         "version": "1",
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "roots": [_serialize_tree_full(r) for r in roots],
+        "root_categories": [
+            {
+                "id": cat.id,
+                "name": cat.name,
+                "position": cat.position,
+            }
+            for cat in categories
+        ],
     }
     return Response(
         json.dumps(payload, ensure_ascii=False, indent=2),
@@ -508,6 +687,61 @@ def import_stock():
                 db.session.delete(n)
             db.session.commit()
 
+            db.session.query(StockRootCategory).delete()
+            db.session.commit()
+
+        categories_payload = data_obj.get("root_categories")
+        existing_categories = (
+            StockRootCategory.query
+            .order_by(StockRootCategory.position.asc(), StockRootCategory.id.asc())
+            .all()
+        )
+        category_by_name: Dict[str, StockRootCategory] = {
+            c.name.lower(): c for c in existing_categories
+        }
+        next_category_position = max((c.position for c in existing_categories), default=-1) + 1
+
+        def resolve_category(spec: Any) -> Optional[int]:
+            nonlocal next_category_position
+            if spec is None:
+                return None
+            if isinstance(spec, dict):
+                raw_id = spec.get("id")
+                if raw_id is not None:
+                    try:
+                        existing = db.session.get(StockRootCategory, int(raw_id))
+                    except Exception:
+                        existing = None
+                    if existing:
+                        category_by_name[existing.name.lower()] = existing
+                        return existing.id
+                name = (spec.get("name") or "").strip()
+            elif isinstance(spec, str):
+                name = spec.strip()
+            else:
+                name = None
+            if not name:
+                return None
+            key = name.lower()
+            category = category_by_name.get(key)
+            if not category:
+                category = StockRootCategory(name=name, position=next_category_position)
+                next_category_position += 1
+                db.session.add(category)
+                db.session.flush()
+                category_by_name[key] = category
+            return category.id
+
+        if isinstance(categories_payload, list):
+            for idx, entry in enumerate(categories_payload):
+                cat_id = resolve_category(entry)
+                if cat_id is None:
+                    continue
+                category = db.session.get(StockRootCategory, cat_id)
+                if category:
+                    category.position = idx
+            next_category_position = max(next_category_position, len(categories_payload))
+
         def create_subtree(parent_id: Optional[int], node_dict: Dict[str, Any]) -> StockNode:
             name = (node_dict.get("name") or "").strip()
             if not name:
@@ -526,6 +760,14 @@ def import_stock():
                     unique_quantity_val = int(uq_raw) if uq_raw is not None else 0
                 except Exception:
                     unique_quantity_val = 0
+
+            root_category_id: Optional[int] = None
+            if parent_id is None:
+                root_spec: Any = node_dict.get("root_category")
+                if root_spec is None and node_dict.get("root_category_id") is not None:
+                    root_spec = {"id": node_dict.get("root_category_id")}
+                root_category_id = resolve_category(root_spec)
+
             node = create_node(
                 name=name,
                 type_=type_,
@@ -533,6 +775,7 @@ def import_stock():
                 quantity=quantity,
                 unique_item=unique_item if type_ == NodeType.GROUP else False,
                 unique_quantity=unique_quantity_val if (type_ == NodeType.GROUP and unique_item) else None,
+                root_category_id=root_category_id if parent_id is None else None,
             )
 
             needs_flush = False
@@ -574,6 +817,16 @@ def import_stock():
         for r in roots:
             new_root = create_subtree(None, r)
             created_ids.append(new_root.id)
+
+        # Normalise les positions pour éviter les trous
+        all_categories = (
+            StockRootCategory.query
+            .order_by(StockRootCategory.position.asc(), StockRootCategory.id.asc())
+            .all()
+        )
+        for idx, cat in enumerate(all_categories):
+            cat.position = idx
+
         db.session.commit()
 
         return jsonify({"ok": True, "created_roots": created_ids, "mode": mode})
