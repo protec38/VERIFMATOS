@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% set title = "Connexion" %}
+{% block content %}
+  <div class="card" style="max-width:420px;margin:40px auto;">
+    <div class="title">Connexion</div>
+    <p class="muted" style="margin-top:6px;">Entre ton identifiant et ton mot de passe.</p>
+    {% if error %}
+      <div class="alert" style="margin-top:14px;border-color:#75212f;background:#2a0e14;color:#ffd5dc;font-weight:600;">
+        {{ error }}
+      </div>
+    {% endif %}
+    <form method="post" action="/login" class="row" style="margin-top:16px;flex-direction:column;gap:10px;">
+      <input name="username" placeholder="Nom d’utilisateur" required autocomplete="username">
+      <input name="password" type="password" placeholder="Mot de passe" required autocomplete="current-password">
+      <button class="btn primary" type="submit" style="align-self:flex-end;">Se connecter</button>
+    </form>
+  </div>
+{% endblock %}

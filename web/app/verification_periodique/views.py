@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+import secrets
 from typing import Any, Dict, List, Optional
 
-from flask import Blueprint, jsonify, request, abort
+from flask import Blueprint, jsonify, request, abort, render_template, url_for
 from flask_login import current_user, login_required
 
 from .. import db
@@ -13,6 +14,8 @@ from ..models import (
     StockNode,
     NodeType,
     PeriodicVerificationRecord,
+    PeriodicVerificationSession,
+    PeriodicVerificationLink,
     ItemStatus,
     IssueCode,
     ReassortItem,
@@ -64,6 +67,29 @@ def _ensure_expiry_table() -> None:
         StockItemExpiry.__table__.create(bind=db.engine, checkfirst=True)  # type: ignore[union-attr]
     except Exception:
         db.session.rollback()
+
+
+def _ensure_session_table() -> None:
+    try:
+        PeriodicVerificationSession.__table__.create(bind=db.engine, checkfirst=True)
+    except Exception:
+        db.session.rollback()
+
+
+def _ensure_link_table() -> None:
+    try:
+        PeriodicVerificationLink.__table__.create(bind=db.engine, checkfirst=True)
+    except Exception:
+        db.session.rollback()
+
+
+def _resolve_root(node_id: int) -> Optional[StockNode]:
+    node = db.session.get(StockNode, node_id)
+    if not node:
+        return None
+    while node.parent_id is not None:
+        node = node.parent
+    return node
 
 
 def _sync_item_expiry(node_id: int) -> Optional[date]:
@@ -269,6 +295,58 @@ def _build_tree(root: StockNode) -> List[Dict[str, Any]]:
     return [_serialize(root, latest, exp_map)]
 
 
+def _reset_items_to_todo(
+    root: StockNode,
+    *,
+    actor_id: Optional[int],
+    actor_name: Optional[str],
+) -> int:
+    item_ids: List[int] = []
+    _collect_item_ids(root, item_ids)
+
+    if not item_ids:
+        return 0
+
+    latest = _latest_map(item_ids)
+    updated = 0
+    for item_id in item_ids:
+        last_status = (latest.get(item_id, {}).get("status") or "TODO").upper()
+        if last_status == "TODO":
+            continue
+        rec = PeriodicVerificationRecord(
+            node_id=item_id,
+            status=ItemStatus.TODO,
+            verifier_id=actor_id,
+            verifier_name=actor_name,
+            comment=None,
+            issue_code=None,
+            observed_qty=None,
+            missing_qty=None,
+        )
+        db.session.add(rec)
+        updated += 1
+    return updated
+
+
+def _share_payload(link: PeriodicVerificationLink) -> Dict[str, Any]:
+    return {
+        "id": link.id,
+        "token": link.token,
+        "url": url_for("verification_periodique.public_share", token=link.token, _external=True),
+        "created_at": link.created_at.isoformat() if link.created_at else None,
+        "last_used_at": link.last_used_at.isoformat() if link.last_used_at else None,
+        "active": link.active,
+    }
+
+
+def _generate_share_token() -> str:
+    for _ in range(10):
+        token = secrets.token_urlsafe(16)
+        if not PeriodicVerificationLink.query.filter_by(token=token).first():
+            return token
+    raise RuntimeError("Impossible de générer un lien unique")
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -318,48 +396,45 @@ def history(root_id: int):
     if not _can_access():
         return jsonify(error="Forbidden"), 403
 
-    _ensure_table()
+    _ensure_session_table()
 
-    node = db.session.get(StockNode, root_id)
-    if not node:
+    root = _resolve_root(root_id)
+    if not root:
         return jsonify(error="Parent introuvable"), 404
 
-    while node.parent_id is not None:
-        node = node.parent
-
-    item_ids: List[int] = []
-    _collect_item_ids(node, item_ids)
-
-    if not item_ids:
-        return jsonify({"root": {"id": node.id, "name": node.name}, "records": []})
-
-    rows = (
-        PeriodicVerificationRecord.query
-        .filter(PeriodicVerificationRecord.node_id.in_(item_ids))
-        .order_by(
-            PeriodicVerificationRecord.created_at.desc(),
-            PeriodicVerificationRecord.id.desc(),
-        )
+    sessions = (
+        PeriodicVerificationSession.query
+        .filter_by(root_id=root.id)
+        .order_by(PeriodicVerificationSession.created_at.desc())
         .limit(50)
         .all()
     )
 
     payload: List[Dict[str, Any]] = []
-    for row in rows:
-        timestamp = getattr(row, "updated_at", None) or getattr(row, "created_at", None)
+    for session in sessions:
+        timestamp = session.created_at
+        display_name = (
+            session.verifier_name
+            or (f"{(session.verifier_first_name or '').strip()} {(session.verifier_last_name or '').strip()}".strip())
+            or getattr(getattr(session, "verifier", None), "username", None)
+            or None
+        )
+        if display_name:
+            display_name = " ".join(display_name.split())
+        source = (session.source or "internal").lower()
+        source_label = "Lien public" if source == "public" else "Interne"
         payload.append(
             {
-                "id": row.id,
-                "node_id": row.node_id,
-                "node_name": getattr(row.node, "name", None),
-                "status": _norm_status(getattr(row, "status", None)),
-                "verifier": row.verifier_name
-                or getattr(getattr(row, "verifier", None), "username", None),
+                "id": session.id,
+                "verifier": display_name or "Inconnu",
                 "timestamp": timestamp.isoformat() if timestamp else None,
+                "source": source,
+                "source_label": source_label,
+                "comment": session.comment,
             }
         )
 
-    return jsonify({"root": {"id": node.id, "name": node.name}, "records": payload})
+    return jsonify({"root": {"id": root.id, "name": root.name}, "records": payload})
 
 
 @bp.post("/verify")
@@ -443,45 +518,215 @@ def reset_root():
     if not root_id:
         return jsonify(error="root_id requis"), 400
 
-    node = db.session.get(StockNode, root_id)
-    if not node:
+    root = _resolve_root(root_id)
+    if not root:
         return jsonify(error="Parent introuvable"), 404
 
-    while node.parent_id is not None:
-        node = node.parent
+    actor_id = getattr(current_user, "id", None)
+    actor_name = getattr(current_user, "username", None)
 
-    item_ids: List[int] = []
-    _collect_item_ids(node, item_ids)
+    updated = _reset_items_to_todo(root, actor_id=actor_id, actor_name=actor_name)
 
-    if not item_ids:
+    if updated <= 0:
         return jsonify(ok=True, updated=0)
 
-    latest = _latest_map(item_ids)
-
-    records: List[PeriodicVerificationRecord] = []
-    for item_id in item_ids:
-        last_status = (latest.get(item_id, {}).get("status") or "TODO").upper()
-        if last_status == "TODO":
-            continue
-        rec = PeriodicVerificationRecord(
-            node_id=item_id,
-            status=ItemStatus.TODO,
-            verifier_id=current_user.id,
-            verifier_name=getattr(current_user, "username", None),
-            comment=None,
-            issue_code=None,
-            observed_qty=None,
-            missing_qty=None,
-        )
-        records.append(rec)
-
-    if not records:
-        return jsonify(ok=True, updated=0)
-
-    db.session.add_all(records)
     db.session.commit()
 
-    return jsonify(ok=True, updated=len(records))
+    return jsonify(ok=True, updated=updated)
+
+
+@bp.post("/finish")
+@login_required
+def finish_root():
+    if not _can_access():
+        return jsonify(error="Forbidden"), 403
+
+    _ensure_table()
+    _ensure_session_table()
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        root_id = int(payload.get("root_id") or 0)
+    except Exception:
+        return jsonify(error="root_id invalide"), 400
+
+    if not root_id:
+        return jsonify(error="root_id requis"), 400
+
+    root = _resolve_root(root_id)
+    if not root:
+        return jsonify(error="Parent introuvable"), 404
+
+    actor_id = getattr(current_user, "id", None)
+    actor_name = getattr(current_user, "username", None)
+    comment_raw = (payload.get("comment") or "").strip()
+    reset_requested = payload.get("reset", True)
+
+    session = PeriodicVerificationSession(
+        root_id=root.id,
+        verifier_id=actor_id,
+        verifier_name=actor_name,
+        comment=comment_raw or None,
+        source="internal",
+    )
+    db.session.add(session)
+
+    updated = 0
+    if reset_requested:
+        updated = _reset_items_to_todo(root, actor_id=actor_id, actor_name=actor_name)
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify(error="Enregistrement impossible"), 500
+
+    timestamp = session.created_at.isoformat() if session.created_at else None
+    display_name = session.verifier_name or "Inconnu"
+    return jsonify(
+        {
+            "ok": True,
+            "session": {
+                "id": session.id,
+                "verifier": display_name,
+                "timestamp": timestamp,
+                "source": session.source,
+                "comment": session.comment,
+            },
+            "reset": updated,
+        }
+    )
+
+
+@bp.get("/share/<int:root_id>")
+@login_required
+def get_share(root_id: int):
+    if not _can_access():
+        return jsonify(error="Forbidden"), 403
+
+    _ensure_link_table()
+
+    root = _resolve_root(root_id)
+    if not root:
+        return jsonify(error="Parent introuvable"), 404
+
+    link = (
+        PeriodicVerificationLink.query
+        .filter_by(root_id=root.id, active=True)
+        .order_by(PeriodicVerificationLink.created_at.desc())
+        .first()
+    )
+
+    payload = _share_payload(link) if link else None
+    return jsonify({"root": {"id": root.id, "name": root.name}, "link": payload})
+
+
+@bp.post("/share/<int:root_id>")
+@login_required
+def create_or_rotate_share(root_id: int):
+    if not _can_access():
+        return jsonify(error="Forbidden"), 403
+
+    _ensure_link_table()
+
+    root = _resolve_root(root_id)
+    if not root:
+        return jsonify(error="Parent introuvable"), 404
+
+    payload = request.get_json(silent=True) or {}
+    rotate = bool(payload.get("rotate"))
+
+    query = (
+        PeriodicVerificationLink.query
+        .filter_by(root_id=root.id, active=True)
+        .order_by(PeriodicVerificationLink.created_at.desc())
+    )
+    existing = query.first()
+
+    if existing and not rotate:
+        return jsonify({"root": {"id": root.id, "name": root.name}, "link": _share_payload(existing)})
+
+    if existing and rotate:
+        existing.active = False
+
+    token = _generate_share_token()
+    link = PeriodicVerificationLink(
+        token=token,
+        root_id=root.id,
+        active=True,
+        created_by_id=getattr(current_user, "id", None),
+    )
+    db.session.add(link)
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify(error="Impossible de générer le lien"), 500
+
+    return jsonify({"root": {"id": root.id, "name": root.name}, "link": _share_payload(link)})
+
+
+@bp.route("/public/<token>", methods=["GET", "POST"])
+def public_share(token: str):
+    if not token:
+        abort(404)
+
+    _ensure_link_table()
+    _ensure_session_table()
+
+    link = (
+        PeriodicVerificationLink.query
+        .filter_by(token=token, active=True)
+        .first()
+    )
+    if not link or not link.active or not link.root:
+        abort(404)
+
+    root = link.root
+    error: Optional[str] = None
+    success = False
+    recorded_name: Optional[str] = None
+
+    if request.method == "POST":
+        first = (request.form.get("first_name") or "").strip()
+        last = (request.form.get("last_name") or "").strip()
+        comment_raw = (request.form.get("comment") or "").strip()
+        if not first or not last:
+            error = "Merci de renseigner votre prénom et votre nom."
+        else:
+            full_name = " ".join(f for f in [first, last] if f)
+            session = PeriodicVerificationSession(
+                root_id=root.id,
+                verifier_name=full_name,
+                verifier_first_name=first,
+                verifier_last_name=last,
+                comment=comment_raw or None,
+                source="public",
+                link_id=link.id,
+            )
+            db.session.add(session)
+            try:
+                link.last_used_at = datetime.utcnow()
+            except Exception:
+                pass
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                error = "Impossible d’enregistrer la vérification. Merci de réessayer."
+            else:
+                success = True
+                recorded_name = full_name
+
+    return render_template(
+        "verification_public.html",
+        root=root,
+        link=link,
+        error=error,
+        success=success,
+        recorded_name=recorded_name,
+    )
 
 
 @bp.get("/reassort/<int:node_id>")

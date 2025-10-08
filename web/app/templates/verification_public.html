@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% set title = "Vérification périodique — Lien public" %}
+{% block content %}
+  <div class="card" style="max-width:620px;margin:32px auto;">
+    <div class="title">Vérification du parent</div>
+    <p class="muted" style="margin-top:6px;">Parent contrôlé : <strong>{{ root.name }}</strong></p>
+    <p class="muted" style="margin-top:4px;">Merci de renseigner votre prénom et votre nom pour confirmer que la vérification a été réalisée.</p>
+
+    {% if success %}
+      <div class="alert" style="margin-top:14px;border-color:#1d6e5d;background:#0f3b33;color:#bff3e7;">
+        ✅ Merci {{ recorded_name or '' }} ! La vérification a été enregistrée.
+      </div>
+      <p class="muted" style="margin-top:12px;">Vous pouvez fermer cette page ou en soumettre une nouvelle si nécessaire.</p>
+    {% else %}
+      {% if error %}
+        <div class="alert" style="margin-top:14px;border-color:#75212f;background:#2a0e14;color:#ffd5dc;font-weight:600;">{{ error }}</div>
+      {% endif %}
+      <form method="post" class="row" style="flex-direction:column;gap:12px;margin-top:16px;">
+        <div class="row wrap" style="gap:10px;">
+          <input name="first_name" placeholder="Prénom" required style="flex:1;min-width:180px;">
+          <input name="last_name" placeholder="Nom" required style="flex:1;min-width:180px;">
+        </div>
+        <textarea name="comment" placeholder="Commentaire (optionnel)" style="min-height:80px;"></textarea>
+        <button class="btn primary" type="submit" style="align-self:flex-end;">Enregistrer la vérification</button>
+      </form>
+    {% endif %}
+  </div>
+{% endblock %}

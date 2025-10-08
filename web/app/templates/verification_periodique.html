@@ -58,9 +58,15 @@
   .modal .reassort-controls{display:flex;align-items:center;gap:10px;font-size:14px}
   .modal .reassort-confirm{margin-top:12px;display:flex;justify-content:flex-end}
   .history-list{display:flex;flex-direction:column;gap:8px;margin-top:14px}
-  .history-entry{padding:10px;border:1px solid var(--border);border-radius:10px;background:#101c2e;display:flex;flex-direction:column;gap:4px}
-  .history-entry .history-primary{font-weight:600;font-size:14px}
-  .history-entry .history-secondary{font-size:12px;color:var(--muted-text, #9fb0c9)}
+  .history-entry{padding:10px;border:1px solid var(--border);border-radius:10px;background:#101c2e;display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .history-entry .history-main{font-weight:600;font-size:14px;flex:0 0 auto}
+  .history-entry .history-right{display:flex;align-items:center;gap:10px;flex:1;justify-content:flex-end}
+  .history-entry .history-meta{font-size:12px;color:var(--muted-text, #9fb0c9);white-space:nowrap}
+  .history-entry .history-source{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--border);background:#13263c;color:#b8c7da;text-transform:uppercase;letter-spacing:.5px}
+  .share-url{width:100%;padding:10px;border-radius:10px;border:1px solid var(--border);background:#0f1e2f;color:var(--text);}
+  .share-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .share-meta{font-size:12px;color:var(--muted);}
+  .share-modal-body{display:flex;flex-direction:column;gap:12px;margin-top:14px;}
 </style>
 
 <div class="grid cols-2">
@@ -109,7 +115,10 @@
 </div>
 
 <div class="card" style="margin-top:12px; display:flex; justify-content:flex-end;">
-  <button class="btn primary" id="finish-verification-btn">Finir la vérification</button>
+  <div class="row" style="gap:10px;">
+    <button class="btn" id="public-link-btn">Lien public</button>
+    <button class="btn primary" id="finish-verification-btn">Finir la vérification</button>
+  </div>
 </div>
 
 <script>
@@ -117,6 +126,7 @@ const ROOTS = {{ (roots or [])|tojson }};
 let CURRENT_ROOT_ID = ROOTS.length ? ROOTS[0].id : null;
 let TREE = [];
 let IS_RESETTING = false;
+let CURRENT_SHARE_INFO = null;
 
 const NODE_MAP = new Map();
 const GROUP_EL = new Map();
@@ -194,10 +204,13 @@ function flattenItems(nodes){
 function updateResetButtonState(){
   const btn = document.getElementById("reset-all-btn");
   const finishBtn = document.getElementById("finish-verification-btn");
+  const shareBtn = document.getElementById("public-link-btn");
   const hasItems = flattenItems(TREE).length > 0;
-  const disabled = IS_RESETTING || !CURRENT_ROOT_ID || !hasItems;
-  if(btn) btn.disabled = disabled;
-  if(finishBtn) finishBtn.disabled = disabled;
+  const resetDisabled = IS_RESETTING || !CURRENT_ROOT_ID || !hasItems;
+  const finishDisabled = IS_RESETTING || !CURRENT_ROOT_ID;
+  if(btn) btn.disabled = resetDisabled;
+  if(finishBtn) finishBtn.disabled = finishDisabled;
+  if(shareBtn) shareBtn.disabled = !CURRENT_ROOT_ID;
 }
 function groupAllOk(n){
   const items = flattenItems([n]);
@@ -405,6 +418,142 @@ async function fetchHistory(rootId){
   return res.json();
 }
 
+async function fetchShareInfo(rootId){
+  const res = await fetch(`/verification-periodique/share/${rootId}`, {credentials:'include'});
+  if(!res.ok){
+    const txt = await res.text().catch(()=>null);
+    throw new Error(txt || "Impossible de récupérer le lien public");
+  }
+  return res.json();
+}
+
+async function createShareLink(rootId, rotate=false){
+  const res = await fetch(`/verification-periodique/share/${rootId}`, {
+    method:'POST',
+    credentials:'include',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({rotate})
+  });
+  if(!res.ok){
+    const txt = await res.text().catch(()=>null);
+    throw new Error(txt || "Impossible de générer le lien public");
+  }
+  return res.json();
+}
+
+function copyShareLink(url, btn){
+  if(!url) return;
+  const onSuccess = () => {
+    if(btn){
+      const original = btn.textContent;
+      btn.textContent = 'Copié !';
+      btn.disabled = true;
+      setTimeout(()=>{
+        btn.textContent = original;
+        btn.disabled = false;
+      }, 1500);
+    }
+  };
+  const onFailure = () => {
+    window.prompt('Copie ce lien :', url);
+  };
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(url).then(onSuccess).catch(onFailure);
+    }else{
+      onFailure();
+    }
+  }catch(err){
+    onFailure();
+  }
+}
+
+function renderShareModal(data){
+  CURRENT_SHARE_INFO = data;
+  const rootName = data?.root?.name || '';
+  const link = data?.link || null;
+  const header = el('h3',{}, rootName ? `Lien public — ${rootName}` : 'Lien public');
+  const subtitle = el('div',{class:'muted'}, link
+    ? 'Partage le lien ou le QR code pour permettre la vérification sans compte.'
+    : 'Génère un lien public afin de partager ce parent.');
+
+  const elements = [header, subtitle];
+
+  if(link){
+    const url = link.url || '';
+    const input = el('input',{class:'share-url', value:url, readonly:true});
+    input.addEventListener('focus', ()=>input.select());
+    const copyBtn = el('button',{class:'btn'},'Copier le lien');
+    copyBtn.addEventListener('click', ()=>copyShareLink(url, copyBtn));
+    const openBtn = el('a',{class:'btn', href:url, target:'_blank', rel:'noopener'},'Ouvrir');
+    const rotateBtn = el('button',{class:'btn ghost'},'Régénérer');
+    rotateBtn.addEventListener('click', async ()=>{
+      rotateBtn.disabled = true;
+      try{
+        const fresh = await createShareLink(CURRENT_ROOT_ID, true);
+        renderShareModal(fresh);
+      }catch(err){
+        handleError(err);
+      }finally{
+        rotateBtn.disabled = false;
+      }
+    });
+    const actions = el('div',{class:'share-actions'}, copyBtn, openBtn, rotateBtn);
+    const metaParts = [];
+    if(link.created_at) metaParts.push(`Créé le ${formatDateTime(link.created_at)}`);
+    if(link.last_used_at) metaParts.push(`Dernière utilisation ${formatDateTime(link.last_used_at)}`);
+    const meta = metaParts.length ? el('div',{class:'share-meta'}, metaParts.join(' • ')) : null;
+    const qr = url
+      ? el('img',{
+          src:`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(url)}`,
+          alt:'QR code',
+          style:'max-width:240px;border-radius:12px;background:#fff;padding:8px;align-self:center;'
+        })
+      : null;
+    const body = el('div',{class:'share-modal-body'}, input, actions);
+    if(meta) body.appendChild(meta);
+    if(qr) body.appendChild(qr);
+    elements.push(body);
+  }else{
+    const createBtn = el('button',{class:'btn primary'},'Générer un lien public');
+    createBtn.addEventListener('click', async ()=>{
+      createBtn.disabled = true;
+      try{
+        const fresh = await createShareLink(CURRENT_ROOT_ID, false);
+        renderShareModal(fresh);
+      }catch(err){
+        handleError(err);
+      }finally{
+        createBtn.disabled = false;
+      }
+    });
+    elements.push(el('div',{class:'share-actions'}, createBtn));
+  }
+
+  const closeBtn = el('button',{class:'btn ghost', onclick: closeModal},'Fermer');
+  elements.push(el('div',{class:'modal-action-row'}, closeBtn));
+  openModal(el('div',{}, ...elements));
+}
+
+async function openShareModal(){
+  if(!CURRENT_ROOT_ID){
+    alert('Sélectionne un parent pour générer un lien public.');
+    return;
+  }
+  const btn = document.getElementById('public-link-btn');
+  if(btn) btn.disabled = true;
+  openModal(el('div',{}, el('h3',{},'Lien public'), el('div',{class:'muted'},'Chargement…')));
+  try{
+    const data = await fetchShareInfo(CURRENT_ROOT_ID);
+    renderShareModal(data);
+  }catch(err){
+    closeModal();
+    handleError(err);
+  }finally{
+    if(btn) btn.disabled = false;
+  }
+}
+
 async function showHistoryModal(){
   if(!CURRENT_ROOT_ID){
     alert("Sélectionne un parent pour afficher l'historique.");
@@ -424,10 +573,20 @@ async function showHistoryModal(){
     const list = records.length
       ? el('div',{class:'history-list'}, ...records.map(rec => {
           const verifier = rec.verifier || 'Inconnu';
-          const dateTxt = formatDateTime(rec.timestamp);
+          const dateTxt = rec.timestamp ? formatDateTime(rec.timestamp) : 'Date inconnue';
+          const sourceLabel = rec.source_label || (rec.source === 'public' ? 'Lien public' : 'Interne');
+          const comment = (rec.comment || '').trim();
+          const metaParts = [];
+          if(dateTxt) metaParts.push(dateTxt);
+          if(comment) metaParts.push(`Commentaire : ${comment}`);
+          const metaTxt = metaParts.join(' • ');
+          const rightChildren = [el('span',{class:'history-source'}, sourceLabel)];
+          if(metaTxt){
+            rightChildren.push(el('span',{class:'history-meta'}, metaTxt));
+          }
           return el('div',{class:'history-entry'},
-            el('div',{class:'history-primary'}, verifier),
-            el('div',{class:'history-secondary'}, dateTxt)
+            el('span',{class:'history-main'}, verifier),
+            el('div',{class:'history-right'}, ...rightChildren)
           );
         }))
       : el('div',{class:'muted', style:'margin-top:12px;'},"L'historique est vide.");
@@ -463,10 +622,12 @@ function handleError(err){
 function loadRoot(rootId){
   if(!rootId){
     CURRENT_ROOT_ID = null;
+    CURRENT_SHARE_INFO = null;
     updateResetButtonState();
     return Promise.resolve();
   }
   CURRENT_ROOT_ID = rootId;
+  CURRENT_SHARE_INFO = null;
   updateResetButtonState();
   const treeEl = document.getElementById("tree");
   treeEl.innerHTML = "<div class='muted'>Chargement…</div>";
@@ -545,6 +706,32 @@ function markOk(item){
 function markTodo(item){
   const targetId = targetNodeId(item);
   verify(targetId, "TODO").catch(handleError);
+}
+
+async function completeVerification(){
+  if(!CURRENT_ROOT_ID) return;
+  const finishBtn = document.getElementById("finish-verification-btn");
+  if(finishBtn) finishBtn.disabled = true;
+  try{
+    const res = await fetch(`/verification-periodique/finish`, {
+      method:'POST',
+      credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({root_id: CURRENT_ROOT_ID})
+    });
+    if(!res.ok){
+      const txt = await res.text().catch(()=>null);
+      throw new Error(txt || "Impossible d'enregistrer la vérification");
+    }
+    await res.json();
+    await loadRoot(CURRENT_ROOT_ID);
+    alert('Vérification enregistrée.');
+  }catch(err){
+    handleError(err);
+  }finally{
+    if(finishBtn) finishBtn.disabled = false;
+    updateResetButtonState();
+  }
 }
 
 async function fetchReassortOptions(nodeId){
@@ -734,7 +921,12 @@ if(resetBtn){
 
 const finishBtn = document.getElementById("finish-verification-btn");
 if(finishBtn){
-  finishBtn.addEventListener("click", resetAllToTodo);
+  finishBtn.addEventListener("click", completeVerification);
+}
+
+const shareBtn = document.getElementById("public-link-btn");
+if(shareBtn){
+  shareBtn.addEventListener("click", openShareModal);
 }
 
 const historyBtn = document.getElementById("history-btn");

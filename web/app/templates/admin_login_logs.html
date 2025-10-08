@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% set title = "Administration — Connexions" %}
+{% block content %}
+  <div class="card">
+    <div class="title">Historique des connexions</div>
+    <p class="muted" style="margin-top:6px;">Derniers accès à l’interface (succès et échecs). Maximum 200 entrées.</p>
+    <a class="btn" href="/admin" style="margin-top:12px;display:inline-flex;align-items:center;gap:6px;">⬅ Retour administration</a>
+  </div>
+
+  <div class="card" style="margin-top:16px;overflow-x:auto;">
+    {% if logs %}
+      <table class="table" style="min-width:720px;">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Utilisateur</th>
+            <th>Adresse IP</th>
+            <th>Statut</th>
+            <th>Message</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for log in logs %}
+            {% set meta = log.meta or {} %}
+            {% set status = meta.get('status') or (log.action.split('.')[-1] if log.action else '') %}
+            {% set badge_class = 'badge' %}
+            {% if status == 'success' %}
+              {% set badge_style = 'background:#0f3b33;border-color:#1d6e5d;color:#bff3e7;' %}
+              {% set status_label = 'Succès' %}
+            {% else %}
+              {% set badge_style = 'background:#2a0e14;border-color:#75212f;color:#ffd5dc;' %}
+              {% set status_label = 'Échec' %}
+            {% endif %}
+            <tr>
+              <td>{{ log.ts.strftime('%d/%m/%Y %H:%M') if log.ts else '—' }}</td>
+              <td>{{ meta.get('username') or (log.user.username if log.user else 'Inconnu') }}</td>
+              <td>{{ meta.get('client_ip') or '—' }}</td>
+              <td><span class="badge" style="{{ badge_style }}">{{ status_label }}</span></td>
+              <td>{{ meta.get('message') or '—' }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="muted">Aucune connexion enregistrée pour le moment.</div>
+    {% endif %}
+  </div>
+{% endblock %}

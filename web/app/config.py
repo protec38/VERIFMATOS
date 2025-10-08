@@ -33,7 +33,7 @@ class BaseConfig:
         "STRICT_TRANSPORT_SECURITY",
         "max-age=31536000; includeSubDomains"
     )
-    LOGIN_RATE_LIMIT_ATTEMPTS = int(os.environ.get("LOGIN_RATE_LIMIT_ATTEMPTS", 5))
+    LOGIN_RATE_LIMIT_ATTEMPTS = int(os.environ.get("LOGIN_RATE_LIMIT_ATTEMPTS", 4))
     LOGIN_RATE_LIMIT_WINDOW = int(os.environ.get("LOGIN_RATE_LIMIT_WINDOW", 60))
     LOGIN_RATE_LIMIT_BLOCK = int(os.environ.get("LOGIN_RATE_LIMIT_BLOCK", 300))
 
