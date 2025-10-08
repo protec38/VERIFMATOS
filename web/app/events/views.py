@@ -56,6 +56,25 @@ def _event_from_token_or_404(token: str) -> Event:
         abort(404, description="Lien public invalide.")
     return link.event
 
+def _load_comment_payload(ens: EventNodeStatus) -> Dict[str, Any]:
+    raw = getattr(ens, "comment", None)
+    if not raw:
+        return {}
+    raw_str = str(raw).strip()
+    if not raw_str:
+        return {}
+    try:
+        data = json.loads(raw_str)
+    except Exception:
+        return {}
+    if isinstance(data, dict):
+        return dict(data)
+    return {}
+
+def _dump_comment_payload(data: Dict[str, Any]) -> Optional[str]:
+    clean = {k: v for k, v in data.items() if v not in (None, "")}
+    return json.dumps(clean, ensure_ascii=False) if clean else None
+
 def _emit(event_name: str, payload: Dict[str, Any]):
     # S'il y a SocketIO, on émet localement (pas de Redis si non configuré)
     try:
@@ -606,14 +625,20 @@ def event_parent_charged(event_id: int):
         ens = EventNodeStatus(event_id=ev.id, node_id=node.id)
 
     ens.charged_vehicle = charged_vehicle
-    # Sans migration : on range dans comment un JSON {"vehicle_name": "...", "operator_name": "..."}
+    note_payload = _load_comment_payload(ens)
+    reassort_note = note_payload.get("reassort_note")
+
     if charged_vehicle:
-        ens.comment = json.dumps({
+        payload = {
             "vehicle_name": vehicle_name,
-            "operator_name": operator_name
-        }, ensure_ascii=False)
+            "operator_name": operator_name,
+        }
+        if reassort_note:
+            payload["reassort_note"] = reassort_note
+        ens.comment = _dump_comment_payload(payload)
     else:
         ens.comment = None
+        reassort_note = None
 
     ens.updated_at = datetime.utcnow()
     db.session.add(ens)
@@ -626,9 +651,57 @@ def event_parent_charged(event_id: int):
         "charged": charged_vehicle,
         "vehicle_name": vehicle_name,
         "operator_name": operator_name,
+        "reassort_note": reassort_note,
     })
 
     return jsonify({"ok": True})
+
+
+@bp_events.post("/<int:event_id>/parent-reassort")
+@login_required
+def event_parent_reassort(event_id: int):
+    if not _is_manager():
+        abort(403)
+    ev = _event_or_404(event_id)
+    if ev.status != EventStatus.OPEN:
+        return jsonify({"error": "Événement fermé — vérifications verrouillées."}), 403
+
+    payload = request.get_json(silent=True) or {}
+    node_id = int(payload.get("node_id") or 0)
+    note = (payload.get("note") or "").strip()
+
+    if not node_id:
+        abort(400, description="node_id requis.")
+    node = db.session.get(StockNode, node_id)
+    if not node or node.type != NodeType.GROUP:
+        abort(404, description="Parent introuvable ou non GROUP.")
+
+    ens = EventNodeStatus.query.filter_by(event_id=ev.id, node_id=node.id).first()
+    if not ens or not ens.charged_vehicle:
+        abort(400, description="Parent non chargé.")
+
+    comment_data = _load_comment_payload(ens)
+    if note:
+        comment_data["reassort_note"] = note
+    else:
+        comment_data.pop("reassort_note", None)
+
+    ens.comment = _dump_comment_payload(comment_data)
+    ens.updated_at = datetime.utcnow()
+    db.session.add(ens)
+    db.session.commit()
+
+    _emit(
+        "event_update",
+        {
+            "type": "parent_reassort",
+            "event_id": ev.id,
+            "node_id": node.id,
+            "reassort_note": comment_data.get("reassort_note"),
+        },
+    )
+
+    return jsonify({"ok": True, "reassort_note": comment_data.get("reassort_note")})
 
 
 @bp_events.patch("/<int:event_id>/status")
@@ -757,13 +830,19 @@ def public_parent_charge(token: str):
         ens = EventNodeStatus(event_id=ev.id, node_id=node.id)
 
     ens.charged_vehicle = charged_vehicle
+    note_payload = _load_comment_payload(ens)
+    reassort_note = note_payload.get("reassort_note")
     if charged_vehicle:
-        ens.comment = json.dumps({
+        payload = {
             "vehicle_name": vehicle_name,
-            "operator_name": operator_name
-        }, ensure_ascii=False)
+            "operator_name": operator_name,
+        }
+        if reassort_note:
+            payload["reassort_note"] = reassort_note
+        ens.comment = _dump_comment_payload(payload)
     else:
         ens.comment = None
+        reassort_note = None
 
     ens.updated_at = datetime.utcnow()
     db.session.add(ens)
@@ -776,9 +855,61 @@ def public_parent_charge(token: str):
         "charged": charged_vehicle,
         "vehicle_name": vehicle_name,
         "operator_name": operator_name,
+        "reassort_note": reassort_note,
     })
 
-    return jsonify({"ok": True, "node_id": node.id, "vehicle": vehicle_name, "by": operator_name})
+    return jsonify({
+        "ok": True,
+        "node_id": node.id,
+        "vehicle": vehicle_name,
+        "by": operator_name,
+        "reassort_note": reassort_note,
+    })
+
+
+@bp_public.post("/event/<token>/reassort-note")
+def public_parent_reassort(token: str):
+    ev = _event_from_token_or_404(token)
+    if ev.status != EventStatus.OPEN:
+        return jsonify({"error": "Événement fermé — vérifications verrouillées."}), 403
+
+    payload = request.get_json(silent=True) or {}
+    node_id = int(payload.get("node_id") or 0)
+    note = (payload.get("note") or "").strip()
+
+    if not node_id:
+        abort(400, description="node_id requis.")
+
+    node = db.session.get(StockNode, node_id)
+    if not node or node.type != NodeType.GROUP:
+        abort(404, description="Parent introuvable ou non GROUP.")
+
+    ens = EventNodeStatus.query.filter_by(event_id=ev.id, node_id=node.id).first()
+    if not ens or not ens.charged_vehicle:
+        abort(400, description="Parent non chargé.")
+
+    comment_data = _load_comment_payload(ens)
+    if note:
+        comment_data["reassort_note"] = note
+    else:
+        comment_data.pop("reassort_note", None)
+
+    ens.comment = _dump_comment_payload(comment_data)
+    ens.updated_at = datetime.utcnow()
+    db.session.add(ens)
+    db.session.commit()
+
+    _emit(
+        "event_update",
+        {
+            "type": "parent_reassort",
+            "event_id": ev.id,
+            "node_id": node.id,
+            "reassort_note": comment_data.get("reassort_note"),
+        },
+    )
+
+    return jsonify({"ok": True, "reassort_note": comment_data.get("reassort_note")})
 def _serialize_template(tpl: EventTemplate) -> Dict[str, Any]:
     return {
         "id": tpl.id,

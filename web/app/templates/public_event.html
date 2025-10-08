@@ -63,6 +63,9 @@
   .veh{font-size:12px;opacity:.95;padding:2px 6px;border-radius:6px;border:1px dashed var(--border)}
   .veh.on{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
   .veh.off{background:#101c2e;color:#b7c7dc;border-color:#24344f}
+  .reassort-note{font-size:12px;padding:2px 6px;border-radius:6px;border:1px dashed rgba(245,199,111,.45);background:#33240f;color:#f5c76f;display:inline-flex;align-items:center;gap:6px}
+  .reassort-note.empty{display:none}
+  .parent-pill .reassort-chip{margin-left:8px;font-size:11px;padding:4px 8px;border-radius:999px;background:#2e1a07;color:#f5c76f;border:1px solid rgba(245,199,111,.35)}
 
   .actions{display:flex;gap:8px;flex-wrap:wrap}
   .btn.xs{padding:8px 12px;border-radius:10px;font-size:14px}
@@ -169,6 +172,10 @@ const ITEM_EL   = new Map();
 const VEH_LABEL = new Map();
 const COLLAPSED = new Map();
 const REASSORT_CACHE = new Map();
+const CHARGE_BUTTON = new Map();
+const REASSORT_LABEL = new Map();
+const REASSORT_BUTTON = new Map();
+let REASSORT_TARGET = null;
 
 const NAME_KEY = "pcprep_public_operator";
 function getOperator(){ return (localStorage.getItem(NAME_KEY) || "").trim(); }
@@ -320,10 +327,12 @@ function buildParentsBar(){
     if(!isGroup(p)) return;
     const s   = groupStatus(p);
     const cls = s==="OK" ? "pill-ok" : (s==="BAD" ? "pill-bad" : "pill-wait");
+    const reassortChip = p.reassort_note ? el("span",{class:"reassort-chip"}, `Réassort : ${p.reassort_note}`) : null;
     const pill = el("div",{class:"parent-pill "+cls, onclick:()=>scrollAndOpen(p.id)},
       statusDot(s==="OK", s==="BAD"),
       el("span",{class:"strong"}, p.name),
-      p.charged_vehicle ? el("span",{class:"veh on"}, formatChargeInfo(p.charged_vehicle_name, p.charged_operator_name)) : null
+      p.charged_vehicle ? el("span",{class:"veh on"}, formatChargeInfo(p.charged_vehicle_name, p.charged_operator_name)) : null,
+      reassortChip
     );
     holder.appendChild(pill);
   });
@@ -445,15 +454,30 @@ function renderGroup(n){
     : null;
   if(isRoot) VEH_LABEL.set(n.id, veh);
 
+  let reassortBadge = null;
+  if(isRoot){
+    reassortBadge = el("span", {
+      class:`reassort-note${n.reassort_note?"":" empty"}`,
+      id:`reassort-${n.id}`,
+    }, n.reassort_note ? `Réassort : ${n.reassort_note}` : "");
+    REASSORT_LABEL.set(n.id, reassortBadge);
+  }
+
   const headerLeft = el("div",{class:"left"},
     chev, dot, el("span",{class:"name"}, n.name),
     isRoot ? veh : null,
+    isRoot ? reassortBadge : null,
     el("span",{class:"meta"}, `• ${flattenItems([n]).length} élément(s)`)
   );
 
   const btnCharge = isRoot ? el("button",{class:"btn xs primary", onclick:(e)=>{e.stopPropagation(); if(!ensureOperatorOrAsk()) return; openChargeModal(n.id);}},"Charger") : null;
+  if(isRoot && btnCharge) CHARGE_BUTTON.set(n.id, btnCharge);
 
-  const header = el("div",{class:"header toggle"}, headerLeft, el("div",{class:"actions"}, btnCharge));
+  const btnReassort = isRoot ? el("button",{class:"btn xs", onclick:(e)=>{e.stopPropagation(); if(!ensureOperatorOrAsk()) return; openReassortModal(n.id);}},"Réassort") : null;
+  if(btnReassort && !n.charged_vehicle){ btnReassort.style.display = "none"; }
+  if(isRoot && btnReassort) REASSORT_BUTTON.set(n.id, btnReassort);
+
+  const header = el("div",{class:"header toggle"}, headerLeft, el("div",{class:"actions"}, btnCharge, btnReassort));
   header.addEventListener("click", ()=>toggleCollapse(n.id));
 
   const gstats = renderGroupStats(n);
@@ -469,7 +493,10 @@ function renderGroup(n){
 
   const box = el("div",{class:`node ${groupStateClass(n)}`, id:`node-${n.id}`}, header, childs);
   GROUP_EL.set(n.id, box);
-  if(isRoot) updateChargeButtonState(n.id);
+  if(isRoot){
+    updateChargeButtonState(n.id);
+    updateReassortUI(n.id);
+  }
   return box;
 }
 function renderNode(n){ return isGroup(n) ? renderGroup(n) : renderItem(n); }
@@ -485,6 +512,9 @@ function buildUIOnce(){
   GROUP_EL.clear();
   ITEM_EL.clear();
   VEH_LABEL.clear();
+  CHARGE_BUTTON.clear();
+  REASSORT_LABEL.clear();
+  REASSORT_BUTTON.clear();
   const root = document.getElementById("tree");
   root.innerHTML = "";
   indexTree(TREE);
@@ -597,6 +627,14 @@ function applyGroupDelta(local, incoming){
     } else if(typeof incoming.charged_operator_name !== "undefined"){
       local.charged_operator_name = incoming.charged_operator_name || null;
     }
+  }
+  if(typeof incoming.reassort_note !== "undefined"){
+    local.reassort_note = incoming.reassort_note || null;
+  }
+  if(!local.charged_vehicle){
+    local.reassort_note = null;
+  }
+  if(typeof incoming.charged_vehicle !== "undefined"){
     if(!local.charged_vehicle){
       local.charged_vehicle_name = null;
       local.charged_operator_name = null;
@@ -610,6 +648,8 @@ function applyGroupDelta(local, incoming){
         : "Non chargé";
     }
   }
+
+  updateReassortUI(local.id);
 
   const box = GROUP_EL.get(local.id);
   if(!box) return;
@@ -645,6 +685,9 @@ function syncTreeIncoming(incomingRoots){
       } else if(typeof nInc.charged_operator_name !== "undefined"){
         nLoc.charged_operator_name = nInc.charged_operator_name || null;
       }
+      if(typeof nInc.reassort_note !== "undefined"){
+        nLoc.reassort_note = nInc.reassort_note || null;
+      }
       (nInc.children||[]).forEach(recInc);
       applyGroupDelta(nLoc, nInc);
     } else if(isItem(nLoc)){
@@ -660,6 +703,9 @@ function syncTreeIncoming(incomingRoots){
         nLoc.charged_operator_name = nInc.operator_name || null;
       } else if(typeof nInc.charged_operator_name !== "undefined"){
         nLoc.charged_operator_name = nInc.charged_operator_name || null;
+      }
+      if(typeof nInc.reassort_note !== "undefined"){
+        nLoc.reassort_note = nInc.reassort_note || null;
       }
       (nInc.children||[]).forEach(recInc);
       applyGroupDelta(nLoc, nInc);
@@ -984,20 +1030,83 @@ function confirmCharge(){
         lab.classList.remove("off"); lab.classList.add("on");
         lab.textContent = `Chargé : ${formatChargeInfo(veh, n.charged_operator_name)}`;
       }
+      updateChargeButtonState(n.id);
     }
     closeChargeModal();
     refreshTree();
   }).catch(()=>{});
 }
+function closeReassortModal(){
+  document.getElementById("reassort-modal")?.remove();
+  REASSORT_TARGET = null;
+}
+function openReassortModal(parentId){
+  const node = NODE_MAP.get(parentId);
+  if(!node) return;
+  if(!node.charged_vehicle){ alert("Parent non chargé."); return; }
+  closeReassortModal();
+  REASSORT_TARGET = parentId;
+  const modal = el("div",{id:"reassort-modal",class:"modal-back"},
+    el("div",{class:"modal-card"},
+      el("div",{class:"title",style:"margin-bottom:10px"},`Réassort – ${node.name}`),
+      el("textarea",{id:"reassort-note",placeholder:"Ex : Ajouter du consommable",style:"min-height:110px"}, node.reassort_note || ""),
+      el("div",{class:"muted",style:"margin:8px 0"},"Laisser vide pour supprimer le commentaire."),
+      el("div",{class:"modal-actions"},
+        el("button",{class:"btn ghost",onclick:closeReassortModal},"Annuler"),
+        el("button",{class:"btn primary",onclick:confirmReassort},"Valider")
+      )
+    )
+  );
+  document.body.appendChild(modal);
+  setTimeout(()=>document.getElementById("reassort-note")?.focus(), 10);
+}
+function confirmReassort(){
+  if(!REASSORT_TARGET) return;
+  const note = (document.getElementById("reassort-note")?.value || "").trim();
+  fetch(`/public/event/{{ token }}/reassort-note`,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ node_id: REASSORT_TARGET, note })
+  }).then(async res=>{
+    if(!res.ok){ const txt = await res.text(); throw new Error(txt || "Échec de l'enregistrement"); }
+    return res.json().catch(()=>({}));
+  }).then(()=>{
+    const node = NODE_MAP.get(REASSORT_TARGET);
+    if(node){
+      node.reassort_note = note || null;
+      updateReassortUI(REASSORT_TARGET);
+      buildParentsBar();
+    }
+    closeReassortModal();
+    refreshTree();
+  }).catch(err=>{
+    alert(err.message || "Échec de l'enregistrement");
+  });
+}
 function updateChargeButtonState(parentId){
   const n = NODE_MAP.get(parentId);
-  const box = GROUP_EL.get(parentId);
-  if(!n || !box) return;
-  const btn = box.querySelector(".actions .btn.primary");
-  if(!btn) return;
-  const enable = canChargeGroup(n);
-  btn.disabled = !enable;
-  btn.title = enable ? "" : "Tous les éléments doivent être OK";
+  const btn = CHARGE_BUTTON.get(parentId);
+  if(btn){
+    const enable = n ? canChargeGroup(n) : false;
+    btn.disabled = !enable;
+    btn.title = enable ? "" : "Tous les éléments doivent être OK";
+  }
+  updateReassortUI(parentId);
+}
+
+function updateReassortUI(parentId){
+  const node = NODE_MAP.get(parentId);
+  const badge = REASSORT_LABEL.get(parentId);
+  if(badge){
+    const note = node && node.reassort_note ? node.reassort_note : "";
+    badge.textContent = note ? `Réassort : ${note}` : "";
+    badge.classList.toggle("empty", !note);
+  }
+  const btn = REASSORT_BUTTON.get(parentId);
+  if(btn){
+    const visible = !!(node && node.charged_vehicle);
+    btn.style.display = visible ? "" : "none";
+  }
 }
 
 /* ====== Pliage ====== */
