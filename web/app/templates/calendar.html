@@ -19,6 +19,29 @@
   .empty-state{padding:20px;border-radius:12px;border:1px dashed var(--border);text-align:center;color:var(--muted)}
   .error-state{padding:16px;border-radius:12px;border:1px solid rgba(255,107,107,.5);background:#2a0f16;color:#ffd5dc}
   .range-label{color:var(--muted);font-size:13px}
+  .visual-calendar-card{margin-top:18px}
+  .calendar-mode-toggle{display:flex;gap:8px}
+  .calendar-mode-toggle .btn{min-width:110px;justify-content:center}
+  .calendar-mode-toggle .btn.active{background:#1f3d63;border-color:#29507f}
+  .visual-calendar{margin-top:18px;display:grid;gap:10px}
+  .calendar-week-grid{grid-template-columns:repeat(7,minmax(0,1fr))}
+  .calendar-week-grid .calendar-day{min-height:180px}
+  .calendar-month-grid{grid-template-columns:repeat(7,minmax(0,1fr))}
+  .calendar-day{background:#0f1e2f;border:1px solid rgba(255,255,255,.05);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px}
+  .calendar-day-header{display:flex;justify-content:space-between;align-items:center;font-weight:600;color:#dce6f5;text-transform:capitalize}
+  .calendar-day.muted-day .calendar-day-header{color:var(--muted)}
+  .calendar-day.today{border-color:#2a74ff;box-shadow:0 0 0 1px rgba(42,116,255,.3)}
+  .calendar-event{background:#13253d;border:1px solid rgba(41,80,127,.6);border-radius:8px;padding:6px 8px;display:flex;flex-direction:column;gap:4px}
+  .calendar-event .event-time{font-size:12px;color:#9ec9ff;font-weight:600}
+  .calendar-event .event-name{font-size:13px;font-weight:600;color:#dce6f5;text-decoration:none}
+  .calendar-event .event-name:hover{text-decoration:underline}
+  .calendar-event .event-status{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .calendar-empty{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;min-height:60px;border:1px dashed rgba(255,255,255,.08);border-radius:8px;padding:12px}
+  @media (max-width:1024px){
+    .visual-calendar{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+    .calendar-week-grid{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+    .calendar-month-grid{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
+  }
 </style>
 
 <div class="card">
@@ -54,6 +77,20 @@
   <div id="calendar-container" class="calendar-list"></div>
 </div>
 
+<div class="card visual-calendar-card">
+  <div class="row space-between" style="gap:14px;align-items:flex-start;flex-wrap:wrap">
+    <div>
+      <div class="title" style="margin-bottom:4px">Vue calendrier visuelle</div>
+      <div class="range-label" id="visual-range"></div>
+    </div>
+    <div class="calendar-mode-toggle" role="group" aria-label="Mode d'affichage du calendrier">
+      <button class="btn" data-calendar-mode="week" type="button">Vue semaine</button>
+      <button class="btn" data-calendar-mode="month" type="button">Vue mois</button>
+    </div>
+  </div>
+  <div id="visual-calendar" class="visual-calendar"></div>
+</div>
+
 <script>
 (function(){
   const startInput = document.getElementById('filter-start');
@@ -61,6 +98,9 @@
   const nodeSelect = document.getElementById('filter-node');
   const listEl = document.getElementById('calendar-container');
   const rangeLabel = document.getElementById('range-label');
+  const visualEl = document.getElementById('visual-calendar');
+  const visualRangeEl = document.getElementById('visual-range');
+  const modeButtons = Array.from(document.querySelectorAll('[data-calendar-mode]'));
   const prevBtn = document.getElementById('btn-prev');
   const nextBtn = document.getElementById('btn-next');
   const todayBtn = document.getElementById('btn-today');
@@ -68,12 +108,17 @@
   const fmtDay = new Intl.DateTimeFormat('fr-FR', {weekday:'short', day:'2-digit', month:'short'});
   const fmtDayLong = new Intl.DateTimeFormat('fr-FR', {weekday:'long', day:'2-digit', month:'long', year:'numeric'});
   const fmtTime = new Intl.DateTimeFormat('fr-FR', {hour:'2-digit', minute:'2-digit'});
+  const fmtDayLongNoYear = new Intl.DateTimeFormat('fr-FR', {weekday:'long', day:'2-digit', month:'long'});
+  const fmtMonthTitle = new Intl.DateTimeFormat('fr-FR', {month:'long', year:'numeric'});
 
   const state = {
     start: (() => { const d = new Date(); d.setHours(0,0,0,0); return d; })(),
     days: parseInt(rangeSelect.value, 10) || 7,
-    nodeId: ''
+    nodeId: '',
+    visualMode: 'week'
   };
+
+  let lastSlots = [];
 
   function pad(num){ return String(num).padStart(2,'0'); }
   function formatDateForInput(date){ return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}`; }
@@ -93,6 +138,210 @@
     if(isNaN(start)){ rangeLabel.textContent = ''; return; }
     const endDisplay = end && !isNaN(end) ? end : start;
     rangeLabel.textContent = `Du ${fmtDayLong.format(start)} au ${fmtDayLong.format(endDisplay)}`;
+  }
+
+  function setModeButtons(){
+    modeButtons.forEach(btn => {
+      const mode = btn.getAttribute('data-calendar-mode');
+      if(mode === state.visualMode){
+        btn.classList.add('active');
+      }else{
+        btn.classList.remove('active');
+      }
+    });
+  }
+
+  function getDayKey(date){
+    return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}`;
+  }
+
+  function renderWeekView(slots){
+    const base = new Date(state.start.getTime());
+    const offset = (base.getDay() + 6) % 7; // lundi = 0
+    base.setDate(base.getDate() - offset);
+    base.setHours(0,0,0,0);
+
+    const todayKey = getDayKey(new Date());
+
+    const days = Array.from({length:7}, (_,i) => {
+      const day = new Date(base.getTime());
+      day.setDate(base.getDate() + i);
+      return day;
+    });
+
+    visualRangeEl.textContent = `Semaine du ${fmtDayLongNoYear.format(days[0])} au ${fmtDayLongNoYear.format(days[days.length-1])}`;
+
+    const frag = document.createDocumentFragment();
+    visualEl.classList.add('calendar-week-grid');
+    visualEl.classList.remove('calendar-month-grid');
+
+    days.forEach(day => {
+      const dayStart = new Date(day.getTime());
+      const dayEnd = addDays(dayStart, 1);
+      const cell = document.createElement('div');
+      cell.className = 'calendar-day';
+      if(getDayKey(day) === todayKey){
+        cell.classList.add('today');
+      }
+
+      const header = document.createElement('div');
+      header.className = 'calendar-day-header';
+      header.innerHTML = `<span>${fmtDay.format(day)}</span>`;
+      cell.appendChild(header);
+
+      const daySlots = slots.filter(slot => {
+        const slotStart = new Date(slot.start);
+        const slotEnd = new Date(slot.end);
+        if(isNaN(slotStart) || isNaN(slotEnd)) return false;
+        return slotStart < dayEnd && slotEnd > dayStart;
+      });
+
+      if(daySlots.length === 0){
+        const empty = document.createElement('div');
+        empty.className = 'calendar-empty';
+        empty.textContent = 'Aucun créneau';
+        cell.appendChild(empty);
+      }else{
+        daySlots.sort((a,b) => new Date(a.start) - new Date(b.start));
+        daySlots.forEach(slot => {
+          const block = document.createElement('div');
+          block.className = 'calendar-event';
+
+          const timeEl = document.createElement('div');
+          timeEl.className = 'event-time';
+
+          const slotStart = new Date(slot.start);
+          const slotEnd = new Date(slot.end);
+          const startText = fmtTime.format(slotStart);
+          const endText = fmtTime.format(slotEnd);
+          timeEl.textContent = `${startText} → ${endText}`;
+          block.appendChild(timeEl);
+
+          const nameEl = document.createElement('a');
+          nameEl.className = 'event-name';
+          nameEl.href = `/events/${slot.event.id}`;
+          nameEl.textContent = slot.event.name;
+          block.appendChild(nameEl);
+
+          const statusEl = document.createElement('div');
+          statusEl.className = 'event-status';
+          statusEl.textContent = slot.event.status;
+          block.appendChild(statusEl);
+
+          cell.appendChild(block);
+        });
+      }
+
+      frag.appendChild(cell);
+    });
+
+    visualEl.innerHTML = '';
+    visualEl.appendChild(frag);
+  }
+
+  function renderMonthView(slots){
+    const start = new Date(state.start.getTime());
+    start.setDate(1);
+    start.setHours(0,0,0,0);
+    const month = start.getMonth();
+
+    const firstDayOffset = (start.getDay() + 6) % 7;
+    const gridStart = new Date(start.getTime());
+    gridStart.setDate(start.getDate() - firstDayOffset);
+
+    const todayKey = getDayKey(new Date());
+
+    visualRangeEl.textContent = fmtMonthTitle.format(start);
+
+    visualEl.classList.add('calendar-month-grid');
+    visualEl.classList.remove('calendar-week-grid');
+
+    const cells = 42; // 6 semaines
+    const frag = document.createDocumentFragment();
+
+    for(let i = 0; i < cells; i++){
+      const day = new Date(gridStart.getTime());
+      day.setDate(gridStart.getDate() + i);
+      const dayKey = getDayKey(day);
+      const dayStart = new Date(day.getTime());
+      const dayEnd = addDays(dayStart, 1);
+
+      const cell = document.createElement('div');
+      cell.className = 'calendar-day';
+      if(day.getMonth() !== month){
+        cell.classList.add('muted-day');
+      }
+      if(dayKey === todayKey){
+        cell.classList.add('today');
+      }
+
+      const header = document.createElement('div');
+      header.className = 'calendar-day-header';
+      header.innerHTML = `<span>${day.getDate()}</span>`;
+      cell.appendChild(header);
+
+      const daySlots = slots.filter(slot => {
+        const slotStart = new Date(slot.start);
+        const slotEnd = new Date(slot.end);
+        if(isNaN(slotStart) || isNaN(slotEnd)) return false;
+        return slotStart < dayEnd && slotEnd > dayStart;
+      });
+
+      if(daySlots.length === 0){
+        const empty = document.createElement('div');
+        empty.className = 'calendar-empty';
+        empty.textContent = '—';
+        cell.appendChild(empty);
+      }else{
+        daySlots.sort((a,b) => new Date(a.start) - new Date(b.start));
+        daySlots.slice(0,3).forEach(slot => {
+          const block = document.createElement('div');
+          block.className = 'calendar-event';
+
+          const timeEl = document.createElement('div');
+          timeEl.className = 'event-time';
+          const slotStart = new Date(slot.start);
+          timeEl.textContent = fmtTime.format(slotStart);
+          block.appendChild(timeEl);
+
+          const nameEl = document.createElement('a');
+          nameEl.className = 'event-name';
+          nameEl.href = `/events/${slot.event.id}`;
+          nameEl.textContent = slot.event.name;
+          block.appendChild(nameEl);
+
+          cell.appendChild(block);
+        });
+
+        if(daySlots.length > 3){
+          const more = document.createElement('div');
+          more.className = 'calendar-empty';
+          more.textContent = `+${daySlots.length - 3} créneau(x)`;
+          cell.appendChild(more);
+        }
+      }
+
+      frag.appendChild(cell);
+    }
+
+    visualEl.innerHTML = '';
+    visualEl.appendChild(frag);
+  }
+
+  function renderVisualCalendar(slots){
+    if(!visualEl) return;
+    if(!Array.isArray(slots)){
+      visualEl.innerHTML = '<div class="empty-state">Aucune donnée à afficher.</div>';
+      return;
+    }
+
+    setModeButtons();
+
+    if(state.visualMode === 'month'){
+      renderMonthView(slots);
+    }else{
+      renderWeekView(slots);
+    }
   }
 
   function formatSlotRange(startIso, endIso){
@@ -177,6 +426,9 @@
     if(state.nodeId){ params.set('node_id', state.nodeId); }
 
     listEl.innerHTML = '<div class="muted">Chargement…</div>';
+    if(visualEl){
+      visualEl.innerHTML = '<div class="muted">Chargement…</div>';
+    }
     try{
       const res = await fetch(`/events/slots?${params.toString()}`, {headers:{'Accept':'application/json'}});
       if(!res.ok){
@@ -185,11 +437,17 @@
       }
       const data = await res.json();
       updateRangeLabel(data?.range?.start, data?.range?.end);
-      renderSlots(data?.slots || []);
+      lastSlots = data?.slots || [];
+      renderSlots(lastSlots);
+      renderVisualCalendar(lastSlots);
     }catch(err){
       console.error(err);
       listEl.innerHTML = `<div class="error-state">${err}</div>`;
       rangeLabel.textContent = '';
+      if(visualEl){
+        visualEl.innerHTML = `<div class="error-state">${err}</div>`;
+        visualRangeEl.textContent = '';
+      }
     }
   }
 
@@ -238,7 +496,19 @@
     refresh();
   });
 
+  modeButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.getAttribute('data-calendar-mode');
+      if(mode && (mode === 'week' || mode === 'month')){
+        state.visualMode = mode;
+        setModeButtons();
+        renderVisualCalendar(lastSlots);
+      }
+    });
+  });
+
   setInputsFromState();
+  setModeButtons();
   refresh();
 })();
 </script>
