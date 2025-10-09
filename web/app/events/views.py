@@ -657,6 +657,28 @@ def update_event_roots(event_id: int):
 
     ev = _event_or_404(event_id)
 
+    # Instantané des créneaux existants avant modifications afin de pouvoir
+    # les dupliquer pour les nouveaux parents ajoutés à l'événement.
+    slot_windows: List[Tuple[datetime, datetime]] = []
+    try:
+        existing_slots = list(getattr(ev, "material_slots", []) or [])
+    except Exception:
+        existing_slots = []
+
+    seen_windows: Set[Tuple[datetime, datetime]] = set()
+    for slot in existing_slots:
+        start_at = getattr(slot, "start_at", None)
+        end_at = getattr(slot, "end_at", None)
+        if not start_at or not end_at:
+            continue
+        window = (start_at, end_at)
+        if window in seen_windows:
+            continue
+        seen_windows.add(window)
+        slot_windows.append(window)
+
+    slot_windows.sort(key=lambda pair: (pair[0], pair[1]))
+
     data = request.get_json(silent=True) or {}
     root_specs = _extract_root_specs(data)
     if not root_specs:
@@ -713,6 +735,11 @@ def update_event_roots(event_id: int):
             )
         )
 
+        EventMaterialSlot.query.filter(
+            EventMaterialSlot.event_id == ev.id,
+            EventMaterialSlot.node_id.in_(to_remove),
+        ).delete(synchronize_session=False)
+
     for nid in to_add:
         db.session.execute(
             event_stock.insert().values(
@@ -721,6 +748,16 @@ def update_event_roots(event_id: int):
                 selected_quantity=new_roots[nid],
             )
         )
+
+        for start_at, end_at in slot_windows:
+            db.session.add(
+                EventMaterialSlot(
+                    event_id=ev.id,
+                    node_id=nid,
+                    start_at=start_at,
+                    end_at=end_at,
+                )
+            )
 
     for nid in to_update:
         db.session.execute(
