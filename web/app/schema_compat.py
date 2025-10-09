@@ -43,6 +43,7 @@ def ensure_schema_compatibility() -> None:
             _ensure_event_stock_columns(conn, inspector)
 
         _ensure_event_template_tables(conn, tables)
+        _ensure_event_material_slots_table(conn, tables)
         _ensure_reassort_tables(conn)
         _ensure_periodic_verification_table(conn)
         _ensure_periodic_session_tables(conn)
@@ -117,6 +118,21 @@ def _ensure_event_template_tables(conn: Connection, tables: set[str]) -> None:
     if "event_template_nodes" not in tables:
         current_app.logger.info("Creating table event_template_nodes")
     EventTemplateNode.__table__.create(bind=conn, checkfirst=True)
+
+
+def _ensure_event_material_slots_table(conn: Connection, tables: set[str]) -> None:
+    try:
+        from .models import EventMaterialSlot  # import tardif pour éviter les cycles
+    except Exception:
+        return
+
+    if "event_material_slots" not in tables:
+        current_app.logger.info("Creating table event_material_slots")
+
+    try:
+        EventMaterialSlot.__table__.create(bind=conn, checkfirst=True)
+    except Exception as exc:  # pragma: no cover - garde-fou
+        current_app.logger.warning("Unable to ensure event_material_slots table: %s", exc)
 
 
 def _ensure_reassort_tables(conn: Connection) -> None:

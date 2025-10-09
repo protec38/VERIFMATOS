@@ -8,6 +8,16 @@
   .root-group-title{font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:8px}
   .root-group-nodes{display:flex;flex-wrap:wrap;gap:8px}
   .root-group-empty{font-size:13px;color:var(--muted)}
+  .slot-card{margin-top:12px;padding:12px;border-radius:12px;border:1px solid var(--border);background:#0f1d2d}
+  .slot-card .subtitle{margin-bottom:8px}
+  .slot-list{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+  .slot-chip{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:10px;border:1px dashed rgba(158,201,255,.3);background:#101d30}
+  .slot-chip .info{font-weight:700;color:#d8e6fb}
+  .slot-chip .meta{color:var(--muted);font-size:12px}
+  .slot-form{margin-top:10px;gap:8px;display:flex;flex-wrap:wrap}
+  .slot-form input{flex:1;min-width:200px}
+  .slot-hint{margin-top:8px;color:var(--muted);font-size:13px}
+  .btn.sm{padding:6px 10px;font-size:12px;border-radius:8px}
 </style>
 
 <div class="grid cols-2">
@@ -19,6 +29,19 @@
       <input type="text" name="name" id="ev-name" placeholder="Nom de l'événement" required>
       <input type="date" name="date" id="ev-date" placeholder="Date (optionnel)">
     </form>
+
+    <div class="slot-card">
+      <div class="subtitle">Créneaux horaires de l'événement</div>
+      <div class="slot-list" id="slot-list">
+        <div class="muted">Aucun créneau ajouté pour le moment.</div>
+      </div>
+      <div class="slot-form">
+        <input type="datetime-local" id="slot-start" step="900">
+        <input type="datetime-local" id="slot-end" step="900">
+        <button class="btn" type="button" id="btn-add-slot">Ajouter le créneau</button>
+      </div>
+      <div class="slot-hint" id="slot-hint">Ajoute au moins un créneau (date et heures de départ / fin).</div>
+    </div>
 
     <div class="alert" style="margin-top:10px">
       <div class="row wrap" style="gap:8px;align-items:center">
@@ -118,6 +141,112 @@
   const lotSpecs = {{ lots|tojson }};
   const templateMap = new Map((templateSpecs||[]).map(t => [String(t.id), t]));
   const lotMap = new Map((lotSpecs||[]).map(t => [String(t.id), t]));
+  const slotList = byId('slot-list');
+  const slotHint = byId('slot-hint');
+  const slotStartInput = byId('slot-start');
+  const slotEndInput = byId('slot-end');
+  const slotAddBtn = byId('btn-add-slot');
+  const evDateInput = byId('ev-date');
+  const slotsState = [];
+  const fmtSlotDay = new Intl.DateTimeFormat('fr-FR', {weekday:'short', day:'2-digit', month:'short'});
+  const fmtSlotTime = new Intl.DateTimeFormat('fr-FR', {hour:'2-digit', minute:'2-digit'});
+
+  function slotLabel(start, end){
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    if(isNaN(startDate) || isNaN(endDate)){
+      return `${start} → ${end}`;
+    }
+    const sameDay = startDate.getFullYear() === endDate.getFullYear()
+      && startDate.getMonth() === endDate.getMonth()
+      && startDate.getDate() === endDate.getDate();
+    if(sameDay){
+      return `${fmtSlotDay.format(startDate)} • ${fmtSlotTime.format(startDate)} → ${fmtSlotTime.format(endDate)}`;
+    }
+    return `${fmtSlotDay.format(startDate)} • ${fmtSlotTime.format(startDate)} → ${fmtSlotDay.format(endDate)} • ${fmtSlotTime.format(endDate)}`;
+  }
+
+  function renderSlots(){
+    if(!slotList) return;
+    if(slotsState.length === 0){
+      slotList.innerHTML = '<div class="muted">Aucun créneau ajouté pour le moment.</div>';
+      if(slotHint){ slotHint.textContent = 'Ajoute au moins un créneau (date et heures de départ / fin).'; }
+      return;
+    }
+
+    slotList.innerHTML = '';
+    slotsState.forEach((slot, index) => {
+      const row = document.createElement('div');
+      row.className = 'slot-chip';
+
+      const info = document.createElement('div');
+      info.className = 'info';
+      info.textContent = slotLabel(slot.start, slot.end);
+      row.appendChild(info);
+
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = `Créneau ${index + 1}`;
+      row.appendChild(meta);
+
+      const remove = document.createElement('button');
+      remove.className = 'btn danger sm';
+      remove.type = 'button';
+      remove.textContent = 'Retirer';
+      remove.addEventListener('click', () => {
+        slotsState.splice(index, 1);
+        renderSlots();
+      });
+      row.appendChild(remove);
+
+      slotList.appendChild(row);
+    });
+
+    if(slotHint){
+      slotHint.textContent = `${slotsState.length} créneau${slotsState.length>1?'x':''} configuré${slotsState.length>1?'s':''}.`;
+    }
+  }
+
+  slotAddBtn?.addEventListener('click', () => {
+    const startVal = (slotStartInput?.value || '').trim();
+    const endVal = (slotEndInput?.value || '').trim();
+    if(!startVal || !endVal){
+      alert('Renseigne la date et les heures de début/fin.');
+      return;
+    }
+    const startDate = new Date(startVal);
+    const endDate = new Date(endVal);
+    if(isNaN(startDate) || isNaN(endDate)){
+      alert('Format de date/heure invalide.');
+      return;
+    }
+    if(endDate <= startDate){
+      alert('La fin du créneau doit être après le début.');
+      return;
+    }
+    if(slotsState.some(slot => slot.start === startVal && slot.end === endVal)){
+      alert('Ce créneau est déjà présent.');
+      return;
+    }
+    const overlaps = slotsState.some(slot => {
+      const existingStart = new Date(slot.start);
+      const existingEnd = new Date(slot.end);
+      return endDate > existingStart && startDate < existingEnd;
+    });
+    if(overlaps && !confirm('Ce créneau chevauche un autre créneau déjà ajouté. Continuer malgré tout ?')){
+      return;
+    }
+    slotsState.push({start: startVal, end: endVal});
+    slotsState.sort((a,b)=> new Date(a.start) - new Date(b.start));
+    if(evDateInput && !evDateInput.value){
+      evDateInput.value = startVal.slice(0, 10);
+    }
+    if(slotStartInput){ slotStartInput.value = ''; }
+    if(slotEndInput){ slotEndInput.value = ''; }
+    renderSlots();
+  });
+
+  renderSlots();
 
   function updateRootBadge(cb){
     const wrap = cb.closest('label');
@@ -269,18 +398,29 @@
 
     if(!name){ alert("Nom requis"); return; }
     if(rootsPayload.length === 0){ alert("Sélectionne au moins un parent"); return; }
+    if(slotsState.length === 0){
+      alert("Ajoute au moins un créneau horaire pour l'événement.");
+      return;
+    }
+
+    const slotsPayload = slotsState.map(slot => ({start: slot.start, end: slot.end}));
 
     creating = true;
     try {
       const res = await fetch('/events', {
         method: 'POST',
         headers: {'Content-Type':'application/json', 'Accept':'application/json'},
-        body: JSON.stringify({ name, date, roots: rootsPayload })
+        body: JSON.stringify({ name, date, roots: rootsPayload, slots: slotsPayload })
       });
 
       const text = await res.text();
       if(!res.ok){
-        alert(text);
+        let message = text;
+        try {
+          const data = JSON.parse(text);
+          if(data && typeof data.error === 'string'){ message = data.error; }
+        } catch(_){}
+        alert(message);
         return;
       }
       // Normalement JSON {url}

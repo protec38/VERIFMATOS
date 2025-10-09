@@ -52,6 +52,10 @@
   #event-roots-status.success{color:#bff3e7}
   #event-roots-status.error{color:#ffd5dc}
   #event-roots-hint{margin-top:6px;font-size:13px;color:var(--muted)}
+  .schedule-list{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+  .schedule-item{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;justify-content:space-between;padding:12px;border-radius:12px;border:1px solid rgba(158,201,255,.25);background:#101d30}
+  .schedule-item .time{font-weight:800;color:#dde8fb}
+  .schedule-item .nodes{color:var(--muted);margin-top:4px;font-size:13px;max-width:520px}
 
   .vehicle{font-size:12px; opacity:.9; padding:2px 6px; border-radius:6px; border:1px dashed var(--border); margin-left:8px}
   .vehicle.on{background:#0e2a24; color:#bff3e7; border-color:#1d6e5d}
@@ -121,6 +125,23 @@
   </div>
   <div id="event-roots-hint"></div>
   <div id="event-roots-status" class="muted"></div>
+</div>
+{% endif %}
+
+{% if material_slots %}
+<div class="card" style="margin-top:12px;">
+  <div class="title">Créneaux réservés</div>
+  <div class="muted" style="margin-top:4px;">Les créneaux planifiés pour cet événement. Consulte le <a href="/calendar">calendrier du matériel</a> pour les disponibilités globales.</div>
+  <div class="schedule-list">
+    {% for slot in material_slots %}
+      <div class="schedule-item">
+        <div>
+          <div class="time">{{ slot.start.strftime('%d/%m/%Y %H:%M') }} → {{ slot.end.strftime('%d/%m/%Y %H:%M') }}</div>
+          <div class="nodes">Matériel : {{ slot.nodes|join(', ') }}</div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
 </div>
 {% endif %}
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 import secrets
 import json
 from typing import Any, Dict, List, Optional, Set, Tuple
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from flask import Blueprint, request, jsonify, abort
 from flask_login import login_required, current_user
@@ -15,6 +15,7 @@ from ..models import (
     Event,
     EventStatus,
     EventShareLink,
+    EventMaterialSlot,
     StockNode,
     NodeType,
     VerificationRecord,
@@ -83,6 +84,57 @@ def _emit(event_name: str, payload: Dict[str, Any]):
     except Exception:
         # Ne jamais faire planter l'API pour un emit
         pass
+
+
+def _parse_iso_datetime(value: str, *, param: str) -> datetime:
+    """Parse un datetime ISO 8601 (accepte YYYY-MM-DD ou YYYY-MM-DDTHH:MM[:SS])."""
+
+    if not value:
+        raise ValueError("vide")
+    raw = value.strip()
+    if not raw:
+        raise ValueError("vide")
+
+    normalized = raw
+    if raw.endswith("Z"):
+        normalized = raw[:-1]
+
+    if len(normalized) == 10 and normalized.count("-") == 2 and "T" not in normalized:
+        normalized = f"{normalized}T00:00:00"
+
+    try:
+        dt = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise ValueError(f"{param} invalide") from exc
+
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _parse_slot_payload(raw_slots: Any) -> List[Tuple[datetime, datetime]]:
+    slots: List[Tuple[datetime, datetime]] = []
+    if raw_slots in (None, ""):
+        return slots
+    if not isinstance(raw_slots, list):
+        raise ValueError("slots doit être une liste")
+
+    for idx, entry in enumerate(raw_slots):
+        if not isinstance(entry, dict):
+            raise ValueError(f"slots[{idx}] doit être un objet")
+        start_raw = entry.get("start") or entry.get("from") or entry.get("begin")
+        end_raw = entry.get("end") or entry.get("to") or entry.get("finish")
+        if not start_raw or not end_raw:
+            raise ValueError(f"slots[{idx}] nécessite start et end")
+
+        start_dt = _parse_iso_datetime(str(start_raw), param=f"slots[{idx}].start")
+        end_dt = _parse_iso_datetime(str(end_raw), param=f"slots[{idx}].end")
+        if end_dt <= start_dt:
+            raise ValueError(f"slots[{idx}] end doit être > start")
+
+        slots.append((start_dt, end_dt))
+
+    return slots
 
 
 def _serialize_template(tpl: EventTemplate) -> Dict[str, Any]:
@@ -288,6 +340,50 @@ def create_event():
         except Exception:
             abort(400, description="date invalide (YYYY-MM-DD).")
 
+    try:
+        slot_specs = _parse_slot_payload(data.get("slots"))
+    except ValueError as exc:
+        abort(400, description=str(exc))
+
+    if not slot_specs:
+        abort(400, description="Au moins un créneau (slots) est requis.")
+
+    if slot_specs:
+        dt = slot_specs[0][0].date()
+
+    node_ids = [node.id for node, _ in validated_roots]
+    conflicts: List[str] = []
+    if node_ids:
+        seen_conflicts: Set[Tuple[int, datetime, datetime, int]] = set()
+        for start_dt, end_dt in slot_specs:
+            query = (
+                db.session.query(EventMaterialSlot, Event, StockNode)
+                .join(Event, EventMaterialSlot.event_id == Event.id)
+                .join(StockNode, EventMaterialSlot.node_id == StockNode.id)
+                .filter(EventMaterialSlot.node_id.in_(node_ids))
+                .filter(EventMaterialSlot.end_at > start_dt)
+                .filter(EventMaterialSlot.start_at < end_dt)
+            )
+            for slot, other_event, node in query:
+                key = (node.id, slot.start_at, slot.end_at, other_event.id)
+                if key in seen_conflicts:
+                    continue
+                seen_conflicts.add(key)
+                conflicts.append(
+                    "{name} déjà utilisé du {start} au {end} pour l'événement \"{event}\".".format(
+                        name=node.name,
+                        start=slot.start_at.strftime("%d/%m/%Y %H:%M"),
+                        end=slot.end_at.strftime("%d/%m/%Y %H:%M"),
+                        event=other_event.name,
+                    )
+                )
+
+    if conflicts:
+        abort(
+            409,
+            description="Conflit de réservation détecté:\n" + "\n".join(conflicts),
+        )
+
     ev = Event(
         name=name,
         date=dt,
@@ -306,8 +402,103 @@ def create_event():
             )
         )
 
+    for start_dt, end_dt in slot_specs:
+        for node, _ in validated_roots:
+            db.session.add(
+                EventMaterialSlot(
+                    event_id=ev.id,
+                    node_id=node.id,
+                    start_at=start_dt,
+                    end_at=end_dt,
+                )
+            )
+
     db.session.commit()
     return jsonify({"ok": True, "id": ev.id, "url": f"/events/{ev.id}"}), 201
+
+
+@bp_events.get("/slots")
+@login_required
+def list_event_slots():
+    if not _can_view():
+        abort(403)
+
+    now = datetime.utcnow()
+    default_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    start_raw = request.args.get("start")
+    end_raw = request.args.get("end")
+    days_raw = request.args.get("days")
+
+    try:
+        start_dt = _parse_iso_datetime(start_raw, param="start") if start_raw else default_start
+    except ValueError as exc:
+        abort(400, description=str(exc))
+
+    try:
+        end_dt = _parse_iso_datetime(end_raw, param="end") if end_raw else None
+    except ValueError as exc:
+        abort(400, description=str(exc))
+
+    if end_dt is None:
+        days = 7
+        if days_raw:
+            try:
+                days = max(1, min(90, int(days_raw)))
+            except Exception:
+                abort(400, description="days invalide")
+        end_dt = start_dt + timedelta(days=days)
+
+    if end_dt <= start_dt:
+        abort(400, description="end doit être > start")
+
+    node_id_raw = request.args.get("node_id") or request.args.get("node")
+    node_filter: Optional[int] = None
+    if node_id_raw:
+        try:
+            node_filter = int(node_id_raw)
+        except Exception:
+            abort(400, description="node_id invalide")
+
+    query = (
+        db.session.query(EventMaterialSlot, Event, StockNode)
+        .join(Event, EventMaterialSlot.event_id == Event.id)
+        .join(StockNode, EventMaterialSlot.node_id == StockNode.id)
+        .filter(EventMaterialSlot.end_at > start_dt)
+        .filter(EventMaterialSlot.start_at < end_dt)
+    )
+
+    if node_filter is not None:
+        query = query.filter(EventMaterialSlot.node_id == node_filter)
+
+    entries = []
+    for slot, ev, node in query.order_by(EventMaterialSlot.start_at.asc()).all():
+        entries.append(
+            {
+                "id": slot.id,
+                "event": {
+                    "id": ev.id,
+                    "name": ev.name,
+                    "status": getattr(ev.status, "name", ev.status).upper(),
+                },
+                "node": {
+                    "id": node.id,
+                    "name": node.name,
+                },
+                "start": slot.start_at.isoformat(),
+                "end": slot.end_at.isoformat(),
+            }
+        )
+
+    return jsonify(
+        {
+            "slots": entries,
+            "range": {
+                "start": start_dt.isoformat(),
+                "end": end_dt.isoformat(),
+            },
+        }
+    )
 
 
 @bp_events.get("/templates")

@@ -263,6 +263,41 @@ def event_page(event_id: int):
     status_raw = getattr(ev.status, "name", ev.status)
     status_txt = str(status_raw).upper()
     allow_verify = current_user.is_authenticated and current_user.role == Role.ADMIN
+    slot_groups = []
+    grouped = {}
+    try:
+        slots_iter = sorted(
+            getattr(ev, "material_slots", []) or [],
+            key=lambda s: (getattr(s, "start_at", datetime.min), getattr(s, "node_id", 0)),
+        )
+    except Exception:
+        slots_iter = []
+
+    for slot in slots_iter:
+        start_at = getattr(slot, "start_at", None)
+        end_at = getattr(slot, "end_at", None)
+        if not start_at or not end_at:
+            continue
+        key = (start_at, end_at)
+        group = grouped.get(key)
+        if not group:
+            group = {
+                "start": start_at,
+                "end": end_at,
+                "nodes": [],
+            }
+            grouped[key] = group
+            slot_groups.append(group)
+        node = getattr(slot, "node", None)
+        node_name = getattr(node, "name", None) or f"Objet #{getattr(slot, 'node_id', '?')}"
+        group["nodes"].append(node_name)
+
+    for group in slot_groups:
+        try:
+            group["nodes"].sort(key=lambda x: x.lower())
+        except Exception:
+            group["nodes"] = sorted(group["nodes"])
+
     return render_template(
         "event.html",
         event=ev,
@@ -270,6 +305,28 @@ def event_page(event_id: int):
         event_status=status_txt,
         allow_verify=allow_verify,
         can_manage=can_manage_event(),
+        material_slots=slot_groups,
+    )
+
+
+@bp.get("/calendar")
+@login_required
+def calendar_page():
+    if not can_view():
+        abort(403)
+
+    roots = list_roots()
+    nodes_payload = [
+        {
+            "id": node.id,
+            "name": node.name,
+        }
+        for node in roots
+    ]
+
+    return render_template(
+        "calendar.html",
+        nodes=nodes_payload,
     )
 
 # -------------------------

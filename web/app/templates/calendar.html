@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% set title = "Calendrier du matériel" %}
+{% block content %}
+
+<style>
+  .calendar-filters{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;align-items:center}
+  .calendar-filters .btn{height:38px;display:inline-flex;align-items:center}
+  .calendar-filters input[type="date"],
+  .calendar-filters select{min-width:170px}
+  .calendar-list{display:flex;flex-direction:column;gap:14px;margin-top:16px}
+  .material-group{border:1px solid var(--border);border-radius:12px;padding:14px;background:#0f1e2f}
+  .material-group .group-title{font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:10px}
+  .slot-entries{display:flex;flex-direction:column;gap:10px}
+  .slot-entry{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;background:#101d30;border:1px solid rgba(255,255,255,.05);border-radius:10px;padding:10px 12px}
+  .slot-entry .slot-time{font-weight:700;color:#dce6f5}
+  .slot-entry .slot-event{color:#9ec9ff;text-decoration:none;font-weight:600}
+  .slot-entry .slot-event:hover{text-decoration:underline}
+  .slot-status{background:#13253d;color:#9ec9ff;border-color:#1f3d63}
+  .empty-state{padding:20px;border-radius:12px;border:1px dashed var(--border);text-align:center;color:var(--muted)}
+  .error-state{padding:16px;border-radius:12px;border:1px solid rgba(255,107,107,.5);background:#2a0f16;color:#ffd5dc}
+  .range-label{color:var(--muted);font-size:13px}
+</style>
+
+<div class="card">
+  <div class="title">Calendrier du matériel</div>
+  <div class="subtitle">Visualisez les réservations de matériel par créneau horaire pour planifier vos événements.</div>
+  <div class="calendar-filters">
+    <label class="muted" for="filter-start">À partir du :</label>
+    <input type="date" id="filter-start">
+    <select id="filter-range">
+      <option value="3">3 jours</option>
+      <option value="7" selected>7 jours</option>
+      <option value="14">14 jours</option>
+      <option value="30">30 jours</option>
+    </select>
+    <select id="filter-node">
+      <option value="">Tout le matériel</option>
+      {% for node in nodes %}
+        <option value="{{ node.id }}">{{ node.name }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn" id="btn-prev">◀︎ Précédent</button>
+    <button class="btn" id="btn-today">Aujourd'hui</button>
+    <button class="btn" id="btn-next">Suivant ▶︎</button>
+    <a class="btn" href="/dashboard">➕ Créer un événement</a>
+  </div>
+</div>
+
+<div class="card" id="calendar-card">
+  <div class="row space-between" style="gap:10px;align-items:flex-start">
+    <div class="title">Créneaux réservés</div>
+    <div class="range-label" id="range-label"></div>
+  </div>
+  <div id="calendar-container" class="calendar-list"></div>
+</div>
+
+<script>
+(function(){
+  const startInput = document.getElementById('filter-start');
+  const rangeSelect = document.getElementById('filter-range');
+  const nodeSelect = document.getElementById('filter-node');
+  const listEl = document.getElementById('calendar-container');
+  const rangeLabel = document.getElementById('range-label');
+  const prevBtn = document.getElementById('btn-prev');
+  const nextBtn = document.getElementById('btn-next');
+  const todayBtn = document.getElementById('btn-today');
+
+  const fmtDay = new Intl.DateTimeFormat('fr-FR', {weekday:'short', day:'2-digit', month:'short'});
+  const fmtDayLong = new Intl.DateTimeFormat('fr-FR', {weekday:'long', day:'2-digit', month:'long', year:'numeric'});
+  const fmtTime = new Intl.DateTimeFormat('fr-FR', {hour:'2-digit', minute:'2-digit'});
+
+  const state = {
+    start: (() => { const d = new Date(); d.setHours(0,0,0,0); return d; })(),
+    days: parseInt(rangeSelect.value, 10) || 7,
+    nodeId: ''
+  };
+
+  function pad(num){ return String(num).padStart(2,'0'); }
+  function formatDateForInput(date){ return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}`; }
+  function setInputsFromState(){
+    startInput.value = formatDateForInput(state.start);
+    rangeSelect.value = String(state.days);
+    nodeSelect.value = state.nodeId || '';
+  }
+
+  function addDays(base, days){ const d = new Date(base.getTime()); d.setDate(d.getDate() + days); return d; }
+
+  function updateRangeLabel(startIso, endIso){
+    if(!startIso || !endIso){ rangeLabel.textContent = ''; return; }
+    const start = new Date(startIso);
+    const endRaw = new Date(endIso);
+    const end = isNaN(endRaw) ? null : new Date(endRaw.getTime() - 1000);
+    if(isNaN(start)){ rangeLabel.textContent = ''; return; }
+    const endDisplay = end && !isNaN(end) ? end : start;
+    rangeLabel.textContent = `Du ${fmtDayLong.format(start)} au ${fmtDayLong.format(endDisplay)}`;
+  }
+
+  function formatSlotRange(startIso, endIso){
+    const start = new Date(startIso);
+    const end = new Date(endIso);
+    if(isNaN(start) || isNaN(end)) return '';
+    const sameDay = start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth() && start.getDate() === end.getDate();
+    if(sameDay){
+      return `${fmtDay.format(start)} • ${fmtTime.format(start)} → ${fmtTime.format(end)}`;
+    }
+    return `${fmtDay.format(start)} • ${fmtTime.format(start)} → ${fmtDay.format(end)} • ${fmtTime.format(end)}`;
+  }
+
+  function renderSlots(slots){
+    if(!Array.isArray(slots) || slots.length === 0){
+      listEl.innerHTML = '<div class="empty-state">Aucune réservation sur la période sélectionnée.</div>';
+      return;
+    }
+
+    const grouped = new Map();
+    slots.forEach(slot => {
+      const key = slot?.node?.id ?? slot.node_id;
+      if(!grouped.has(key)){
+        grouped.set(key, { node: slot.node, entries: [] });
+      }
+      grouped.get(key).entries.push(slot);
+    });
+
+    const sortedGroups = Array.from(grouped.values()).sort((a,b)=>{
+      const an = (a.node?.name || '').toLocaleLowerCase();
+      const bn = (b.node?.name || '').toLocaleLowerCase();
+      return an.localeCompare(bn);
+    });
+
+    const frag = document.createDocumentFragment();
+    sortedGroups.forEach(group => {
+      const wrap = document.createElement('div');
+      wrap.className = 'material-group';
+      const title = document.createElement('div');
+      title.className = 'group-title';
+      title.textContent = group.node?.name || 'Matériel';
+      wrap.appendChild(title);
+
+      const list = document.createElement('div');
+      list.className = 'slot-entries';
+      group.entries.sort((a,b)=> new Date(a.start) - new Date(b.start));
+      group.entries.forEach(slot => {
+        const item = document.createElement('div');
+        item.className = 'slot-entry';
+
+        const timeEl = document.createElement('div');
+        timeEl.className = 'slot-time';
+        timeEl.textContent = formatSlotRange(slot.start, slot.end);
+        item.appendChild(timeEl);
+
+        const eventLink = document.createElement('a');
+        eventLink.className = 'slot-event';
+        eventLink.href = `/events/${slot.event.id}`;
+        eventLink.textContent = slot.event.name;
+        item.appendChild(eventLink);
+
+        const status = document.createElement('span');
+        status.className = 'badge slot-status';
+        status.textContent = slot.event.status;
+        item.appendChild(status);
+
+        list.appendChild(item);
+      });
+
+      wrap.appendChild(list);
+      frag.appendChild(wrap);
+    });
+
+    listEl.innerHTML = '';
+    listEl.appendChild(frag);
+  }
+
+  async function refresh(){
+    const params = new URLSearchParams();
+    params.set('start', formatDateForInput(state.start));
+    params.set('days', String(state.days));
+    if(state.nodeId){ params.set('node_id', state.nodeId); }
+
+    listEl.innerHTML = '<div class="muted">Chargement…</div>';
+    try{
+      const res = await fetch(`/events/slots?${params.toString()}`, {headers:{'Accept':'application/json'}});
+      if(!res.ok){
+        const text = await res.text();
+        throw new Error(text || 'Erreur lors du chargement du calendrier');
+      }
+      const data = await res.json();
+      updateRangeLabel(data?.range?.start, data?.range?.end);
+      renderSlots(data?.slots || []);
+    }catch(err){
+      console.error(err);
+      listEl.innerHTML = `<div class="error-state">${err}</div>`;
+      rangeLabel.textContent = '';
+    }
+  }
+
+  startInput.addEventListener('change', () => {
+    const val = startInput.value;
+    if(!val) return;
+    const next = new Date(val);
+    if(isNaN(next)) return;
+    next.setHours(0,0,0,0);
+    state.start = next;
+    setInputsFromState();
+    refresh();
+  });
+
+  rangeSelect.addEventListener('change', () => {
+    const val = parseInt(rangeSelect.value, 10);
+    if(!isNaN(val) && val > 0){
+      state.days = val;
+      setInputsFromState();
+      refresh();
+    }
+  });
+
+  nodeSelect.addEventListener('change', () => {
+    state.nodeId = nodeSelect.value || '';
+    refresh();
+  });
+
+  prevBtn.addEventListener('click', () => {
+    state.start = addDays(state.start, -state.days);
+    setInputsFromState();
+    refresh();
+  });
+
+  nextBtn.addEventListener('click', () => {
+    state.start = addDays(state.start, state.days);
+    setInputsFromState();
+    refresh();
+  });
+
+  todayBtn.addEventListener('click', () => {
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    state.start = today;
+    setInputsFromState();
+    refresh();
+  });
+
+  setInputsFromState();
+  refresh();
+})();
+</script>
+
+{% endblock %}

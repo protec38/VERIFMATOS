@@ -76,6 +76,33 @@ class EventShareLink(db.Model):
 
     event = db.relationship("Event", backref="share_links")
 
+
+class EventMaterialSlot(db.Model):
+    __tablename__ = "event_material_slots"
+
+    id = db.Column(db.Integer, primary_key=True)
+    event_id = db.Column(db.Integer, db.ForeignKey("events.id"), nullable=False, index=True)
+    node_id = db.Column(db.Integer, db.ForeignKey("stock_nodes.id"), nullable=False, index=True)
+    start_at = db.Column(db.DateTime, nullable=False, index=True)
+    end_at = db.Column(db.DateTime, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    event = db.relationship(
+        "Event",
+        backref=db.backref(
+            "material_slots",
+            cascade="all, delete-orphan",
+            lazy="selectin",
+            order_by="EventMaterialSlot.start_at",
+        ),
+    )
+    node = db.relationship("StockNode")
+
+    __table_args__ = (
+        CheckConstraint("end_at > start_at", name="ck_event_material_slot_duration"),
+        UniqueConstraint("event_id", "node_id", "start_at", "end_at", name="uq_event_slot"),
+    )
+
 # -------------------------------------------------------------------
 # Stock hiérarchique (≤ 5 niveaux)
 # -------------------------------------------------------------------
