@@ -9,6 +9,7 @@ from datetime import datetime, timezone, timedelta
 from flask import Blueprint, request, jsonify, abort
 from flask_login import login_required, current_user
 from sqlalchemy import select
+from sqlalchemy.orm import aliased
 
 from .. import db, socketio
 from ..models import (
@@ -460,10 +461,12 @@ def list_event_slots():
         except Exception:
             abort(400, description="node_id invalide")
 
+    parent_node = aliased(StockNode)
     query = (
-        db.session.query(EventMaterialSlot, Event, StockNode)
+        db.session.query(EventMaterialSlot, Event, StockNode, parent_node)
         .join(Event, EventMaterialSlot.event_id == Event.id)
         .join(StockNode, EventMaterialSlot.node_id == StockNode.id)
+        .outerjoin(parent_node, StockNode.parent)
         .filter(EventMaterialSlot.end_at > start_dt)
         .filter(EventMaterialSlot.start_at < end_dt)
     )
@@ -472,7 +475,7 @@ def list_event_slots():
         query = query.filter(EventMaterialSlot.node_id == node_filter)
 
     entries = []
-    for slot, ev, node in query.order_by(EventMaterialSlot.start_at.asc()).all():
+    for slot, ev, node, parent in query.order_by(EventMaterialSlot.start_at.asc()).all():
         entries.append(
             {
                 "id": slot.id,
@@ -484,6 +487,7 @@ def list_event_slots():
                 "node": {
                     "id": node.id,
                     "name": node.name,
+                    "parent": {"id": parent.id, "name": parent.name} if parent else None,
                 },
                 "start": slot.start_at.isoformat(),
                 "end": slot.end_at.isoformat(),
