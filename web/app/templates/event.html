@@ -372,13 +372,6 @@ function ensureSlotNodes(list){
   });
   return changed;
 }
-function slotNodesLabel(slot){
-  if(slot && Array.isArray(slot.nodes) && slot.nodes.length){
-    return slot.nodes.join(', ');
-  }
-  const names = currentRootNames();
-  return names.length ? names.join(', ') : '—';
-}
 function formatSlotRange(slot){
   if(!slot) return '';
   const startDate = parseDateValue(slot.start);
@@ -501,10 +494,6 @@ function renderSlotDisplay(){
         el("div", {},
           el("div", {class:"label"}, "Plage horaire"),
           el("div", {class:"time"}, formatSlotRange(slot))
-        ),
-        el("div", {},
-          el("div", {class:"label"}, "Matériel"),
-          el("div", {class:"nodes"}, slotNodesLabel(slot))
         )
       )
     );
