@@ -135,8 +135,6 @@
       </div>
       <div class="overview-extra">
         <div class="section">
-          <div class="section-title">Créneaux réservés</div>
-          <div class="muted">Ouvre le <a href="/calendar">calendrier du matériel</a> pour la vision globale.</div>
           <div class="schedule-list" id="event-slot-display">
             {% if material_slots %}
               {% for slot in material_slots %}
@@ -177,14 +175,6 @@
       <div class="progress"><div id="progress-bar" style="width:0%"></div></div>
       <div class="progress-caption" id="progress-text">0 / 0 vérifiés</div>
     </div>
-  </div>
-
-  <div class="card parents-card section-card">
-    <div class="section-heading">
-      <div class="title">Parents à vérifier</div>
-      <div class="muted">Identifie rapidement les lots à contrôler.</div>
-    </div>
-    <div id="parents-bar" class="parents-bar"></div>
   </div>
 
   {% if can_manage %}
