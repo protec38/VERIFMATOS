@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json
 from datetime import datetime
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Tuple, Optional, Iterable
 
 from .. import db
 from ..models import (
@@ -11,6 +11,7 @@ from ..models import (
     VerificationRecord,
     ItemStatus,
     EventNodeStatus,
+    EventMaterialSlot,
     StockNode,
     NodeType,
     event_stock,
@@ -263,14 +264,110 @@ def parent_statuses(event_id: int) -> Dict[int, Dict[str, Any]]:
     out: Dict[int, Dict[str, Any]] = {}
     for r in rows:
         vehicle, operator, display = _decode_charge_comment(r.comment)
+        node = getattr(r, "node", None)
+        node_name = getattr(node, "name", None) or f"Parent #{r.node_id}"
+        charged_vehicle_name = getattr(r, "charged_vehicle_name", None)
+        if not vehicle and charged_vehicle_name:
+            vehicle = charged_vehicle_name
+        charged_operator_name = getattr(r, "charged_operator_name", None)
+        if not operator and charged_operator_name:
+            operator = charged_operator_name
         out[r.node_id] = {
             "charged_vehicle": r.charged_vehicle,
             "vehicle_name": vehicle,
             "operator_name": operator,
             "comment": display or r.comment,
             "updated_at": r.updated_at,
+            "name": node_name,
         }
     return out
+
+
+def _slots_by_parent(event_id: int) -> Dict[int, List[Dict[str, Any]]]:
+    """Regroupe les créneaux de chargement par parent (node_id)."""
+
+    slots: Iterable[EventMaterialSlot] = (
+        EventMaterialSlot.query
+        .filter_by(event_id=event_id)
+        .order_by(EventMaterialSlot.start_at.asc())
+        .all()
+    )
+    out: Dict[int, List[Dict[str, Any]]] = {}
+    for slot in slots:
+        start_at = getattr(slot, "start_at", None)
+        end_at = getattr(slot, "end_at", None)
+        if not start_at or not end_at:
+            continue
+        out.setdefault(slot.node_id, []).append({
+            "start": start_at,
+            "end": end_at,
+        })
+    return out
+
+
+def parent_rows_for_pdf(event_id: int) -> List[List[str]]:
+    """Construit les lignes "Parents" pour le PDF (chargement & horaires)."""
+
+    statuses = parent_statuses(event_id)
+    slots_map = _slots_by_parent(event_id)
+    node_ids = set(statuses.keys()) | set(slots_map.keys())
+    if not node_ids:
+        return []
+
+    nodes = (
+        StockNode.query
+        .filter(StockNode.id.in_(node_ids))
+        .all()
+    )
+    name_map = {n.id: n.name for n in nodes}
+
+    def _fmt_dt(dt: Optional[datetime]) -> str:
+        if isinstance(dt, datetime):
+            return dt.strftime("%d/%m/%Y %H:%M")
+        if isinstance(dt, str):
+            return dt
+        return ""
+
+    def _fmt_slots(items: List[Dict[str, Any]]) -> str:
+        formatted: List[str] = []
+        for slot in items:
+            start = slot.get("start")
+            end = slot.get("end")
+            if isinstance(start, datetime) and isinstance(end, datetime):
+                same_day = start.date() == end.date()
+                if same_day:
+                    formatted.append(
+                        f"{start.strftime('%d/%m %H:%M')} - {end.strftime('%H:%M')}"
+                    )
+                else:
+                    formatted.append(
+                        f"{start.strftime('%d/%m %H:%M')} - {end.strftime('%d/%m %H:%M')}"
+                    )
+            else:
+                formatted.append("")
+        return " | ".join(filter(None, formatted))
+
+    rows: List[List[str]] = []
+    for node_id in sorted(node_ids, key=lambda nid: (name_map.get(nid) or statuses.get(nid, {}).get("name") or "").lower()):
+        status = statuses.get(node_id, {})
+        name = status.get("name") or name_map.get(node_id) or f"Parent #{node_id}"
+        charged = "Oui" if status.get("charged_vehicle") else "Non"
+        vehicle = status.get("vehicle_name") or ""
+        operator = status.get("operator_name") or ""
+        comment = status.get("comment") or ""
+        updated = _fmt_dt(status.get("updated_at"))
+        slot_txt = _fmt_slots(slots_map.get(node_id, []))
+        rows.append([
+            name,
+            charged,
+            vehicle,
+            operator,
+            comment,
+            updated,
+            slot_txt,
+        ])
+
+    return rows
 
 def compute_summary(event_id: int) -> Dict[str, Any]:
     """

@@ -48,7 +48,7 @@ def event_pdf(event_id: int):
     # Imports *dans* la fonction pour éviter les erreurs d'import au démarrage
     try:
         # Utils de construction des données
-        from .utils import compute_summary, rows_for_csv
+        from .utils import compute_summary, rows_for_csv, parent_rows_for_pdf
     except Exception as e:
         abort(500, description=f"Utils d'export indisponibles: {e}")
 
@@ -66,10 +66,11 @@ def event_pdf(event_id: int):
     # Données
     summary = compute_summary(ev.id)       # dict: total / ok / not_ok / todo
     csv_rows = rows_for_csv(ev.id)         # liste de lignes à plat (Parent, Item, Statut, ...)
+    parent_rows = parent_rows_for_pdf(ev.id)
 
     # Construction PDF
     try:
-        pdf_bytes = build_pdf(ev, summary, csv_rows)
+        pdf_bytes = build_pdf(ev, summary, csv_rows, parent_rows)
     except Exception as e:
         return jsonify({"error": "Échec génération PDF", "detail": str(e)}), 500
 
