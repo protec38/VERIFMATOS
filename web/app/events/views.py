@@ -784,6 +784,140 @@ def update_event_roots(event_id: int):
     return jsonify({"ok": True, "roots": payload})
 
 
+@bp_events.put("/<int:event_id>/slots")
+@login_required
+def update_event_slots(event_id: int):
+    if not _is_manager():
+        abort(403)
+
+    ev = _event_or_404(event_id)
+
+    data = request.get_json(silent=True) or {}
+    try:
+        slot_specs = _parse_slot_payload(data.get("slots"))
+    except ValueError as exc:
+        abort(400, description=str(exc))
+
+    if not slot_specs:
+        abort(400, description="Au moins un créneau (slots) est requis.")
+
+    # Déduplique les créneaux au cas où le client enverrait des doublons exacts.
+    seen_windows: Set[Tuple[datetime, datetime]] = set()
+    unique_slots: List[Tuple[datetime, datetime]] = []
+    for start_dt, end_dt in slot_specs:
+        window = (start_dt, end_dt)
+        if window in seen_windows:
+            continue
+        seen_windows.add(window)
+        unique_slots.append(window)
+    slot_specs = unique_slots
+    slot_specs.sort(key=lambda pair: (pair[0], pair[1]))
+
+    rows = db.session.execute(
+        select(event_stock.c.node_id).where(event_stock.c.event_id == ev.id)
+    ).all()
+    node_ids = [int(row.node_id) for row in rows if getattr(row, "node_id", None) is not None]
+
+    if not node_ids:
+        abort(400, description="Aucun parent associé à l'événement.")
+
+    conflicts: List[str] = []
+    seen_conflicts: Set[Tuple[int, datetime, datetime, int]] = set()
+    for start_dt, end_dt in slot_specs:
+        query = (
+            db.session.query(EventMaterialSlot, Event, StockNode)
+            .join(Event, EventMaterialSlot.event_id == Event.id)
+            .join(StockNode, EventMaterialSlot.node_id == StockNode.id)
+            .filter(EventMaterialSlot.node_id.in_(node_ids))
+            .filter(EventMaterialSlot.event_id != ev.id)
+            .filter(EventMaterialSlot.end_at > start_dt)
+            .filter(EventMaterialSlot.start_at < end_dt)
+        )
+        for slot, other_event, node in query:
+            key = (node.id, slot.start_at, slot.end_at, other_event.id)
+            if key in seen_conflicts:
+                continue
+            seen_conflicts.add(key)
+            conflicts.append(
+                "{name} déjà utilisé du {start} au {end} pour l'événement \"{event}\".".format(
+                    name=node.name,
+                    start=slot.start_at.strftime("%d/%m/%Y %H:%M"),
+                    end=slot.end_at.strftime("%d/%m/%Y %H:%M"),
+                    event=other_event.name,
+                )
+            )
+
+    if conflicts:
+        abort(
+            409,
+            description="Conflit de réservation détecté:\n" + "\n".join(conflicts),
+        )
+
+    EventMaterialSlot.query.filter_by(event_id=ev.id).delete(synchronize_session=False)
+
+    for start_dt, end_dt in slot_specs:
+        for node_id in node_ids:
+            db.session.add(
+                EventMaterialSlot(
+                    event_id=ev.id,
+                    node_id=node_id,
+                    start_at=start_dt,
+                    end_at=end_dt,
+                )
+            )
+
+    try:
+        ev.date = slot_specs[0][0].date()
+    except Exception:
+        pass
+
+    db.session.commit()
+
+    grouped: Dict[Tuple[datetime, datetime], Dict[str, Any]] = {}
+    slot_entries: List[Dict[str, Any]] = []
+    query = (
+        db.session.query(EventMaterialSlot, StockNode)
+        .join(StockNode, EventMaterialSlot.node_id == StockNode.id)
+        .filter(EventMaterialSlot.event_id == ev.id)
+        .order_by(EventMaterialSlot.start_at.asc(), EventMaterialSlot.node_id.asc())
+    )
+    for slot, node in query:
+        key = (slot.start_at, slot.end_at)
+        group = grouped.get(key)
+        if not group:
+            group = {
+                "start": slot.start_at,
+                "end": slot.end_at,
+                "nodes": [],
+            }
+            grouped[key] = group
+            slot_entries.append(group)
+        node_name = getattr(node, "name", None) or f"Objet #{getattr(node, 'id', '?')}"
+        group["nodes"].append(node_name)
+
+    for entry in slot_entries:
+        try:
+            entry["nodes"].sort(key=lambda x: x.lower())
+        except Exception:
+            entry["nodes"] = sorted(entry["nodes"])
+
+    payload = [
+        {
+            "start": entry["start"].isoformat(),
+            "end": entry["end"].isoformat(),
+            "nodes": list(entry["nodes"]),
+        }
+        for entry in sorted(
+            slot_entries,
+            key=lambda e: (e["start"], e["end"]),
+        )
+    ]
+
+    _emit("event_update", {"type": "slots_changed", "event_id": ev.id})
+
+    return jsonify({"ok": True, "slots": payload})
+
+
 @bp_events.post("/<int:event_id>/verify")
 @login_required
 def event_verify(event_id: int):

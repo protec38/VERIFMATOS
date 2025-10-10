@@ -298,6 +298,15 @@ def event_page(event_id: int):
         except Exception:
             group["nodes"] = sorted(group["nodes"])
 
+    slot_payload = [
+        {
+            "start": group["start"].isoformat(),
+            "end": group["end"].isoformat(),
+            "nodes": list(group["nodes"]),
+        }
+        for group in slot_groups
+    ]
+
     return render_template(
         "event.html",
         event=ev,
@@ -306,6 +315,7 @@ def event_page(event_id: int):
         allow_verify=allow_verify,
         can_manage=can_manage_event(),
         material_slots=slot_groups,
+        material_slots_payload=slot_payload,
     )
 
 
