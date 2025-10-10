@@ -78,11 +78,9 @@
   #event-roots-status.success{color:#bff3e7}
   #event-roots-status.error{color:#ffd5dc}
   #event-roots-hint{margin-top:6px;font-size:13px;color:var(--muted)}
-  .schedule-list{display:flex;flex-direction:column;gap:12px;margin-top:16px}
-  .schedule-item{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;justify-content:space-between;padding:16px;border-radius:14px;border:1px solid rgba(158,201,255,.25);background:rgba(13,22,36,.82);box-shadow:0 14px 28px rgba(7,12,23,.25)}
-  .schedule-item .time{font-weight:800;color:#dde8fb;font-size:15px}
-  .schedule-item .nodes{color:rgba(193,211,238,.75);margin-top:4px;font-size:13px;max-width:520px}
-  .schedule-item .label{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:rgba(193,211,238,.6);margin-bottom:4px}
+  .schedule-list{display:flex;flex-direction:column;gap:6px;margin-top:12px;font-size:14px;color:#dde8fb}
+  .schedule-item{padding:0;border:none;background:none;box-shadow:none;font-weight:600}
+  .schedule-item .time{font-weight:inherit;color:inherit;font-size:inherit}
   .vehicle{font-size:12px;opacity:.9;padding:3px 8px;border-radius:8px;border:1px dashed rgba(158,201,255,.25);margin-left:8px}
   .vehicle.on{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
   .vehicle.off{background:#101c2e;color:#b7c7dc;border-color:#24344f}
@@ -143,13 +141,7 @@
             {% if material_slots %}
               {% for slot in material_slots %}
                 <div class="schedule-item">
-                  <div>
-                    <div class="time">{{ slot.start.strftime('%d/%m/%Y %H:%M') }} → {{ slot.end.strftime('%d/%m/%Y %H:%M') }}</div>
-                  </div>
-                  <div>
-                    <div class="label">Matériel</div>
-                    <div class="nodes">{{ slot.nodes|join(', ') if slot.nodes else '—' }}</div>
-                  </div>
+                  <div class="time">{{ slot.start.strftime('%d/%m/%Y %H:%M') }} → {{ slot.end.strftime('%d/%m/%Y %H:%M') }}</div>
                 </div>
               {% endfor %}
             {% else %}
