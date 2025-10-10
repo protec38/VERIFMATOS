@@ -1,6 +1,6 @@
 # app/views_html.py — Pages HTML (Jinja)
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, date
 import secrets
 
 from flask import (
@@ -163,7 +163,26 @@ def dashboard():
     if not can_view():
         abort(403)
 
-    events = Event.query.order_by(Event.created_at.desc()).all()
+    search_query = (request.args.get("q") or "").strip()
+
+    events_query = Event.query
+    if search_query:
+        events_query = events_query.filter(Event.name.ilike(f"%{search_query}%"))
+
+    events = events_query.all()
+
+    today = date.today()
+
+    def _event_sort_key(ev: Event) -> tuple:
+        created_sort = -ev.created_at.timestamp() if ev.created_at else 0
+        if ev.date is None:
+            return (2, float("inf"), date.max, created_sort)
+
+        delta_days = (ev.date - today).days
+        priority = 0 if delta_days >= 0 else 1
+        return (priority, abs(delta_days), ev.date, created_sort)
+
+    events.sort(key=_event_sort_key)
     roots = list_roots()
     categories = (
         StockRootCategory.query
@@ -200,6 +219,7 @@ def dashboard():
         roots_flat=root_specs,
         templates=template_specs,
         lots=lot_specs,
+        search_query=search_query,
     )
 
 
