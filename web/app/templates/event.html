@@ -3,64 +3,81 @@
 {% block content %}
 
 <style>
+  .page-event{display:flex;flex-direction:column;gap:16px}
+  .event-layout{display:grid;grid-template-columns:minmax(0,2.1fr) minmax(0,1fr);gap:16px;align-items:stretch}
+  @media(max-width:1100px){.event-layout{grid-template-columns:1fr}}
+  .card{position:relative;overflow:hidden}
   .state-ok{
-    border-color: var(--success) !important;
-    background:
-      radial-gradient(600px 200px at top left, rgba(18,184,134,.15), transparent),
-      #0f1e2f;
-    box-shadow: 0 0 0 1px rgba(18,184,134,.35) inset, 0 0 18px rgba(18,184,134,.15);
+    border-color:rgba(66,207,173,.45) !important;
+    background:linear-gradient(135deg,rgba(20,60,52,.85),rgba(9,30,24,.92));
+    box-shadow:0 0 0 1px rgba(66,207,173,.35) inset,0 16px 28px rgba(18,184,134,.18);
   }
   .state-bad{
-    border-color: var(--danger) !important;
-    background:
-      radial-gradient(600px 200px at top left, rgba(255,107,107,.12), transparent),
-      #0f1a27;
-    box-shadow: 0 0 0 1px rgba(255,107,107,.30) inset, 0 0 18px rgba(255,107,107,.12);
+    border-color:rgba(255,107,107,.4) !important;
+    background:linear-gradient(135deg,rgba(66,20,28,.85),rgba(30,8,12,.9));
+    box-shadow:0 0 0 1px rgba(255,107,107,.28) inset,0 16px 28px rgba(255,107,107,.15);
   }
   .state-wait{
-    border-color: var(--border) !important;
-    background:
-      radial-gradient(600px 200px at top left, rgba(45,123,191,.08), transparent),
-      var(--bg-2);
+    border-color:rgba(79,126,255,.35) !important;
+    background:linear-gradient(135deg,rgba(22,40,70,.82),rgba(12,22,36,.9));
+    box-shadow:0 0 0 1px rgba(79,126,255,.25) inset;
   }
-  .chip{padding:4px 8px;border-radius:999px;font-weight:800;font-size:12px;border:1px solid var(--border);}
-  .chip.ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
-  .chip.bad{background:#2a0e14;color:#ffd5dc;border-color:#75212f}
-  .chip.wait{background:#101c2e;color:#b7c7dc;border-color:#24344f}
-
+  .overview-card{padding:24px;background:radial-gradient(circle at top left,rgba(79,126,255,.28),transparent 55%),linear-gradient(135deg,rgba(18,35,64,.95),rgba(12,21,36,.92));border:1px solid rgba(126,162,255,.25);box-shadow:0 20px 45px rgba(12,25,46,.35)}
+  .overview-card .title{font-size:26px;font-weight:800;color:#eef4ff}
+  .overview-meta{display:flex;flex-direction:column;gap:6px}
+  .overview-meta .muted{color:rgba(232,243,255,.75);font-size:14px}
+  .event-badge{position:absolute;top:20px;right:24px;padding:6px 12px;border-radius:999px;background:rgba(11,19,33,.65);border:1px solid rgba(158,201,255,.35);font-size:12px;font-weight:700;letter-spacing:.02em;text-transform:uppercase}
+  .event-badge[data-status="OPEN"]{color:#bff3e7;border-color:rgba(66,207,173,.45);background:rgba(14,42,36,.65)}
+  .event-badge[data-status="CLOSED"]{color:#ffd5dc;border-color:rgba(255,107,107,.35);background:rgba(42,14,20,.65)}
+  .overview-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+  .overview-actions .btn{background:rgba(11,19,33,.65);border-color:rgba(158,201,255,.25)}
+  .overview-actions .btn.primary{background:linear-gradient(135deg,#4276ff,#6d93ff);border-color:transparent;color:#fff;box-shadow:0 12px 30px rgba(66,118,255,.25)}
+  .overview-actions .btn.primary:hover{filter:brightness(1.05)}
+  .stat-card{padding:24px;background:linear-gradient(160deg,rgba(16,30,49,.95),rgba(12,22,36,.92));border:1px solid rgba(89,129,207,.3);box-shadow:0 14px 32px rgba(11,20,36,.32)}
+  .stat-title{font-weight:800;font-size:18px;color:#e5eeff}
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-top:14px}
+  .chip{padding:10px 12px;border-radius:12px;font-weight:800;font-size:13px;border:1px solid rgba(158,201,255,.2);background:rgba(15,26,43,.85);display:flex;flex-direction:column;gap:4px;min-height:70px;justify-content:center}
+  .chip-label{font-size:12px;font-weight:500;letter-spacing:.01em;text-transform:uppercase;color:rgba(193,211,238,.72)}
+  .chip-value{font-size:18px}
+  .chip.ok{border-color:rgba(66,207,173,.45);background:rgba(14,42,36,.75);color:#bff3e7}
+  .chip.bad{border-color:rgba(255,107,107,.35);background:rgba(42,14,20,.75);color:#ffd5dc}
+  .chip.wait{border-color:rgba(79,126,255,.35);background:rgba(16,28,46,.78);color:#b7c7dc}
   .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
-  .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
-
+  .dot-ok{background:var(--success)}
+  .dot-bad{background:var(--danger)}
+  .dot-wait{background:#37527a}
+  .progress{height:8px;border-radius:999px;background:rgba(255,255,255,.06);overflow:hidden;margin-top:14px}
+  .progress > div{height:100%;border-radius:999px;background:linear-gradient(135deg,#4276ff,#51bdf2);transition:width .4s ease}
+  .progress-caption{margin-top:8px;color:rgba(193,211,238,.75);font-size:13px}
+  .section-card{padding:22px;background:linear-gradient(160deg,rgba(12,20,34,.92),rgba(15,28,46,.92));border:1px solid rgba(158,201,255,.18);box-shadow:0 12px 32px rgba(8,17,30,.22)}
+  .section-heading{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:10px}
+  .section-heading .title{font-size:20px;font-weight:800;color:#e5eeff}
+  .section-heading .muted{font-size:13px;color:rgba(193,211,238,.7)}
   .parents-card .title{display:flex;align-items:center;gap:10px}
-  .parents-bar{display:flex;gap:8px;overflow:auto;padding:8px 2px}
-  .parent-pill{
-    display:inline-flex;align-items:center;gap:8px;
-    padding:8px 12px;border-radius:999px;border:1px solid var(--border);cursor:pointer;
-    user-select:none;white-space:nowrap;transition:transform .08s ease, box-shadow .08s ease, border-color .08s ease;
-    background:#0f1a2a;color:var(--text)
-  }
-  .parent-pill:hover{transform:translateY(-1px)}
-  .pill-ok{border-color:#1d6e5d;background:#0e2a24;color:#bff3e7}
-  .pill-bad{border-color:#75212f;background:#2a0e14;color:#ffd5dc}
-  .pill-wait{border-color:#24344f;background:#101c2e;color:#b7c7dc}
-  .focus-ring{outline:2px solid var(--pc-orange); outline-offset:2px; transition:outline-color .6s ease}
+  .parents-bar{display:flex;gap:8px;overflow:auto;padding:10px 2px 4px 2px}
+  .parent-pill{display:inline-flex;align-items:center;gap:10px;padding:10px 14px;border-radius:999px;border:1px solid rgba(158,201,255,.2);cursor:pointer;user-select:none;white-space:nowrap;transition:transform .12s ease, box-shadow .12s ease, border-color .12s ease;background:rgba(11,19,33,.75);color:#e2ecff;font-weight:600}
+  .parent-pill:hover{transform:translateY(-1px);box-shadow:0 10px 22px rgba(10,20,34,.28)}
+  .pill-ok{border-color:rgba(66,207,173,.45);background:rgba(14,42,36,.78);color:#bff3e7}
+  .pill-bad{border-color:rgba(255,107,107,.35);background:rgba(42,14,20,.78);color:#ffd5dc}
+  .pill-wait{border-color:rgba(79,126,255,.35);background:rgba(16,28,46,.78);color:#b7c7dc}
+  .focus-ring{outline:2px solid var(--pc-orange);outline-offset:3px;transition:outline-color .6s ease}
   .manage-card .parent-pill{cursor:default}
   .manage-card .parent-pill .btn{margin-left:6px}
-  .btn.sm{padding:6px 8px;font-size:12px;border-radius:8px}
+  .btn.sm{padding:6px 10px;font-size:12px;border-radius:8px}
   .btn.sm:disabled{opacity:.6;cursor:not-allowed}
   #event-roots-status{margin-top:8px;font-size:13px;display:none;color:var(--muted)}
   #event-roots-status.success{color:#bff3e7}
   #event-roots-status.error{color:#ffd5dc}
   #event-roots-hint{margin-top:6px;font-size:13px;color:var(--muted)}
-  .schedule-list{display:flex;flex-direction:column;gap:10px;margin-top:12px}
-  .schedule-item{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;justify-content:space-between;padding:12px;border-radius:12px;border:1px solid rgba(158,201,255,.25);background:#101d30}
-  .schedule-item .time{font-weight:800;color:#dde8fb}
-  .schedule-item .nodes{color:var(--muted);margin-top:4px;font-size:13px;max-width:520px}
-
-  .vehicle{font-size:12px; opacity:.9; padding:2px 6px; border-radius:6px; border:1px dashed var(--border); margin-left:8px}
-  .vehicle.on{background:#0e2a24; color:#bff3e7; border-color:#1d6e5d}
-  .vehicle.off{background:#101c2e; color:#b7c7dc; border-color:#24344f}
-  .reassort-note{font-size:12px;padding:2px 6px;border-radius:6px;border:1px dashed rgba(245,199,111,.45);margin-left:8px;background:#33240f;color:#f5c76f;display:inline-flex;align-items:center;gap:6px}
+  .schedule-list{display:flex;flex-direction:column;gap:12px;margin-top:16px}
+  .schedule-item{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;justify-content:space-between;padding:16px;border-radius:14px;border:1px solid rgba(158,201,255,.25);background:rgba(13,22,36,.82);box-shadow:0 14px 28px rgba(7,12,23,.25)}
+  .schedule-item .time{font-weight:800;color:#dde8fb;font-size:15px}
+  .schedule-item .nodes{color:rgba(193,211,238,.75);margin-top:4px;font-size:13px;max-width:520px}
+  .schedule-item .label{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:rgba(193,211,238,.6);margin-bottom:4px}
+  .vehicle{font-size:12px;opacity:.9;padding:3px 8px;border-radius:8px;border:1px dashed rgba(158,201,255,.25);margin-left:8px}
+  .vehicle.on{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
+  .vehicle.off{background:#101c2e;color:#b7c7dc;border-color:#24344f}
+  .reassort-note{font-size:12px;padding:3px 8px;border-radius:8px;border:1px dashed rgba(245,199,111,.45);margin-left:8px;background:#33240f;color:#f5c76f;display:inline-flex;align-items:center;gap:6px}
   .reassort-note.empty{display:none}
   .parent-pill .reassort-chip{margin-left:8px;font-size:11px;padding:4px 8px;border-radius:999px;background:#2e1a07;color:#f5c76f;border:1px solid rgba(245,199,111,.35)}
   .modal-back{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:90}
@@ -70,14 +87,14 @@
   .modal-card input,.modal-card textarea{width:100%;margin-top:6px}
   .modal-card .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
   .modal-card textarea{min-height:90px;resize:vertical}
-  .header.toggle{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:10px;cursor:pointer}
-  .header.toggle:hover{background:rgba(255,255,255,.04)}
-  .header .left{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .header.toggle{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:12px;cursor:pointer;background:rgba(14,24,38,.6);transition:background .2s ease,transform .1s ease}
+  .header.toggle:hover{background:rgba(255,255,255,.05);transform:translateY(-1px)}
+  .header .left{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   .header .group-name{font-weight:800}
   .chev{width:18px;display:inline-flex;align-items:center;justify-content:center;opacity:.85}
-  .childs{padding:10px 12px 6px 28px}
+  .childs{padding:12px 14px 8px 34px}
   .childs.collapsed{display:none}
-  .slot-chip{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:10px;border:1px dashed rgba(158,201,255,.3);background:#101d30}
+  .slot-chip{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:12px;border:1px dashed rgba(158,201,255,.3);background:rgba(14,24,38,.75)}
   .slot-chip .info{font-weight:700;color:#d8e6fb}
   .slot-chip .meta{color:var(--muted);font-size:12px}
   #event-slot-display .schedule-item{width:100%}
@@ -86,99 +103,121 @@
   #event-slots-status.error{color:#ffd5dc}
 </style>
 
-<div class="grid cols-2">
-  <div class="card">
-    <div class="row space-between">
-      <div>
+<div class="page-event">
+  <div class="event-layout">
+    <div class="card overview-card">
+      <span class="event-badge" id="status-badge" data-status="{{ event_status|upper }}">Statut : {{ event_status }}</span>
+      <div class="overview-meta">
         <div class="title">{{ event.name }}</div>
         <div class="muted">Date : {{ event.date or "—" }}</div>
       </div>
-      <span class="badge" id="status-badge">Statut : {{ event_status }}</span>
+      <div class="overview-actions">
+        <a class="btn" target="_blank" href="/reports/event/{{ event.id }}/pdf">Exporter PDF</a>
+        <button class="btn primary" id="btn-share">Lien secouristes</button>
+        <button class="btn" id="btn-close">{{ "Clôturer l'événement" if event_status == "OPEN" else "Réouvrir l'événement" }}</button>
+      </div>
     </div>
-    <div class="row wrap" style="margin-top:10px;">
-      <a class="btn" target="_blank" href="/reports/event/{{ event.id }}/pdf">Exporter PDF</a>
-      <button class="btn primary" id="btn-share">Lien secouristes</button>
-      <button class="btn" id="btn-close">{{ "Clôturer l'événement" if event_status == "OPEN" else "Réouvrir l'événement" }}</button>
+
+    <div class="card stat-card">
+      <div class="stat-title">Progression</div>
+      <div class="stat-grid">
+        <span class="chip ok" id="stat-ok">
+          <span class="chip-label">OK</span>
+          <span class="chip-value">0</span>
+        </span>
+        <span class="chip bad" id="stat-bad">
+          <span class="chip-label">Non conformes</span>
+          <span class="chip-value">0</span>
+        </span>
+        <span class="chip wait" id="stat-wait">
+          <span class="chip-label">En attente</span>
+          <span class="chip-value">0</span>
+        </span>
+      </div>
+      <div class="progress"><div id="progress-bar" style="width:0%"></div></div>
+      <div class="progress-caption" id="progress-text">0 / 0 vérifiés</div>
     </div>
   </div>
 
-  <div class="card">
-    <div class="title">Progression</div>
-    <div class="row wrap" style="margin-top:8px;gap:10px;">
-      <span class="chip ok" id="stat-ok">OK : 0</span>
-      <span class="chip bad" id="stat-bad">Non conformes : 0</span>
-      <span class="chip wait" id="stat-wait">En attente : 0</span>
+  <div class="card parents-card section-card">
+    <div class="section-heading">
+      <div class="title">Parents à vérifier</div>
+      <div class="muted">Identifie rapidement les lots à contrôler.</div>
     </div>
-    <div class="progress" style="margin-top:10px;"><div id="progress-bar" style="width:0%"></div></div>
-    <div class="muted" id="progress-text" style="margin-top:6px;">0 / 0 vérifiés</div>
+    <div id="parents-bar" class="parents-bar"></div>
   </div>
-</div>
 
-<div class="card parents-card" style="margin-top:12px;">
-  <div class="title">Parents à vérifier</div>
-  <div id="parents-bar" class="parents-bar"></div>
-</div>
-
-{% if can_manage %}
-<div class="card manage-card" id="event-roots-card" style="margin-top:12px;">
-  <div class="title">Gestion des objets</div>
-  <div class="muted" style="margin-top:4px;">Ajoute ou retire des objets pour cet événement.</div>
-  <div id="event-roots-list" class="row wrap" style="margin-top:12px;gap:8px;"></div>
-  <div class="row wrap" style="margin-top:12px;gap:8px;">
-    <select id="event-root-add-select" style="min-width:220px">
-      <option value="">Ajouter un objet…</option>
-    </select>
-    <button class="btn primary sm manage-action" id="btn-add-root">Ajouter</button>
+  {% if can_manage %}
+  <div class="card manage-card section-card" id="event-roots-card">
+    <div class="section-heading">
+      <div class="title">Gestion des objets</div>
+      <div class="muted">Ajoute ou retire des objets pour cet événement.</div>
+    </div>
+    <div id="event-roots-list" class="row wrap" style="margin-top:12px;gap:8px;"></div>
+    <div class="row wrap" style="margin-top:12px;gap:8px;">
+      <select id="event-root-add-select" style="min-width:220px">
+        <option value="">Ajouter un objet…</option>
+      </select>
+      <button class="btn primary sm manage-action" id="btn-add-root">Ajouter</button>
+    </div>
+    <div id="event-roots-hint"></div>
+    <div id="event-roots-status" class="muted"></div>
   </div>
-  <div id="event-roots-hint"></div>
-  <div id="event-roots-status" class="muted"></div>
-</div>
-{% endif %}
+  {% endif %}
 
-<div class="card" style="margin-top:12px;">
-  <div class="title">Créneaux réservés</div>
-  <div class="muted" style="margin-top:4px;">Les créneaux planifiés pour cet événement. Consulte le <a href="/calendar">calendrier du matériel</a> pour les disponibilités globales.</div>
-  <div class="schedule-list" id="event-slot-display">
-    {% if material_slots %}
-      {% for slot in material_slots %}
-        <div class="schedule-item">
-          <div>
-            <div class="time">{{ slot.start.strftime('%d/%m/%Y %H:%M') }} → {{ slot.end.strftime('%d/%m/%Y %H:%M') }}</div>
-            <div class="nodes">Matériel : {{ slot.nodes|join(', ') }}</div>
+  <div class="card section-card">
+    <div class="section-heading">
+      <div class="title">Créneaux réservés</div>
+      <div class="muted">Consulte les créneaux planifiés ou ouvre le <a href="/calendar">calendrier du matériel</a> pour la vision globale.</div>
+    </div>
+    <div class="schedule-list" id="event-slot-display">
+      {% if material_slots %}
+        {% for slot in material_slots %}
+          <div class="schedule-item">
+            <div>
+              <div class="label">Plage horaire</div>
+              <div class="time">{{ slot.start.strftime('%d/%m/%Y %H:%M') }} → {{ slot.end.strftime('%d/%m/%Y %H:%M') }}</div>
+            </div>
+            <div>
+              <div class="label">Matériel</div>
+              <div class="nodes">{{ slot.nodes|join(', ') }}</div>
+            </div>
           </div>
-        </div>
-      {% endfor %}
-    {% else %}
-      <div class="muted">Aucun créneau configuré pour le moment.</div>
-    {% endif %}
+        {% endfor %}
+      {% else %}
+        <div class="muted">Aucun créneau configuré pour le moment.</div>
+      {% endif %}
+    </div>
   </div>
-</div>
 
-{% if can_manage %}
-<div class="card manage-card" id="event-slots-card" style="margin-top:12px;">
-  <div class="title">Modifier les créneaux</div>
-  <div class="muted" style="margin-top:4px;">Ajoute, retire ou ajuste les créneaux de réservation pour ce matériel.</div>
-  <div id="event-slots-edit-list" class="column" style="margin-top:12px;gap:8px;display:flex;"></div>
-  <div class="row wrap" style="margin-top:12px;gap:8px;">
-    <input type="datetime-local" id="event-slot-start" class="manage-action" style="min-width:200px">
-    <input type="datetime-local" id="event-slot-end" class="manage-action" style="min-width:200px">
-    <button class="btn primary sm manage-action" id="btn-add-slot">Ajouter</button>
+  {% if can_manage %}
+  <div class="card manage-card section-card" id="event-slots-card">
+    <div class="section-heading">
+      <div class="title">Modifier les créneaux</div>
+      <div class="muted">Ajoute, retire ou ajuste les créneaux de réservation pour ce matériel.</div>
+    </div>
+    <div id="event-slots-edit-list" class="column" style="margin-top:12px;gap:8px;display:flex;"></div>
+    <div class="row wrap" style="margin-top:12px;gap:8px;">
+      <input type="datetime-local" id="event-slot-start" class="manage-action" style="min-width:200px">
+      <input type="datetime-local" id="event-slot-end" class="manage-action" style="min-width:200px">
+      <button class="btn primary sm manage-action" id="btn-add-slot">Ajouter</button>
+    </div>
+    <div class="muted" id="event-slots-hint" style="margin-top:6px;"></div>
+    <div class="row wrap" style="margin-top:12px;gap:8px;">
+      <button class="btn primary manage-action" id="btn-save-slots" disabled>Enregistrer</button>
+      <button class="btn ghost manage-action" id="btn-reset-slots" disabled>Réinitialiser</button>
+    </div>
+    <div id="event-slots-status" class="muted"></div>
   </div>
-  <div class="muted" id="event-slots-hint" style="margin-top:6px;"></div>
-  <div class="row wrap" style="margin-top:12px;gap:8px;">
-    <button class="btn primary manage-action" id="btn-save-slots" disabled>Enregistrer</button>
-    <button class="btn ghost manage-action" id="btn-reset-slots" disabled>Réinitialiser</button>
-  </div>
-  <div id="event-slots-status" class="muted"></div>
-</div>
-{% endif %}
+  {% endif %}
 
-<div class="card" style="margin-top:12px;">
-  <div class="row space-between">
-    <div class="title">Matériel à vérifier</div>
-    <div class="muted">Vert = tout OK • Rouge = au moins un non conforme • Bleu = en attente</div>
+  <div class="card section-card">
+    <div class="section-heading">
+      <div class="title">Matériel à vérifier</div>
+      <div class="muted">Vert = tout OK • Rouge = au moins un non conforme • Bleu = en attente</div>
+    </div>
+    <div id="tree" class="tree" style="margin-top:10px;"></div>
   </div>
-  <div id="tree" class="tree" style="margin-top:10px;"></div>
 </div>
 
 <script>
@@ -955,6 +994,18 @@ async function changeRootQuantity(rootId){
 }
 
 /* ---------- Stats ---------- */
+function updateChipValue(id, label, value){
+  const chip = document.getElementById(id);
+  if(!chip) return;
+  const labelEl = chip.querySelector(".chip-label");
+  const valueEl = chip.querySelector(".chip-value");
+  if(labelEl) labelEl.textContent = label;
+  if(valueEl) valueEl.textContent = value;
+  if(!labelEl && !valueEl){
+    chip.textContent = `${label} : ${value}`;
+  }
+}
+
 function recomputeStats(){
   const items = flattenItems(TREE);
   const total = items.length;
@@ -962,9 +1013,9 @@ function recomputeStats(){
   const bad = items.filter(i=>normStatus(i.last_status)==="NOT_OK").length;
   const wait = total - ok - bad;
 
-  document.getElementById("stat-ok").textContent = `OK : ${ok}`;
-  document.getElementById("stat-bad").textContent = `Non conformes : ${bad}`;
-  document.getElementById("stat-wait").textContent = `En attente : ${wait}`;
+  updateChipValue("stat-ok", "OK", ok);
+  updateChipValue("stat-bad", "Non conformes", bad);
+  updateChipValue("stat-wait", "En attente", wait);
   const pct = total? Math.round(ok/total*100) : 0;
   document.getElementById("progress-bar").style.width = pct+"%";
   document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
@@ -1156,7 +1207,11 @@ function updateActionButtons(){
 }
 function updateStatusUI(){
   const badge = document.getElementById("status-badge");
-  if(badge) badge.textContent = `Statut : ${IS_OPEN ? "OPEN" : "CLOSED"}`;
+  if(badge){
+    const status = IS_OPEN ? "OPEN" : "CLOSED";
+    badge.textContent = `Statut : ${status}`;
+    badge.setAttribute("data-status", status);
+  }
   const btn = document.getElementById("btn-close");
   if(btn) btn.textContent = IS_OPEN ? "Clôturer l'événement" : "Réouvrir l'événement";
   if(ALLOW_CHARGE){
