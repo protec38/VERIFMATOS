@@ -144,7 +144,6 @@
               {% for slot in material_slots %}
                 <div class="schedule-item">
                   <div>
-                    <div class="label">Plage horaire</div>
                     <div class="time">{{ slot.start.strftime('%d/%m/%Y %H:%M') }} → {{ slot.end.strftime('%d/%m/%Y %H:%M') }}</div>
                   </div>
                   <div>
@@ -160,8 +159,6 @@
         </div>
         {% if can_manage %}
         <div class="section">
-          <div class="section-title">Objets associés</div>
-          <div class="muted">Parents rattachés à cet événement.</div>
           <div id="event-roots-summary" class="overview-roots"></div>
           <div id="event-roots-empty" class="overview-roots-empty">Aucun parent sélectionné pour le moment.</div>
         </div>
