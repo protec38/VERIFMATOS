@@ -29,18 +29,26 @@
   .chip.wait{background:#101c2e;color:#b7c7dc;border-color:#24344f}
   .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
   .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
-  .parents-bar{display:flex;flex-direction:column;gap:10px;overflow-y:auto;max-height:260px;padding:6px 2px}
+  .parents-bar{display:flex;flex-direction:column;gap:16px;overflow-y:auto;max-height:260px;padding:6px 2px}
+  .parent-section{display:flex;flex-direction:column;gap:8px;padding-bottom:6px;border-bottom:1px solid var(--border-2)}
+  .parent-section:last-child{border-bottom:none;padding-bottom:0}
+  .parent-section-title{font-size:12px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--muted)}
+  .parent-section-list{display:flex;flex-direction:column;gap:10px}
+  .parent-empty{font-size:12px;color:var(--muted)}
   .parent-pill{
-    display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;border:1px solid var(--border);
-    background:#0f1a2a;color:var(--text);white-space:nowrap;cursor:pointer;user-select:none;
-    width:100%;box-sizing:border-box;
-    transition:transform .08s ease,border-color .08s ease,background .08s ease;
+    display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 14px;border-radius:999px;
+    border:1px solid var(--border);background:#0f1a2a;color:var(--text);cursor:pointer;user-select:none;
+    width:100%;box-sizing:border-box;transition:transform .08s ease,border-color .08s ease,background .08s ease;
+    font:inherit;text-align:left;appearance:none;
   }
   .parent-pill:hover{transform:translateY(-1px)}
+  .parent-pill:focus-visible{outline:2px solid var(--pc-orange);outline-offset:2px}
   .pill-ok{border-color:#1d6e5d;background:#0e2a24;color:#bff3e7}
   .pill-bad{border-color:#75212f;background:#2a0e14;color:#ffd5dc}
   .pill-wait{border-color:#24344f;background:#101c2e;color:#b7c7dc}
   .focus-ring{outline:2px solid var(--pc-orange);outline-offset:2px;transition:outline-color .4s ease}
+  .parent-pill-left{display:flex;align-items:center;gap:8px;font-weight:700}
+  .parent-pill-status{font-size:12px;font-weight:700}
   .modal-back{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:80}
   .modal{width:min(520px,92%);background:#0f1726;border:1px solid var(--border);border-radius:16px;padding:18px;box-shadow:var(--shadow);max-height:calc(100vh - 40px);overflow-y:auto}
   .modal .field{display:flex;flex-direction:column;gap:6px;margin-top:10px}
@@ -369,16 +377,60 @@ function buildParentsBar(){
   const bar = document.getElementById("root-buttons");
   if(!bar) return;
   bar.innerHTML = "";
+
+  const buckets = {WAIT: [], BAD: [], OK: []};
   ROOTS.forEach(root => {
-    const status = ROOT_STATUS.get(root.id) || root.status || "WAIT";
-    const cls = status === "OK" ? "pill-ok" : (status === "BAD" ? "pill-bad" : "pill-wait");
-    const classes = ["parent-pill", cls];
+    const rawStatus = ROOT_STATUS.get(root.id) || root.status || "WAIT";
+    const status = rawStatus === "OK" ? "OK" : (rawStatus === "BAD" ? "BAD" : "WAIT");
+    buckets[status].push(Object.assign({}, root, {status}));
+  });
+
+  const sections = [
+    {key: "WAIT", title: "À vérifier", empty: "Aucun parent en attente de vérification."},
+    {key: "BAD", title: "Non conformes", empty: "Aucun parent non conforme."},
+    {key: "OK", title: "OK", empty: "Aucun parent terminé."},
+  ];
+
+  const makePill = root => {
+    const classes = ["parent-pill"];
+    if(root.status === "OK") classes.push("pill-ok");
+    else if(root.status === "BAD") classes.push("pill-bad");
+    else classes.push("pill-wait");
     if(root.id === CURRENT_ROOT_ID) classes.push("focus-ring");
-    const pill = el("div", {class: classes.join(" "), onclick: ()=>loadRoot(root.id)},
-      statusDot(status === "OK", status === "BAD"),
-      el("span", {class: "strong"}, root.name)
+    const label = root.status === "OK" ? "Terminé" : (root.status === "BAD" ? "Non conforme" : "À vérifier");
+    const pill = el("button", {
+      type: "button",
+      class: classes.join(" "),
+      onclick: () => loadRoot(root.id),
+    },
+      el("div", {class: "parent-pill-left"},
+        statusDot(root.status === "OK", root.status === "BAD"),
+        el("span", {class: "strong"}, root.name)
+      ),
+      el("span", {class: "parent-pill-status"}, label)
     );
-    bar.appendChild(pill);
+    pill.addEventListener("keydown", event => {
+      if(event.key === "Enter" || event.key === " "){
+        event.preventDefault();
+        loadRoot(root.id);
+      }
+    });
+    return pill;
+  };
+
+  sections.forEach(section => {
+    const wrap = el("div", {class: "parent-section"},
+      el("div", {class: "parent-section-title"}, section.title)
+    );
+    const list = el("div", {class: "parent-section-list"});
+    const nodes = buckets[section.key] || [];
+    if(nodes.length){
+      nodes.forEach(node => list.appendChild(makePill(node)));
+    }else{
+      list.appendChild(el("div", {class: "parent-empty muted"}, section.empty));
+    }
+    wrap.appendChild(list);
+    bar.appendChild(wrap);
   });
 }
 
