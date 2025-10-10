@@ -33,6 +33,10 @@
   .overview-actions .btn{background:rgba(11,19,33,.65);border-color:rgba(158,201,255,.25)}
   .overview-actions .btn.primary{background:linear-gradient(135deg,#4276ff,#6d93ff);border-color:transparent;color:#fff;box-shadow:0 12px 30px rgba(66,118,255,.25)}
   .overview-actions .btn.primary:hover{filter:brightness(1.05)}
+  .overview-extra{margin-top:24px;padding-top:20px;border-top:1px solid rgba(158,201,255,.18);display:grid;gap:20px}
+  .overview-extra .section{display:grid;gap:12px}
+  .overview-extra .section-title{font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:rgba(193,211,238,.6);font-weight:700}
+  .overview-extra .muted{color:rgba(193,211,238,.7)}
   .stat-card{padding:24px;background:linear-gradient(160deg,rgba(16,30,49,.95),rgba(12,22,36,.92));border:1px solid rgba(89,129,207,.3);box-shadow:0 14px 32px rgba(11,20,36,.32)}
   .stat-title{font-weight:800;font-size:18px;color:#e5eeff}
   .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-top:14px}
@@ -60,6 +64,11 @@
   .pill-ok{border-color:rgba(66,207,173,.45);background:rgba(14,42,36,.78);color:#bff3e7}
   .pill-bad{border-color:rgba(255,107,107,.35);background:rgba(42,14,20,.78);color:#ffd5dc}
   .pill-wait{border-color:rgba(79,126,255,.35);background:rgba(16,28,46,.78);color:#b7c7dc}
+  .parent-pill.summary{cursor:default;box-shadow:none}
+  .parent-pill.summary:hover{transform:none;box-shadow:none}
+  .parent-pill .summary-qty{font-size:11px;padding:4px 8px;border-radius:999px;background:rgba(11,19,33,.55);border:1px solid rgba(158,201,255,.2);color:rgba(226,236,255,.85)}
+  .overview-roots{display:flex;flex-wrap:wrap;gap:8px}
+  .overview-roots-empty{color:rgba(193,211,238,.6);font-size:13px}
   .focus-ring{outline:2px solid var(--pc-orange);outline-offset:3px;transition:outline-color .6s ease}
   .manage-card .parent-pill{cursor:default}
   .manage-card .parent-pill .btn{margin-left:6px}
@@ -81,12 +90,18 @@
   .reassort-note.empty{display:none}
   .parent-pill .reassort-chip{margin-left:8px;font-size:11px;padding:4px 8px;border-radius:999px;background:#2e1a07;color:#f5c76f;border:1px solid rgba(245,199,111,.35)}
   .modal-back{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:90}
-  .modal-card{background:#0f1a2a;padding:20px;border-radius:12px;min-width:280px;max-width:420px;box-shadow:0 18px 45px rgba(0,0,0,.45)}
+  .modal-card{background:#0f1a2a;padding:20px;border-radius:12px;min-width:280px;max-width:420px;box-shadow:0 18px 45px rgba(0,0,0,.45);width:100%}
+  .modal-card.wide{max-width:640px}
+  .modal-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px}
+  .modal-header .title{margin:0;font-size:20px;font-weight:800;color:#e5eeff}
+  .modal-close{background:none;border:none;color:rgba(193,211,238,.7);cursor:pointer;font-weight:600;padding:6px 10px;border-radius:8px;transition:background .2s ease}
+  .modal-close:hover{background:rgba(255,255,255,.08)}
   .modal-card .title{margin-bottom:10px}
   .modal-card label{font-size:13px;color:var(--muted);margin-top:6px;display:block}
   .modal-card input,.modal-card textarea{width:100%;margin-top:6px}
   .modal-card .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
   .modal-card textarea{min-height:90px;resize:vertical}
+  body.modal-open{overflow:hidden}
   .header.toggle{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:12px;cursor:pointer;background:rgba(14,24,38,.6);transition:background .2s ease,transform .1s ease}
   .header.toggle:hover{background:rgba(255,255,255,.05);transform:translateY(-1px)}
   .header .left{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
@@ -115,6 +130,42 @@
         <a class="btn" target="_blank" href="/reports/event/{{ event.id }}/pdf">Exporter PDF</a>
         <button class="btn primary" id="btn-share">Lien secouristes</button>
         <button class="btn" id="btn-close">{{ "Clôturer l'événement" if event_status == "OPEN" else "Réouvrir l'événement" }}</button>
+        {% if can_manage %}
+        <button class="btn" id="btn-manage-slots">Gérer les créneaux</button>
+        <button class="btn" id="btn-manage-roots">Gérer les objets</button>
+        {% endif %}
+      </div>
+      <div class="overview-extra">
+        <div class="section">
+          <div class="section-title">Créneaux réservés</div>
+          <div class="muted">Ouvre le <a href="/calendar">calendrier du matériel</a> pour la vision globale.</div>
+          <div class="schedule-list" id="event-slot-display">
+            {% if material_slots %}
+              {% for slot in material_slots %}
+                <div class="schedule-item">
+                  <div>
+                    <div class="label">Plage horaire</div>
+                    <div class="time">{{ slot.start.strftime('%d/%m/%Y %H:%M') }} → {{ slot.end.strftime('%d/%m/%Y %H:%M') }}</div>
+                  </div>
+                  <div>
+                    <div class="label">Matériel</div>
+                    <div class="nodes">{{ slot.nodes|join(', ') if slot.nodes else '—' }}</div>
+                  </div>
+                </div>
+              {% endfor %}
+            {% else %}
+              <div class="muted">Aucun créneau configuré pour le moment.</div>
+            {% endif %}
+          </div>
+        </div>
+        {% if can_manage %}
+        <div class="section">
+          <div class="section-title">Objets associés</div>
+          <div class="muted">Parents rattachés à cet événement.</div>
+          <div id="event-roots-summary" class="overview-roots"></div>
+          <div id="event-roots-empty" class="overview-roots-empty">Aucun parent sélectionné pour le moment.</div>
+        </div>
+        {% endif %}
       </div>
     </div>
 
@@ -148,66 +199,45 @@
   </div>
 
   {% if can_manage %}
-  <div class="card manage-card section-card" id="event-roots-card">
-    <div class="section-heading">
-      <div class="title">Gestion des objets</div>
+  <div id="event-roots-modal" class="modal-back" style="display:none;">
+    <div class="modal-card wide">
+      <div class="modal-header">
+        <div class="title">Gestion des objets</div>
+        <button type="button" class="modal-close" id="close-roots-modal">Fermer</button>
+      </div>
       <div class="muted">Ajoute ou retire des objets pour cet événement.</div>
-    </div>
-    <div id="event-roots-list" class="row wrap" style="margin-top:12px;gap:8px;"></div>
-    <div class="row wrap" style="margin-top:12px;gap:8px;">
-      <select id="event-root-add-select" style="min-width:220px">
-        <option value="">Ajouter un objet…</option>
-      </select>
-      <button class="btn primary sm manage-action" id="btn-add-root">Ajouter</button>
-    </div>
-    <div id="event-roots-hint"></div>
-    <div id="event-roots-status" class="muted"></div>
-  </div>
-  {% endif %}
-
-  <div class="card section-card">
-    <div class="section-heading">
-      <div class="title">Créneaux réservés</div>
-      <div class="muted">Consulte les créneaux planifiés ou ouvre le <a href="/calendar">calendrier du matériel</a> pour la vision globale.</div>
-    </div>
-    <div class="schedule-list" id="event-slot-display">
-      {% if material_slots %}
-        {% for slot in material_slots %}
-          <div class="schedule-item">
-            <div>
-              <div class="label">Plage horaire</div>
-              <div class="time">{{ slot.start.strftime('%d/%m/%Y %H:%M') }} → {{ slot.end.strftime('%d/%m/%Y %H:%M') }}</div>
-            </div>
-            <div>
-              <div class="label">Matériel</div>
-              <div class="nodes">{{ slot.nodes|join(', ') }}</div>
-            </div>
-          </div>
-        {% endfor %}
-      {% else %}
-        <div class="muted">Aucun créneau configuré pour le moment.</div>
-      {% endif %}
+      <div id="event-roots-list" class="row wrap" style="margin-top:16px;gap:8px;"></div>
+      <div class="row wrap" style="margin-top:16px;gap:8px;">
+        <select id="event-root-add-select" style="min-width:220px">
+          <option value="">Ajouter un objet…</option>
+        </select>
+        <button class="btn primary sm manage-action" id="btn-add-root">Ajouter</button>
+      </div>
+      <div id="event-roots-hint" class="muted" style="margin-top:6px;"></div>
+      <div id="event-roots-status" class="muted" style="margin-top:10px;"></div>
     </div>
   </div>
 
-  {% if can_manage %}
-  <div class="card manage-card section-card" id="event-slots-card">
-    <div class="section-heading">
-      <div class="title">Modifier les créneaux</div>
+  <div id="event-slots-modal" class="modal-back" style="display:none;">
+    <div class="modal-card wide">
+      <div class="modal-header">
+        <div class="title">Modifier les créneaux</div>
+        <button type="button" class="modal-close" id="close-slots-modal">Fermer</button>
+      </div>
       <div class="muted">Ajoute, retire ou ajuste les créneaux de réservation pour ce matériel.</div>
+      <div id="event-slots-edit-list" class="column" style="margin-top:16px;gap:8px;display:flex;"></div>
+      <div class="row wrap" style="margin-top:16px;gap:8px;">
+        <input type="datetime-local" id="event-slot-start" class="manage-action" style="min-width:200px">
+        <input type="datetime-local" id="event-slot-end" class="manage-action" style="min-width:200px">
+        <button class="btn primary sm manage-action" id="btn-add-slot">Ajouter</button>
+      </div>
+      <div class="muted" id="event-slots-hint" style="margin-top:6px;"></div>
+      <div class="row wrap" style="margin-top:16px;gap:8px;">
+        <button class="btn primary manage-action" id="btn-save-slots" disabled>Enregistrer</button>
+        <button class="btn ghost manage-action" id="btn-reset-slots" disabled>Réinitialiser</button>
+      </div>
+      <div id="event-slots-status" class="muted" style="margin-top:10px;"></div>
     </div>
-    <div id="event-slots-edit-list" class="column" style="margin-top:12px;gap:8px;display:flex;"></div>
-    <div class="row wrap" style="margin-top:12px;gap:8px;">
-      <input type="datetime-local" id="event-slot-start" class="manage-action" style="min-width:200px">
-      <input type="datetime-local" id="event-slot-end" class="manage-action" style="min-width:200px">
-      <button class="btn primary sm manage-action" id="btn-add-slot">Ajouter</button>
-    </div>
-    <div class="muted" id="event-slots-hint" style="margin-top:6px;"></div>
-    <div class="row wrap" style="margin-top:12px;gap:8px;">
-      <button class="btn primary manage-action" id="btn-save-slots" disabled>Enregistrer</button>
-      <button class="btn ghost manage-action" id="btn-reset-slots" disabled>Réinitialiser</button>
-    </div>
-    <div id="event-slots-status" class="muted"></div>
   </div>
   {% endif %}
 
@@ -234,6 +264,7 @@ let SLOT_STATE = cloneSlots(INITIAL_SLOT_DATA);
 let SLOTS_DIRTY = false;
 let SLOTS_SAVING = false;
 const SLOT_FMT_FULL = new Intl.DateTimeFormat('fr-FR', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
+const OPEN_MODALS = new Set();
 
 /* ========= State ========= */
 const NODE_MAP = new Map();
@@ -272,6 +303,24 @@ function el(tag, attrs={}, ...children){
   }
   for(const c of children){ if(c!=null) e.append(c.nodeType?c:document.createTextNode(c)); }
   return e;
+}
+function showModal(id){
+  const modal = document.getElementById(id);
+  if(!modal) return;
+  modal.style.display = "flex";
+  modal.setAttribute("data-open", "1");
+  OPEN_MODALS.add(id);
+  document.body.classList.add("modal-open");
+}
+function hideModal(id){
+  const modal = document.getElementById(id);
+  if(!modal) return;
+  modal.style.display = "none";
+  modal.removeAttribute("data-open");
+  OPEN_MODALS.delete(id);
+  if(OPEN_MODALS.size === 0){
+    document.body.classList.remove("modal-open");
+  }
 }
 function parseDateValue(value){
   if(!value) return null;
@@ -453,7 +502,7 @@ function updateSlotsButtons(){
 
 function setSlotsControlsDisabled(flag){
   if(!CAN_MANAGE) return;
-  document.querySelectorAll('#event-slots-card .manage-action').forEach(ctrl => {
+  document.querySelectorAll('#event-slots-modal .manage-action').forEach(ctrl => {
     ctrl.disabled = flag;
   });
   updateSlotsButtons();
@@ -471,8 +520,12 @@ function renderSlotDisplay(){
     holder.appendChild(
       el("div", {class:"schedule-item"},
         el("div", {},
-          el("div", {class:"time"}, formatSlotRange(slot)),
-          el("div", {class:"nodes"}, `Matériel : ${slotNodesLabel(slot)}`)
+          el("div", {class:"label"}, "Plage horaire"),
+          el("div", {class:"time"}, formatSlotRange(slot))
+        ),
+        el("div", {},
+          el("div", {class:"label"}, "Matériel"),
+          el("div", {class:"nodes"}, slotNodesLabel(slot))
         )
       )
     );
@@ -635,6 +688,50 @@ function setupSlotsEditor(){
   updateSlotsButtons();
 }
 
+function bindManageModals(){
+  if(!CAN_MANAGE) return;
+  const manageSlots = document.getElementById("btn-manage-slots");
+  if(manageSlots){
+    manageSlots.addEventListener("click", () => {
+      renderSlotEditor();
+      updateSlotsHint();
+      updateSlotsButtons();
+      showModal("event-slots-modal");
+    });
+  }
+  const manageRoots = document.getElementById("btn-manage-roots");
+  if(manageRoots){
+    manageRoots.addEventListener("click", async () => {
+      renderManageRoots();
+      await ensureRootChoicesLoaded();
+      showModal("event-roots-modal");
+    });
+  }
+  const closeSlots = document.getElementById("close-slots-modal");
+  if(closeSlots){
+    closeSlots.addEventListener("click", () => hideModal("event-slots-modal"));
+  }
+  const closeRoots = document.getElementById("close-roots-modal");
+  if(closeRoots){
+    closeRoots.addEventListener("click", () => hideModal("event-roots-modal"));
+  }
+  ["event-slots-modal", "event-roots-modal"].forEach(id => {
+    const modal = document.getElementById(id);
+    if(modal){
+      modal.addEventListener("click", (event) => {
+        if(event.target === modal){
+          hideModal(id);
+        }
+      });
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if(event.key === "Escape" && OPEN_MODALS.size){
+      Array.from(OPEN_MODALS).forEach(openId => hideModal(openId));
+    }
+  });
+}
+
 /* ---------- Gestion parents événement ---------- */
 function setRootsStatus(message, type="info", autoHideMs){
   if(!CAN_MANAGE) return;
@@ -669,7 +766,7 @@ function setRootsStatus(message, type="info", autoHideMs){
 
 function setRootsControlsDisabled(flag){
   if(!CAN_MANAGE) return;
-  document.querySelectorAll('#event-roots-card .manage-action').forEach(btn => {
+  document.querySelectorAll('#event-roots-modal .manage-action').forEach(btn => {
     btn.disabled = flag;
   });
   const select = document.getElementById("event-root-add-select");
@@ -721,6 +818,37 @@ function updateAddSelect(){
   }
 }
 
+function renderRootsSummary(){
+  if(!CAN_MANAGE) return;
+  const holder = document.getElementById("event-roots-summary");
+  const empty = document.getElementById("event-roots-empty");
+  if(!holder || !empty) return;
+  holder.innerHTML = "";
+  if(EVENT_ROOTS.size === 0){
+    holder.style.display = "none";
+    empty.style.display = "block";
+    return;
+  }
+  holder.style.display = "flex";
+  empty.style.display = "none";
+  EVENT_ROOTS.forEach(spec => {
+    const node = NODE_MAP.get(spec.id);
+    const status = node ? groupStatus(node) : "WAIT";
+    const pillClass = status === "OK" ? "pill-ok" : (status === "BAD" ? "pill-bad" : "pill-wait");
+    const pill = el("div", {class:`parent-pill summary ${pillClass}`},
+      statusDot(status === "OK", status === "BAD"),
+      el("span", {class:"strong"}, spec.name || `Parent ${spec.id}`)
+    );
+    if(spec.unique_item){
+      const qtyVal = (spec.quantity != null)
+        ? spec.quantity
+        : (spec.unique_quantity != null ? spec.unique_quantity : 1);
+      pill.append(el("span", {class:"summary-qty"}, `Qté: ${qtyVal}`));
+    }
+    holder.appendChild(pill);
+  });
+}
+
 function renderManageRoots(){
   if(!CAN_MANAGE) return;
   const holder = document.getElementById("event-roots-list");
@@ -760,6 +888,7 @@ function renderManageRoots(){
     });
   }
   updateAddSelect();
+  renderRootsSummary();
 }
 
 function syncCurrentRootsFromTree(){
@@ -1613,6 +1742,7 @@ document.getElementById("btn-close").addEventListener("click", ()=>{
   if(CAN_MANAGE){
     renderSlotEditor();
     setupSlotsEditor();
+    bindManageModals();
   }
   buildUIOnce();
   if(CAN_MANAGE){
