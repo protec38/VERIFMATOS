@@ -225,7 +225,8 @@
 
           const statusEl = document.createElement('div');
           statusEl.className = 'event-status';
-          statusEl.textContent = slot.event.status;
+          const parentName = slot?.node?.parent?.name || slot?.node?.name || '';
+          statusEl.textContent = parentName || slot.event.status;
           block.appendChild(statusEl);
 
           cell.appendChild(block);
