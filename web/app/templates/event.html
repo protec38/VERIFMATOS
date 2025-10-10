@@ -77,6 +77,13 @@
   .chev{width:18px;display:inline-flex;align-items:center;justify-content:center;opacity:.85}
   .childs{padding:10px 12px 6px 28px}
   .childs.collapsed{display:none}
+  .slot-chip{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:10px;border:1px dashed rgba(158,201,255,.3);background:#101d30}
+  .slot-chip .info{font-weight:700;color:#d8e6fb}
+  .slot-chip .meta{color:var(--muted);font-size:12px}
+  #event-slot-display .schedule-item{width:100%}
+  #event-slots-status{margin-top:8px;font-size:13px;color:var(--muted);display:none}
+  #event-slots-status.success{color:#bff3e7}
+  #event-slots-status.error{color:#ffd5dc}
 </style>
 
 <div class="grid cols-2">
@@ -128,20 +135,41 @@
 </div>
 {% endif %}
 
-{% if material_slots %}
 <div class="card" style="margin-top:12px;">
   <div class="title">Créneaux réservés</div>
   <div class="muted" style="margin-top:4px;">Les créneaux planifiés pour cet événement. Consulte le <a href="/calendar">calendrier du matériel</a> pour les disponibilités globales.</div>
-  <div class="schedule-list">
-    {% for slot in material_slots %}
-      <div class="schedule-item">
-        <div>
-          <div class="time">{{ slot.start.strftime('%d/%m/%Y %H:%M') }} → {{ slot.end.strftime('%d/%m/%Y %H:%M') }}</div>
-          <div class="nodes">Matériel : {{ slot.nodes|join(', ') }}</div>
+  <div class="schedule-list" id="event-slot-display">
+    {% if material_slots %}
+      {% for slot in material_slots %}
+        <div class="schedule-item">
+          <div>
+            <div class="time">{{ slot.start.strftime('%d/%m/%Y %H:%M') }} → {{ slot.end.strftime('%d/%m/%Y %H:%M') }}</div>
+            <div class="nodes">Matériel : {{ slot.nodes|join(', ') }}</div>
+          </div>
         </div>
-      </div>
-    {% endfor %}
+      {% endfor %}
+    {% else %}
+      <div class="muted">Aucun créneau configuré pour le moment.</div>
+    {% endif %}
   </div>
+</div>
+
+{% if can_manage %}
+<div class="card manage-card" id="event-slots-card" style="margin-top:12px;">
+  <div class="title">Modifier les créneaux</div>
+  <div class="muted" style="margin-top:4px;">Ajoute, retire ou ajuste les créneaux de réservation pour ce matériel.</div>
+  <div id="event-slots-edit-list" class="column" style="margin-top:12px;gap:8px;display:flex;"></div>
+  <div class="row wrap" style="margin-top:12px;gap:8px;">
+    <input type="datetime-local" id="event-slot-start" class="manage-action" style="min-width:200px">
+    <input type="datetime-local" id="event-slot-end" class="manage-action" style="min-width:200px">
+    <button class="btn primary sm manage-action" id="btn-add-slot">Ajouter</button>
+  </div>
+  <div class="muted" id="event-slots-hint" style="margin-top:6px;"></div>
+  <div class="row wrap" style="margin-top:12px;gap:8px;">
+    <button class="btn primary manage-action" id="btn-save-slots" disabled>Enregistrer</button>
+    <button class="btn ghost manage-action" id="btn-reset-slots" disabled>Réinitialiser</button>
+  </div>
+  <div id="event-slots-status" class="muted"></div>
 </div>
 {% endif %}
 
@@ -161,6 +189,12 @@ const SHOW_VERIFY = {{ 'true' if allow_verify else 'false' }};
 let IS_OPEN = ("{{ event_status }}".toUpperCase() === "OPEN");
 
 const ALLOW_CHARGE = {{ 'true' if can_manage else 'false' }};
+const INITIAL_SLOT_DATA = {{ (material_slots_payload or [])|tojson }};
+let SLOT_BASELINE = cloneSlots(INITIAL_SLOT_DATA);
+let SLOT_STATE = cloneSlots(INITIAL_SLOT_DATA);
+let SLOTS_DIRTY = false;
+let SLOTS_SAVING = false;
+const SLOT_FMT_FULL = new Intl.DateTimeFormat('fr-FR', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
 
 /* ========= State ========= */
 const NODE_MAP = new Map();
@@ -199,6 +233,93 @@ function el(tag, attrs={}, ...children){
   }
   for(const c of children){ if(c!=null) e.append(c.nodeType?c:document.createTextNode(c)); }
   return e;
+}
+function parseDateValue(value){
+  if(!value) return null;
+  const d = new Date(value);
+  if(Number.isNaN(d.getTime())) return null;
+  return d;
+}
+function slotSort(a, b){
+  const startA = parseDateValue(a.start);
+  const startB = parseDateValue(b.start);
+  if(startA && startB && startA.getTime() !== startB.getTime()){
+    return startA.getTime() - startB.getTime();
+  }
+  const endA = parseDateValue(a.end);
+  const endB = parseDateValue(b.end);
+  if(endA && endB && endA.getTime() !== endB.getTime()){
+    return endA.getTime() - endB.getTime();
+  }
+  const startCmp = String(a.start||"").localeCompare(String(b.start||""));
+  if(startCmp !== 0) return startCmp;
+  return String(a.end||"").localeCompare(String(b.end||""));
+}
+function normalizeSlotEntry(entry){
+  if(!entry) return null;
+  const startRaw = entry.start || entry.from || entry.begin || "";
+  const endRaw = entry.end || entry.to || entry.finish || "";
+  const start = String(startRaw || "").trim();
+  const end = String(endRaw || "").trim();
+  if(!start || !end) return null;
+  let nodes = [];
+  if(Array.isArray(entry.nodes)){
+    nodes = entry.nodes.filter(Boolean).map(v => String(v));
+    nodes.sort((a,b)=>a.localeCompare(b,'fr',{sensitivity:'base'}));
+  }
+  return {start, end, nodes};
+}
+function cloneSlots(list){
+  const clone = [];
+  (list||[]).forEach(entry => {
+    const normalized = normalizeSlotEntry(entry);
+    if(normalized){
+      clone.push({...normalized});
+    }
+  });
+  clone.sort(slotSort);
+  return clone;
+}
+function currentRootNames(){
+  const names = [];
+  EVENT_ROOTS.forEach(spec => {
+    if(!spec) return;
+    names.push(spec.name || `Parent ${spec.id}`);
+  });
+  names.sort((a,b)=>a.localeCompare(b,'fr',{sensitivity:'base'}));
+  return names;
+}
+function ensureSlotNodes(list){
+  if(!Array.isArray(list) || list.length === 0) return false;
+  const names = currentRootNames();
+  let changed = false;
+  list.forEach(slot => {
+    if(!slot) return;
+    const same = Array.isArray(slot.nodes)
+      && slot.nodes.length === names.length
+      && slot.nodes.every((value, index) => value === names[index]);
+    if(!same){
+      slot.nodes = names.slice();
+      changed = true;
+    }
+  });
+  return changed;
+}
+function slotNodesLabel(slot){
+  if(slot && Array.isArray(slot.nodes) && slot.nodes.length){
+    return slot.nodes.join(', ');
+  }
+  const names = currentRootNames();
+  return names.length ? names.join(', ') : '—';
+}
+function formatSlotRange(slot){
+  if(!slot) return '';
+  const startDate = parseDateValue(slot.start);
+  const endDate = parseDateValue(slot.end);
+  if(startDate && endDate){
+    return `${SLOT_FMT_FULL.format(startDate)} → ${SLOT_FMT_FULL.format(endDate)}`;
+  }
+  return `${slot.start} → ${slot.end}`;
 }
 const isUnique = n => !!(n && n.unique_item);
 const isUniqueParent = n => !!(n && n.unique_parent);
@@ -249,6 +370,230 @@ function flattenItems(nodes){
     (n.children||[]).forEach(rec);
   });
   return out;
+}
+
+/* ---------- Gestion créneaux événement ---------- */
+function setSlotsStatus(message, type="info"){
+  if(!CAN_MANAGE) return;
+  const elStatus = document.getElementById("event-slots-status");
+  if(!elStatus) return;
+  elStatus.classList.remove("success", "error");
+  if(!message){
+    elStatus.textContent = "";
+    elStatus.style.display = "none";
+    return;
+  }
+  if(type === "success") elStatus.classList.add("success");
+  else if(type === "error") elStatus.classList.add("error");
+  elStatus.textContent = message;
+  elStatus.style.display = "block";
+}
+
+function updateSlotsHint(){
+  if(!CAN_MANAGE) return;
+  const hint = document.getElementById("event-slots-hint");
+  if(!hint) return;
+  if(SLOT_STATE.length === 0){
+    hint.textContent = "Ajoute au moins un créneau (date et heures de départ / fin).";
+  } else {
+    hint.textContent = `${SLOT_STATE.length} créneau${SLOT_STATE.length>1?'x':''} configuré${SLOT_STATE.length>1?'s':''}.`;
+  }
+}
+
+function updateSlotsButtons(){
+  if(!CAN_MANAGE) return;
+  const saveBtn = document.getElementById("btn-save-slots");
+  if(saveBtn){
+    saveBtn.disabled = SLOTS_SAVING || !SLOTS_DIRTY || SLOT_STATE.length === 0;
+  }
+  const resetBtn = document.getElementById("btn-reset-slots");
+  if(resetBtn){
+    resetBtn.disabled = SLOTS_SAVING || !SLOTS_DIRTY;
+  }
+}
+
+function setSlotsControlsDisabled(flag){
+  if(!CAN_MANAGE) return;
+  document.querySelectorAll('#event-slots-card .manage-action').forEach(ctrl => {
+    ctrl.disabled = flag;
+  });
+  updateSlotsButtons();
+}
+
+function renderSlotDisplay(){
+  const holder = document.getElementById("event-slot-display");
+  if(!holder) return;
+  holder.innerHTML = "";
+  if(SLOT_STATE.length === 0){
+    holder.appendChild(el("div", {class:"muted"}, "Aucun créneau configuré pour le moment."));
+    return;
+  }
+  SLOT_STATE.forEach(slot => {
+    holder.appendChild(
+      el("div", {class:"schedule-item"},
+        el("div", {},
+          el("div", {class:"time"}, formatSlotRange(slot)),
+          el("div", {class:"nodes"}, `Matériel : ${slotNodesLabel(slot)}`)
+        )
+      )
+    );
+  });
+}
+
+function renderSlotEditor(){
+  if(!CAN_MANAGE) return;
+  const holder = document.getElementById("event-slots-edit-list");
+  if(!holder) return;
+  holder.innerHTML = "";
+  if(SLOT_STATE.length === 0){
+    holder.appendChild(el("div", {class:"muted"}, "Aucun créneau configuré."));
+    updateSlotsHint();
+    return;
+  }
+  SLOT_STATE.forEach((slot, index) => {
+    const row = el("div", {class:"slot-chip"});
+    const removeBtn = el("button", {
+      class:"btn danger sm manage-action",
+      onclick: () => {
+        SLOT_STATE.splice(index, 1);
+        markSlotsDirty(true);
+        renderSlotEditor();
+        renderSlotDisplay();
+      }
+    }, "Retirer");
+    row.append(
+      el("div", {class:"info"}, formatSlotRange(slot)),
+      el("div", {class:"meta"}, `Créneau ${index + 1}`),
+      removeBtn
+    );
+    holder.appendChild(row);
+  });
+  updateSlotsHint();
+}
+
+function markSlotsDirty(flag){
+  if(!CAN_MANAGE) return;
+  SLOTS_DIRTY = !!flag;
+  if(SLOTS_DIRTY){
+    setSlotsStatus("Modifications non enregistrées.", "info");
+  } else {
+    setSlotsStatus("", "info");
+  }
+  updateSlotsButtons();
+}
+
+function syncSlotsNodesFromRoots(){
+  const changedCurrent = ensureSlotNodes(SLOT_STATE);
+  const changedBaseline = ensureSlotNodes(SLOT_BASELINE);
+  return changedCurrent || changedBaseline;
+}
+
+function addSlotFromInputs(){
+  if(!CAN_MANAGE) return;
+  const startInput = document.getElementById("event-slot-start");
+  const endInput = document.getElementById("event-slot-end");
+  const startVal = (startInput?.value || "").trim();
+  const endVal = (endInput?.value || "").trim();
+  if(!startVal || !endVal){
+    alert("Renseigne les dates de début et de fin.");
+    return;
+  }
+  const startDate = parseDateValue(startVal);
+  const endDate = parseDateValue(endVal);
+  if(!startDate || !endDate){
+    alert("Format de date/heure invalide.");
+    return;
+  }
+  if(endDate <= startDate){
+    alert("La fin du créneau doit être après le début.");
+    return;
+  }
+  if(SLOT_STATE.some(slot => slot.start === startVal && slot.end === endVal)){
+    alert("Ce créneau est déjà présent.");
+    return;
+  }
+  const overlaps = SLOT_STATE.some(slot => {
+    const existingStart = parseDateValue(slot.start);
+    const existingEnd = parseDateValue(slot.end);
+    return existingStart && existingEnd && endDate > existingStart && startDate < existingEnd;
+  });
+  if(overlaps && !confirm("Ce créneau chevauche un autre créneau déjà ajouté. Continuer malgré tout ?")){
+    return;
+  }
+  const names = currentRootNames();
+  SLOT_STATE.push({start: startVal, end: endVal, nodes: names.slice()});
+  SLOT_STATE.sort(slotSort);
+  if(startInput) startInput.value = "";
+  if(endInput) endInput.value = "";
+  markSlotsDirty(true);
+  renderSlotEditor();
+  renderSlotDisplay();
+}
+
+async function saveSlots(){
+  if(!CAN_MANAGE) return;
+  if(SLOT_STATE.length === 0){
+    alert("Ajoute au moins un créneau.");
+    return;
+  }
+  SLOTS_SAVING = true;
+  setSlotsControlsDisabled(true);
+  setSlotsStatus("Enregistrement en cours…", "info");
+  try{
+    const res = await fetch(`/events/${EVENT_ID}/slots`, {
+      method: "PUT",
+      credentials: "include",
+      headers: {"Content-Type": "application/json", "Accept": "application/json"},
+      body: JSON.stringify({
+        slots: SLOT_STATE.map(slot => ({start: slot.start, end: slot.end}))
+      })
+    });
+    const text = await res.text();
+    if(!res.ok){
+      setSlotsStatus("", "info");
+      alert(text || "Impossible d'enregistrer les créneaux.");
+      return;
+    }
+    let data = {};
+    try{ data = text ? JSON.parse(text) : {}; }catch(_){ data = {}; }
+    const latest = cloneSlots((data && data.slots) || []);
+    SLOT_BASELINE = cloneSlots(latest);
+    SLOT_STATE = cloneSlots(latest);
+    ensureSlotNodes(SLOT_BASELINE);
+    ensureSlotNodes(SLOT_STATE);
+    renderSlotDisplay();
+    renderSlotEditor();
+    markSlotsDirty(false);
+    setSlotsStatus("Créneaux enregistrés.", "success");
+  }catch(_){
+    setSlotsStatus("", "info");
+    alert("Erreur réseau");
+  }finally{
+    SLOTS_SAVING = false;
+    setSlotsControlsDisabled(false);
+  }
+}
+
+function resetSlots(){
+  if(!CAN_MANAGE) return;
+  SLOT_STATE = cloneSlots(SLOT_BASELINE);
+  ensureSlotNodes(SLOT_STATE);
+  renderSlotDisplay();
+  renderSlotEditor();
+  markSlotsDirty(false);
+  setSlotsStatus("Modifications annulées.", "info");
+}
+
+function setupSlotsEditor(){
+  if(!CAN_MANAGE) return;
+  const addBtn = document.getElementById("btn-add-slot");
+  if(addBtn) addBtn.addEventListener("click", addSlotFromInputs);
+  const saveBtn = document.getElementById("btn-save-slots");
+  if(saveBtn) saveBtn.addEventListener("click", saveSlots);
+  const resetBtn = document.getElementById("btn-reset-slots");
+  if(resetBtn) resetBtn.addEventListener("click", resetSlots);
+  updateSlotsHint();
+  updateSlotsButtons();
 }
 
 /* ---------- Gestion parents événement ---------- */
@@ -404,7 +749,13 @@ function syncCurrentRootsFromTree(){
       quantity: Number.isNaN(selected) ? null : selected,
     });
   });
+  const slotsChanged = syncSlotsNodesFromRoots();
   renderManageRoots();
+  if(slotsChanged){
+    renderSlotDisplay();
+  }
+  renderSlotEditor();
+  updateSlotsButtons();
 }
 
 async function ensureRootChoicesLoaded(){
@@ -1203,6 +1554,11 @@ document.getElementById("btn-close").addEventListener("click", ()=>{
 
 /* ---------- Init (polling, comme avant) ---------- */
 (function init(){
+  renderSlotDisplay();
+  if(CAN_MANAGE){
+    renderSlotEditor();
+    setupSlotsEditor();
+  }
   buildUIOnce();
   if(CAN_MANAGE){
     ensureRootChoicesLoaded();
