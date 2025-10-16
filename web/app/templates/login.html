@@ -10,6 +10,9 @@
       </div>
     {% endif %}
     <form method="post" action="/login" class="row" style="margin-top:16px;flex-direction:column;gap:10px;">
+      {% if next_url %}
+        <input type="hidden" name="next" value="{{ next_url }}">
+      {% endif %}
       <input name="username" placeholder="Nom d’utilisateur" required autocomplete="username">
       <input name="password" type="password" placeholder="Mot de passe" required autocomplete="current-password">
       <button class="btn primary" type="submit" style="align-self:flex-end;">Se connecter</button>

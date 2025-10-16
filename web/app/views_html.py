@@ -92,7 +92,8 @@ def _root_payload(node: StockNode) -> dict:
 @bp.route("/login", methods=["GET"])
 def login():
     error = (request.args.get("error") or "").strip()
-    return render_template("login.html", error=error)
+    next_url = (request.args.get("next") or "").strip()
+    return render_template("login.html", error=error, next_url=next_url)
 
 @bp.get("/logout")
 @login_required

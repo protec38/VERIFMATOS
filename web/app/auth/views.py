@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 from typing import Optional
+from urllib.parse import urlparse, urljoin
 
 from flask import Blueprint, request, jsonify, redirect, url_for
 from flask_login import login_user, logout_user, login_required, current_user
@@ -68,6 +69,29 @@ def _format_block_message(retry_after: int) -> str:
     seconds = max(1, int(retry_after))
     suffix = "s" if seconds > 1 else ""
     return f"Trop de tentatives. Réessaie dans {seconds} seconde{suffix}."
+
+
+def _safe_redirect_target(target: str | None) -> str | None:
+    if not target:
+        return None
+
+    try:
+        ref_url = urlparse(request.host_url)
+        test_url = urlparse(urljoin(request.host_url, target))
+    except Exception:
+        return None
+
+    if test_url.scheme not in ("http", "https"):
+        return None
+    if test_url.netloc != ref_url.netloc:
+        return None
+
+    path = test_url.path or "/"
+    if test_url.query:
+        path = f"{path}?{test_url.query}"
+    if test_url.fragment:
+        path = f"{path}#{test_url.fragment}"
+    return path
 
 
 @bp.post("/login")
@@ -175,8 +199,12 @@ def login():
         message="Connexion réussie",
     )
 
-    # Si l’appel vient d’un formulaire HTML, on redirige vers le dashboard
+    # Si l’appel vient d’un formulaire HTML, on redirige vers la cible souhaitée (ou le dashboard)
     if request.form and not request.is_json:
+        next_url = request.form.get("next") or request.args.get("next")
+        safe_target = _safe_redirect_target(next_url)
+        if safe_target:
+            return redirect(safe_target)
         return redirect(url_for("pages.dashboard"))
 
     # Sinon on reste en JSON
