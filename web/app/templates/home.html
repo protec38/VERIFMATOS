@@ -3,157 +3,287 @@
 {% block content %}
 
 <style>
-  .dashboard-grid{grid-template-columns:minmax(0,1.45fr) minmax(0,1fr)}
-  @media (min-width:1400px){
-    .dashboard-grid{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)}
-  }
-  .root-groups{display:flex;flex-direction:column;gap:12px;margin-top:12px}
-  .root-group{border:1px solid var(--border);border-radius:12px;padding:12px;background:#0f1e2f}
-  .root-group-title{font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:8px}
-  .root-group-nodes{display:flex;flex-wrap:wrap;gap:8px}
+  .dashboard{display:flex;flex-direction:column;gap:32px}
+  .hero-card{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,0.9fr);gap:28px;padding:32px;border-radius:28px;
+    background:linear-gradient(135deg,rgba(34,74,133,.95),rgba(18,36,64,.92));border:1px solid rgba(126,179,255,.35);
+    box-shadow:0 25px 55px rgba(6,18,42,.45);position:relative;overflow:hidden}
+  .hero-card::before{content:"";position:absolute;inset:auto -120px -160px auto;width:380px;height:380px;
+    background:radial-gradient(circle,rgba(255,179,71,.25),transparent 60%);opacity:.75;pointer-events:none}
+  @media (max-width:960px){.hero-card{grid-template-columns:1fr;padding:26px}}
+  .hero-title{margin:0;font-size:30px;font-weight:800;letter-spacing:.35px;color:#fff}
+  @media (max-width:640px){.hero-title{font-size:26px}}
+  .hero-text{margin:14px 0 0;color:rgba(227,238,255,.82);max-width:520px;font-size:15px;line-height:1.6}
+  .hero-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px}
+  .hero-actions .btn{background:rgba(11,26,50,.4);border-color:rgba(255,255,255,.22)}
+  .hero-actions .btn.primary{background:linear-gradient(135deg,var(--pc-orange),var(--pc-orange-strong));border-color:transparent;color:#1d1300}
+  .hero-actions .btn:hover{background:rgba(12,30,56,.65)}
+  .hero-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px}
+  .hero-stat{position:relative;padding:18px 18px 20px;border-radius:20px;background:rgba(9,22,40,.72);
+    border:1px solid rgba(184,211,255,.28);box-shadow:0 16px 34px rgba(4,12,28,.35);display:flex;flex-direction:column;gap:8px}
+  .hero-stat .label{font-size:12px;text-transform:uppercase;letter-spacing:.28em;color:rgba(200,219,255,.68);font-weight:600}
+  .hero-stat .value{font-size:30px;font-weight:800;color:#fff}
+  .hero-stat .hint{font-size:13px;color:rgba(204,219,248,.72)}
+  .hero-stat.highlight{background:rgba(18,54,46,.85);border-color:rgba(66,207,173,.55)}
+  .hero-stat.highlight .value{color:#bff3e7}
+  .content-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:26px;align-items:start}
+  @media (max-width:1080px){.content-grid{grid-template-columns:1fr}}
+  .panel{padding:26px;border-radius:24px;background:linear-gradient(160deg,rgba(13,29,51,.88),rgba(8,18,34,.92));
+    border:1px solid rgba(120,160,220,.18);box-shadow:0 18px 40px rgba(4,10,26,.35)}
+  .panel .title{font-size:22px;margin-bottom:6px}
+  .panel .subtitle{font-size:14px;color:var(--muted);margin-top:0}
+  .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:20px}
+  .form-field{display:flex;flex-direction:column;gap:6px}
+  .form-field label{font-size:13px;font-weight:600;color:rgba(193,211,238,.75);letter-spacing:.02em}
+  .slot-card{margin-top:24px;padding:22px;border-radius:20px;background:rgba(10,23,42,.72);
+    border:1px solid rgba(158,201,255,.25);box-shadow:0 14px 30px rgba(4,12,28,.32)}
+  .slot-card .subtitle{margin-bottom:12px;font-size:15px;color:#e2ecff;font-weight:700}
+  .slot-list{display:flex;flex-direction:column;gap:10px}
+  .slot-chip{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;
+    border:1px solid rgba(158,201,255,.28);background:rgba(13,30,56,.78);box-shadow:0 10px 22px rgba(5,14,30,.28)}
+  .slot-chip .info{font-weight:700;color:#f1f5ff}
+  .slot-chip .meta{font-size:12px;color:rgba(193,211,238,.7);margin-left:auto}
+  .slot-chip .btn{margin-left:auto}
+  .slot-form{margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+  .slot-form .btn{justify-content:center}
+  .slot-hint{margin-top:10px;color:rgba(193,211,238,.75);font-size:13px}
+  .selection-card{margin-top:24px;padding:22px;border-radius:20px;background:rgba(11,28,54,.68);
+    border:1px solid rgba(158,201,255,.18);display:flex;flex-direction:column;gap:18px}
+  .selection-header{display:flex;flex-wrap:wrap;align-items:center;gap:12px;justify-content:space-between}
+  .selection-header .muted{font-size:13px}
+  .root-groups{display:flex;flex-direction:column;gap:16px}
+  .root-group{padding:16px;border-radius:18px;background:rgba(9,23,46,.75);border:1px solid rgba(158,201,255,.12);
+    box-shadow:0 12px 26px rgba(4,12,28,.32);display:flex;flex-direction:column;gap:12px}
+  .root-group-title{font-weight:700;display:flex;align-items:center;gap:10px;color:#f0f5ff}
   .root-group-empty{font-size:13px;color:var(--muted)}
-  .slot-card{margin-top:12px;padding:12px;border-radius:12px;border:1px solid var(--border);background:#0f1d2d}
-  .slot-card .subtitle{margin-bottom:8px}
-  .slot-list{display:flex;flex-direction:column;gap:8px;margin-top:8px}
-  .slot-chip{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:10px;border:1px dashed rgba(158,201,255,.3);background:#101d30}
-  .slot-chip .info{font-weight:700;color:#d8e6fb}
-  .slot-chip .meta{color:var(--muted);font-size:12px}
-  .slot-form{margin-top:10px;gap:8px;display:flex;flex-wrap:wrap}
-  .slot-form input{flex:1;min-width:200px}
-  .slot-hint{margin-top:8px;color:var(--muted);font-size:13px}
-  .btn.sm{padding:6px 10px;font-size:12px;border-radius:8px}
+  .root-group-nodes{display:flex;flex-wrap:wrap;gap:10px}
+  .root-chip{position:relative;display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:16px;
+    border:1px solid rgba(158,201,255,.16);background:rgba(12,30,58,.72);min-width:0;flex:1 1 220px;cursor:pointer;
+    transition:transform .15s ease,box-shadow .2s ease,border-color .2s ease;background-image:linear-gradient(135deg,rgba(79,126,255,.12),transparent)}
+  .root-chip:hover{transform:translateY(-1px);box-shadow:0 16px 28px rgba(7,17,36,.42)}
+  .root-chip input{position:absolute;inset:0;opacity:0;cursor:pointer}
+  .root-chip-content{display:flex;flex-direction:column;gap:4px;min-width:0}
+  .root-chip-name{font-weight:600;color:#f5f8ff}
+  .root-chip-meta{font-size:12px;color:rgba(193,211,238,.7)}
+  .root-chip .badge{margin-left:auto;background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.12)}
+  .root-chip.is-checked{border-color:rgba(255,179,71,.55);box-shadow:0 18px 34px rgba(255,147,52,.25);background:rgba(32,44,70,.78)}
+  .root-chip.is-checked .root-chip-name{color:#ffe3c3}
+  .root-chip.is-checked .root-chip-meta{color:#ffd8a8}
+  .form-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:26px}
+  .form-actions .btn{flex:1 1 180px;justify-content:center}
+  .form-actions .btn.primary{flex:0 0 auto;padding-inline:24px}
+  .events-panel .title{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .events-panel .title span{font-size:13px;font-weight:600;color:rgba(193,211,238,.72);text-transform:uppercase;letter-spacing:.32em}
+  .events-search{display:flex;flex-wrap:wrap;gap:12px;margin-top:16px}
+  .events-search input{flex:1;min-width:220px}
+  .events-table{margin-top:18px;border-radius:20px;overflow:hidden;border:1px solid rgba(255,255,255,.05);background:rgba(10,24,46,.6);
+    box-shadow:0 16px 32px rgba(4,12,26,.32)}
+  .events-table table{width:100%;border-collapse:collapse}
+  .events-table th,.events-table td{padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.05);font-size:14px}
+  .events-table th{text-transform:uppercase;font-size:11px;letter-spacing:.3em;color:rgba(193,211,238,.7)}
+  .events-table tr:hover td{background:rgba(45,123,191,.12)}
+  .events-table td.actions{display:flex;flex-wrap:wrap;gap:8px}
+  .status-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;font-weight:700;font-size:12px;
+    border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.08)}
+  .status-pill[data-status="OPEN"]{background:rgba(17,78,62,.75);border-color:rgba(66,207,173,.45);color:#bff3e7}
+  .status-pill[data-status="CLOSED"]{background:rgba(104,26,40,.7);border-color:rgba(255,118,138,.4);color:#ffd5dc}
+  .empty-state{padding:18px;text-align:center;color:var(--muted)}
+  @media (max-width:640px){
+    .panel{padding:22px}
+    .hero-actions .btn{flex:1 1 auto}
+    .form-actions .btn{flex:1 1 100%}
+    .slot-chip{align-items:flex-start}
+  }
 </style>
 
-<div class="grid cols-2 dashboard-grid">
-  <div class="card">
-    <div class="title">Créer un événement</div>
-    <div class="subtitle">Sélectionne les stocks « parents » à vérifier (au moins un)</div>
+{% set stats = namespace(open=0) %}
+{% for ev in events %}
+  {% if ev.status == 'OPEN' %}
+    {% set stats.open = stats.open + 1 %}
+  {% endif %}
+{% endfor %}
+{% set total_events = events|length %}
+{% set template_count = templates|length if templates else 0 %}
+{% set lot_count = lots|length if lots else 0 %}
 
-    <form id="event-form" class="row wrap" style="margin-top:8px" onsubmit="return false;">
-      <input type="text" name="name" id="ev-name" placeholder="Nom de l'événement" required>
-      <input type="date" name="date" id="ev-date" placeholder="Date (optionnel)">
-    </form>
-
-    <div class="slot-card">
-      <div class="subtitle">Créneaux horaires de l'événement</div>
-      <div class="slot-list" id="slot-list">
-        <div class="muted">Aucun créneau ajouté pour le moment.</div>
+<div class="dashboard">
+  <div class="hero-card">
+    <div>
+      <h1 class="hero-title">Planifie sereinement tes interventions</h1>
+      <p class="hero-text">Centralise la création des événements, prépare les créneaux horaires et sélectionne le matériel à contrôler en quelques clics.</p>
+      <div class="hero-actions">
+        <a class="btn primary" href="#create-event">Créer un événement</a>
+        <a class="btn" href="/templates">Templates & lots</a>
+        <a class="btn ghost" href="#events-list">Historique des événements</a>
       </div>
-      <div class="slot-form">
-        <input type="datetime-local" id="slot-start" step="900">
-        <input type="datetime-local" id="slot-end" step="900">
-        <button class="btn" type="button" id="btn-add-slot">Ajouter le créneau</button>
-      </div>
-      <div class="slot-hint" id="slot-hint">Ajoute au moins un créneau (date et heures de départ / fin).</div>
     </div>
-
-    <div class="alert" style="margin-top:10px">
-      <div class="row wrap" style="gap:8px;align-items:center">
-        <label for="template-select" class="muted">Template :</label>
-        <select id="template-select" style="min-width:220px">
-          <option value="">Sélectionner un template…</option>
-          {% for tpl in templates %}
-            <option value="{{ tpl.id }}">{{ tpl.name }}</option>
-          {% endfor %}
-        </select>
+    <div class="hero-stats">
+      <div class="hero-stat highlight">
+        <span class="label">Événements ouverts</span>
+        <span class="value">{{ stats.open }}</span>
+        <span class="hint">sur {{ total_events }} récent{{ 's' if total_events > 1 else '' }}</span>
       </div>
-      <div class="row wrap" style="margin-top:8px;gap:8px;align-items:center">
-        <label for="lot-select" class="muted">Lot :</label>
-        <select id="lot-select" style="min-width:220px">
-          <option value="">Ajouter un lot…</option>
-          {% for lot in lots %}
-            <option value="{{ lot.id }}">{{ lot.name }}</option>
-          {% endfor %}
-        </select>
+      <div class="hero-stat">
+        <span class="label">Templates enregistrés</span>
+        <span class="value">{{ template_count }}</span>
+        <span class="hint">Utilise un modèle pour gagner du temps</span>
       </div>
-      {% if root_groups and root_groups|length %}
-        <div class="root-groups">
-          {% for group in root_groups %}
-            <div class="root-group">
-              <div class="root-group-title">
-                {{ group.category.name if group.category else "Sans catégorie" }}
-                {% if group.nodes %}
-                  <span class="badge" style="font-size:12px;">{{ group.nodes|length }} parent{{ 's' if group.nodes|length > 1 else '' }}</span>
-                {% endif %}
-              </div>
-              {% if group.nodes and group.nodes|length %}
-                <div class="root-group-nodes">
-                  {% for r in group.nodes %}
-                    <label class="btn ghost" style="cursor:pointer;">
-                      <input type="checkbox" class="root-cb" value="{{ r.id }}" style="margin-right:6px"
-                             data-name="{{ r.name }}"
-                             data-unique="{{ 1 if r.unique_item else 0 }}"
-                             data-max="{{ r.unique_quantity if r.unique_quantity is not none else '' }}">
-                      {{ r.name }}
-                    </label>
-                  {% endfor %}
-                </div>
-              {% else %}
-                <div class="root-group-empty">Aucun parent dans cette catégorie.</div>
-              {% endif %}
-            </div>
-          {% endfor %}
-        </div>
-      {% else %}
-        <span class="muted">Aucun parent racine disponible. Crée d’abord un stock parent dans 🧰 Stock.</span>
-      {% endif %}
-    </div>
-
-    <div class="row" style="margin-top:10px;">
-      <button id="btn-create" class="btn primary">Créer l'événement</button>
+      <div class="hero-stat">
+        <span class="label">Lots disponibles</span>
+        <span class="value">{{ lot_count }}</span>
+        <span class="hint">Ajoute un lot pour compléter un événement</span>
+      </div>
     </div>
   </div>
 
-  <div class="card">
-    <div class="title">Derniers événements</div>
-    <form method="get" class="row wrap" style="margin-top:12px;gap:8px;align-items:center;">
-      <input type="search" name="q" placeholder="Rechercher un événement" value="{{ search_query }}" style="flex:1;min-width:220px;">
-      <button class="btn" type="submit">Rechercher</button>
-      {% if search_query %}
-        <a class="btn ghost" href="{{ url_for('pages.dashboard') }}">Réinitialiser</a>
-      {% endif %}
-    </form>
-    {% if search_query %}
-      <div class="muted" style="margin-top:8px;">
-        {{ events|length }} résultat{{ 's' if events|length > 1 else '' }} pour « {{ search_query }} ».
+  <div class="content-grid">
+    <section class="panel" id="create-event">
+      <div class="title">Créer un événement</div>
+      <p class="subtitle">Renseigne les informations principales puis ajoute les créneaux et les stocks « parents » à vérifier.</p>
+
+      <form id="event-form" class="form-grid" onsubmit="return false;">
+        <div class="form-field">
+          <label for="ev-name">Nom de l'événement</label>
+          <input type="text" name="name" id="ev-name" placeholder="Ex. Dispositif Buvette Concert" required>
+        </div>
+        <div class="form-field">
+          <label for="ev-date">Date (optionnel)</label>
+          <input type="date" name="date" id="ev-date" placeholder="Date (optionnel)">
+        </div>
+      </form>
+
+      <div class="slot-card">
+        <div class="subtitle">Créneaux horaires de l'événement</div>
+        <div class="slot-list" id="slot-list">
+          <div class="muted">Aucun créneau ajouté pour le moment.</div>
+        </div>
+        <div class="slot-form">
+          <input type="datetime-local" id="slot-start" step="900">
+          <input type="datetime-local" id="slot-end" step="900">
+          <button class="btn" type="button" id="btn-add-slot">Ajouter le créneau</button>
+        </div>
+        <div class="slot-hint" id="slot-hint">Ajoute au moins un créneau (date et heures de départ / fin).</div>
       </div>
-    {% endif %}
-    <table class="table" style="margin-top:8px">
-      <thead>
-        <tr>
-          <th>Nom</th>
-          <th>Statut</th>
-          <th>Date</th>
-          <th style="width:270px">Actions</th>
-        </tr>
-      </thead>
-      <tbody id="events-body">
-        {% for ev in events %}
-        <tr data-id="{{ ev.id }}">
-          <td><a href="{{ url_for('pages.event_page', event_id=ev.id) }}">{{ ev.name }}</a></td>
-          <td>
-            <span class="badge">{{ ev.status }}</span>
-          </td>
-          <td>{{ ev.date or "—" }}</td>
-          <td class="row">
-            <a class="btn" href="{{ url_for('pages.event_page', event_id=ev.id) }}">Ouvrir</a>
-            <a class="btn" target="_blank" href="/reports/event/{{ ev.id }}/pdf">Export PDF</a>
-            <button class="btn danger btn-del" data-id="{{ ev.id }}">Supprimer</button>
-          </td>
-        </tr>
+
+      <div class="selection-card">
+        <div class="selection-header">
+          <div>
+            <div class="subtitle" style="margin:0;font-size:15px;color:#f2f6ff;font-weight:700">Sélection des parents racines</div>
+            <div class="muted">Applique un template ou sélectionne les parents nécessaires pour l'événement.</div>
+          </div>
+          <div class="row wrap" style="gap:10px">
+            <select id="template-select" style="min-width:200px">
+              <option value="">Appliquer un template…</option>
+              {% for tpl in templates %}
+                <option value="{{ tpl.id }}">{{ tpl.name }}</option>
+              {% endfor %}
+            </select>
+            <select id="lot-select" style="min-width:200px">
+              <option value="">Ajouter un lot…</option>
+              {% for lot in lots %}
+                <option value="{{ lot.id }}">{{ lot.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        {% if root_groups and root_groups|length %}
+          <div class="root-groups">
+            {% for group in root_groups %}
+              <div class="root-group">
+                <div class="root-group-title">
+                  {{ group.category.name if group.category else "Sans catégorie" }}
+                  {% if group.nodes %}
+                    <span class="badge" style="font-size:12px;">{{ group.nodes|length }} parent{{ 's' if group.nodes|length > 1 else '' }}</span>
+                  {% endif %}
+                </div>
+                {% if group.nodes and group.nodes|length %}
+                  <div class="root-group-nodes">
+                    {% for r in group.nodes %}
+                      <label class="root-chip">
+                        <input type="checkbox" class="root-cb" value="{{ r.id }}"
+                               data-name="{{ r.name }}"
+                               data-unique="{{ 1 if r.unique_item else 0 }}"
+                               data-max="{{ r.unique_quantity if r.unique_quantity is not none else '' }}">
+                        <span class="root-chip-content">
+                          <span class="root-chip-name">{{ r.name }}</span>
+                          {% if r.unique_item %}
+                            <span class="root-chip-meta">Objet unique{% if r.unique_quantity is not none %} · max {{ r.unique_quantity }}{% endif %}</span>
+                          {% endif %}
+                        </span>
+                      </label>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <div class="root-group-empty">Aucun parent dans cette catégorie.</div>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
         {% else %}
-        <tr>
-          <td colspan="4" class="muted">
-            {% if search_query %}
-              Aucun événement ne correspond à « {{ search_query }} ».
+          <span class="muted">Aucun parent racine disponible. Crée d’abord un stock parent dans 🧰 Stock.</span>
+        {% endif %}
+      </div>
+
+      <div class="form-actions">
+        <button id="btn-create" class="btn primary">Créer l'événement</button>
+        <button class="btn" type="button" id="btn-reset-form">Réinitialiser le formulaire</button>
+      </div>
+    </section>
+
+    <section class="panel events-panel" id="events-list">
+      <div class="title">Derniers événements <span>journal</span></div>
+      <form method="get" class="events-search">
+        <input type="search" name="q" placeholder="Rechercher un événement" value="{{ search_query }}">
+        <button class="btn" type="submit">Rechercher</button>
+        {% if search_query %}
+          <a class="btn ghost" href="{{ url_for('pages.dashboard') }}">Réinitialiser</a>
+        {% endif %}
+      </form>
+      {% if search_query %}
+        <div class="muted" style="margin-top:10px;">
+          {{ events|length }} résultat{{ 's' if events|length > 1 else '' }} pour « {{ search_query }} ».
+        </div>
+      {% endif %}
+
+      <div class="events-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Nom</th>
+              <th>Statut</th>
+              <th>Date</th>
+              <th style="width:280px">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="events-body">
+            {% for ev in events %}
+              <tr data-id="{{ ev.id }}">
+                <td><a href="{{ url_for('pages.event_page', event_id=ev.id) }}">{{ ev.name }}</a></td>
+                <td>
+                  <span class="status-pill" data-status="{{ ev.status }}">{{ ev.status }}</span>
+                </td>
+                <td>{{ ev.date or "—" }}</td>
+                <td class="actions">
+                  <a class="btn" href="{{ url_for('pages.event_page', event_id=ev.id) }}">Ouvrir</a>
+                  <a class="btn" target="_blank" href="/reports/event/{{ ev.id }}/pdf">Export PDF</a>
+                  <button class="btn danger btn-del" data-id="{{ ev.id }}">Supprimer</button>
+                </td>
+              </tr>
             {% else %}
-              Aucun événement pour le moment.
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+              <tr>
+                <td colspan="4" class="empty-state">
+                  {% if search_query %}
+                    Aucun événement ne correspond à « {{ search_query }} ».
+                  {% else %}
+                    Aucun événement pour le moment.
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
   </div>
 </div>
 
@@ -274,6 +404,13 @@
 
   renderSlots();
 
+  function syncRootChipState(cb){
+    const wrap = cb.closest('label.root-chip');
+    if(!wrap) return;
+    if(cb.checked){ wrap.classList.add('is-checked'); }
+    else { wrap.classList.remove('is-checked'); }
+  }
+
   function updateRootBadge(cb){
     const wrap = cb.closest('label');
     if(!wrap) return;
@@ -296,6 +433,7 @@
   }
 
   document.querySelectorAll('.root-cb').forEach(cb => {
+    syncRootChipState(cb);
     cb.addEventListener('change', () => {
       const id = parseInt(cb.value, 10);
       const isUnique = (cb.dataset.unique === '1');
@@ -330,6 +468,7 @@
       }else{
         rootSelections.delete(id);
       }
+      syncRootChipState(cb);
       updateRootBadge(cb);
     });
   });
@@ -340,7 +479,9 @@
       const id = parseInt(cb.value, 10);
       rootSelections.delete(id);
       updateRootBadge(cb);
+      syncRootChipState(cb);
     });
+    rootSelections.clear();
   }
 
   function applyNodes(nodes, {reset=false}={}){
@@ -360,6 +501,7 @@
       }else{
         rootSelections.delete(id);
       }
+      syncRootChipState(cb);
       updateRootBadge(cb);
     });
   }
@@ -398,6 +540,18 @@
       applyNodes(lot.nodes || [], {reset:false});
     }
     lotSelect.value = '';
+  });
+
+  byId('btn-reset-form')?.addEventListener('click', () => {
+    byId('event-form')?.reset();
+    slotStartInput && (slotStartInput.value = '');
+    slotEndInput && (slotEndInput.value = '');
+    slotsState.splice(0, slotsState.length);
+    renderSlots();
+    clearSelection();
+    if(slotHint){ slotHint.textContent = 'Ajoute au moins un créneau (date et heures de départ / fin).'; }
+    if(tplSelect){ tplSelect.value = ''; }
+    if(lotSelect){ lotSelect.value = ''; }
   });
 
   // -------- Création --------
@@ -494,7 +648,7 @@
   const bodyEl = byId('events-body');
 
   function badgeHTML(status){
-    return `<span class="badge">${status}</span>`;
+    return `<span class="status-pill" data-status="${status}">${status}</span>`;
   }
 
   function rowHTML(ev){
@@ -504,7 +658,7 @@
         <td><a href="/events/${ev.id}">${ev.name}</a></td>
         <td>${badgeHTML(ev.status)}</td>
         <td>${date}</td>
-        <td class="row">
+        <td class="actions">
           <a class="btn" href="/events/${ev.id}">Ouvrir</a>
           <a class="btn" target="_blank" href="/reports/event/${ev.id}/pdf">Export PDF</a>
           <button class="btn danger btn-del" data-id="${ev.id}">Supprimer</button>
