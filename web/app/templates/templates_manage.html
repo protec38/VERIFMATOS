@@ -3,48 +3,124 @@
 {% block content %}
 
 <style>
-  .grid.cols-2{align-items:start}
+  .page-header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:24px;flex-wrap:wrap}
+  .page-title{margin:0;font-size:28px;font-weight:800;letter-spacing:.3px;color:#fff}
+  .page-lead{margin:6px 0 0;color:var(--muted);max-width:560px;font-size:15px}
+  .page-actions{display:flex;gap:12px;flex-wrap:wrap}
+  .stat-chip{display:flex;flex-direction:column;gap:4px;padding:12px 16px;border-radius:16px;background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.08);min-width:140px}
+  .stat-count{font-size:22px;font-weight:800;letter-spacing:.4px;color:#fff}
+  .stat-label{font-size:12px;text-transform:uppercase;letter-spacing:.35px;color:var(--muted)}
+
+  .template-board{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,0.95fr);gap:22px;align-items:start}
+  @media (max-width:1100px){.template-board{grid-template-columns:1fr}}
+
+  .templates-card .subtitle{margin-top:4px}
+  .templates-table{margin-top:16px;border-radius:18px;background:rgba(13,29,53,.65);border:1px solid rgba(255,255,255,.06);
+    box-shadow:0 18px 38px rgba(4,11,24,.35);overflow:hidden}
+  .templates-table-scroll{overflow-x:auto}
+  .templates-table-scroll table{min-width:620px}
   .table thead th.kind{width:110px}
   .table thead th.nodes{width:45%}
-  .table tbody tr.active{background:rgba(45,123,191,.1)}
+  .table tbody tr{transition:background .18s ease}
+  .table tbody tr:hover{background:rgba(43,123,191,.08)}
+  .table tbody tr.active{background:rgba(45,123,191,.12)}
   .table tbody tr.active td{background:transparent}
-  .muted{color:var(--muted)}
-  .section-title{font-weight:700;margin-top:0;margin-bottom:4px}
-  .entry-empty{padding:12px;text-align:center;color:var(--muted)}
-  .actions-row{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
-  .alert{margin-top:14px}
-  .root-qty{margin-left:6px}
-  .root-groups{display:flex;flex-direction:column;gap:12px;margin-top:8px}
-  .root-group{border:1px solid var(--border);border-radius:10px;padding:10px;background:#0f1e2f}
-  .root-group-title{font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:8px}
-  .root-group-nodes{display:flex;flex-wrap:wrap;gap:8px}
+  .table-actions{gap:8px}
+  .entry-empty{padding:16px;text-align:center;color:var(--muted)}
+
+  .form-card .title{margin-bottom:4px}
+  .form-grid{display:grid;grid-template-columns:minmax(0,1fr) 160px;gap:12px}
+  @media (max-width:640px){.form-grid{grid-template-columns:1fr}}
+  textarea#tpl-desc{resize:vertical;min-height:96px}
+
+  .actions-row{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap}
+  .actions-row .btn{flex:1;justify-content:center}
+  .actions-row .btn.primary{flex:unset}
+  @media (max-width:640px){.actions-row{flex-direction:column}.actions-row .btn{width:100%}}
+
+  .alert{margin-top:18px;background:rgba(9,24,44,.65);border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:16px}
+  .alert>.muted{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.35px;color:var(--muted)}
+
+  .root-groups{display:flex;flex-direction:column;gap:14px;margin-top:12px}
+  .root-group{padding:14px;border-radius:14px;background:rgba(12,34,60,.65);border:1px solid rgba(255,255,255,.05);box-shadow:0 16px 30px rgba(5,14,28,.35)}
+  .root-group-title{font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:10px;font-size:15px}
+  .root-group-nodes{display:flex;flex-wrap:wrap;gap:10px}
   .root-group-empty{font-size:13px;color:var(--muted)}
+
+  .root-chip{position:relative;display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.04);
+    background:rgba(9,25,47,.55);cursor:pointer;transition:transform .15s ease,box-shadow .2s ease,border .2s ease;background-image:linear-gradient(135deg,rgba(36,79,137,.12),transparent)}
+  .root-chip:hover{transform:translateY(-1px);box-shadow:0 12px 26px rgba(5,15,32,.4)}
+  .root-chip input{position:absolute;inset:0;opacity:0;cursor:pointer}
+  .root-chip-content{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0}
+  .root-chip-name{font-weight:600;letter-spacing:.2px;color:#f5f8ff}
+  .root-chip-meta{font-size:12px;color:var(--muted)}
+  .root-chip:focus-within{outline:3px solid rgba(255,179,71,.28);outline-offset:3px}
+  .root-chip .badge{margin-left:auto}
+  .root-chip input:checked + .root-chip-content .root-chip-name{color:#ffe3c3}
+  .root-chip input:checked + .root-chip-content{color:#ffd8a8}
+  .root-chip:has(input:checked){border-color:rgba(255,179,71,.45);box-shadow:0 18px 36px rgba(255,147,52,.22);background:rgba(32,42,64,.75)}
+
+  .muted{color:var(--muted)}
+
+  @media (max-width:880px){
+    .templates-table-scroll table{min-width:540px}
+  }
+  @media (max-width:720px){
+    .page-title{font-size:24px}
+    .stat-chip{min-width:120px;padding:10px 14px}
+    .templates-table{margin-top:12px}
+  }
 </style>
 
-<div class="grid cols-2">
-  <div class="card">
+{% set templates_count = templates|length if templates else 0 %}
+{% set lots_count = lots|length if lots else 0 %}
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Templates & lots</h1>
+    <p class="page-lead">Assemble rapidement les parents racines nécessaires pour les événements récurrents et garde une trace claire de ce qui doit être préparé.</p>
+  </div>
+  <div class="page-actions">
+    <div class="stat-chip">
+      <span class="stat-count">{{ templates_count }}</span>
+      <span class="stat-label">Templates</span>
+    </div>
+    <div class="stat-chip">
+      <span class="stat-count">{{ lots_count }}</span>
+      <span class="stat-label">Lots</span>
+    </div>
+  </div>
+</div>
+
+<div class="template-board">
+  <div class="card templates-card">
     <div class="title">Templates & lots enregistrés</div>
-    <div class="subtitle">Clique sur « Éditer » pour modifier un modèle existant.</div>
-    <table class="table" style="margin-top:12px">
-      <thead>
-        <tr>
-          <th>Nom</th>
-          <th class="kind">Type</th>
-          <th class="nodes">Parents inclus</th>
-          <th style="width:180px">Actions</th>
-        </tr>
-      </thead>
-      <tbody id="templates-body">
-        <tr><td colspan="4" class="muted">Chargement…</td></tr>
-      </tbody>
-    </table>
+    <div class="subtitle">Clique sur « Éditer » pour modifier un modèle existant ou crée un nouveau jeu de matériel.</div>
+    <div class="templates-table">
+      <div class="templates-table-scroll">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Nom</th>
+              <th class="kind">Type</th>
+              <th class="nodes">Parents inclus</th>
+              <th style="width:200px">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="templates-body">
+            <tr><td colspan="4" class="muted">Chargement…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
-  <div class="card">
+  <div class="card form-card">
     <div class="title" id="form-title">Créer un template ou un lot</div>
     <div class="subtitle">Sélectionne les parents racines à inclure dans le modèle.</div>
 
-    <div class="grid" style="grid-template-columns:1fr 150px;gap:10px;margin-top:12px">
+    <div class="form-grid" style="margin-top:16px">
       <div>
         <label class="muted" for="tpl-name">Nom</label>
         <input type="text" id="tpl-name" placeholder="Nom du modèle" required>
@@ -62,7 +138,7 @@
     <textarea id="tpl-desc" rows="3" placeholder="Notes complémentaires…"></textarea>
 
     <div class="alert">
-      <div class="muted" style="margin-bottom:8px">Parents racines disponibles</div>
+      <div class="muted">Parents racines disponibles</div>
       {% if root_groups and root_groups|length %}
         <div class="root-groups" id="root-checkboxes">
           {% for group in root_groups %}
@@ -76,12 +152,19 @@
               {% if group.nodes and group.nodes|length %}
                 <div class="root-group-nodes">
                   {% for r in group.nodes %}
-                    <label class="btn ghost" style="cursor:pointer;">
-                      <input type="checkbox" class="root-cb" value="{{ r.id }}" style="margin-right:6px"
+                    <label class="root-chip">
+                      <input type="checkbox" class="root-cb" value="{{ r.id }}"
                              data-name="{{ r.name }}"
                              data-unique="{{ 1 if r.unique_item else 0 }}"
                              data-max="{{ r.unique_quantity if r.unique_quantity is not none else '' }}">
-                      {{ r.name }}
+                      <span class="root-chip-content">
+                        <span class="root-chip-name">{{ r.name }}</span>
+                        {% if r.unique_item %}
+                          <span class="root-chip-meta">
+                            Objet unique{% if r.unique_quantity is not none %} · max {{ r.unique_quantity }}{% endif %}
+                          </span>
+                        {% endif %}
+                      </span>
                     </label>
                   {% endfor %}
                 </div>
@@ -154,7 +237,7 @@
       const tr = document.createElement('tr');
       const td = document.createElement('td');
       td.colSpan = 4;
-      td.className = 'muted';
+      td.className = 'muted entry-empty';
       td.textContent = 'Aucun template ou lot enregistré.';
       tr.appendChild(td);
       tableBody.appendChild(tr);
@@ -173,7 +256,7 @@
       const tdNodes = document.createElement('td');
       tdNodes.textContent = describeNodes(entry);
       const tdActions = document.createElement('td');
-      tdActions.className = 'row wrap';
+      tdActions.className = 'row wrap table-actions';
       const editBtn = document.createElement('button');
       editBtn.type = 'button';
       editBtn.className = 'btn';
