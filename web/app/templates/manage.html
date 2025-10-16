@@ -80,7 +80,15 @@
   .modal table.table-expiries th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;opacity:.75}
   .modal table.table-expiries td:last-child{text-align:right;white-space:nowrap}
 
-  .selbox{margin-right:8px}
+  .selbox{margin-right:12px;appearance:none;width:18px;height:18px;min-width:18px;border-radius:6px;border:2px solid rgba(255,255,255,.18);
+    background:rgba(255,255,255,.05);display:inline-flex;align-items:center;justify-content:center;transition:all .2s ease;
+    background-repeat:no-repeat;background-position:center;background-size:12px}
+  .selbox:hover{border-color:rgba(255,179,71,.65);background:rgba(255,179,71,.12)}
+  .selbox:focus-visible{outline:3px solid rgba(255,179,71,.35);outline-offset:2px}
+  .selbox:checked{background:linear-gradient(135deg,var(--pc-orange),var(--pc-orange-strong));border-color:rgba(255,179,71,.9);
+    box-shadow:0 6px 18px rgba(255,147,52,.22);
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 10'%3E%3Cpath fill='none' stroke='%230f1a2f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M1 5l3 3 7-7'/%3E%3C/svg%3E");}
+  .node.is-selected{border-color:rgba(255,179,71,.55);background:rgba(255,179,71,.12);box-shadow:0 12px 26px rgba(7,17,33,.35)}
   .node.drag-over{outline:2px dashed #37527a; outline-offset: 4px}
 </style>
 
@@ -635,6 +643,7 @@ function nodeEl(n){
   head.append(right);
 
   const box = h('div', {class:'node', 'data-id': String(n.id)});
+  if(SEL.has(n.id)) box.classList.add('is-selected');
   box.append(head);
 
   // Drag & drop (tous nœuds) -> dépôt permis seulement sur GROUP
@@ -651,9 +660,13 @@ function nodeEl(n){
 function renderTree(){
   const root = document.getElementById('tree');
   root.innerHTML = '';
-  if(!TREE){ renderTreeEmpty(); return; }
-  updateSelbar();
+  if(!TREE){
+    renderTreeEmpty();
+    updateSelbar();
+    return;
+  }
   root.append(nodeEl(TREE));
+  updateSelbar();
   // filtre global (si présent)
   const g = document.getElementById('global-search');
   if(g && g.value.trim()){
@@ -691,8 +704,18 @@ function updateSelbar(){
   const c = SEL.size;
   document.getElementById('sel-count').textContent = c;
   document.getElementById('selbar').classList.toggle('show', c>0);
+  syncSelectionUI();
 }
-function clearSelection(){ SEL.clear(); updateSelbar(); renderTree(); }
+function syncSelectionUI(){
+  document.querySelectorAll('#tree .node').forEach(node=>{
+    const id = Number(node.getAttribute('data-id'));
+    const selected = SEL.has(id);
+    node.classList.toggle('is-selected', selected);
+    const checkbox = node.querySelector('.selbox');
+    if(checkbox){ checkbox.checked = selected; }
+  });
+}
+function clearSelection(){ SEL.clear(); updateSelbar(); }
 
 function getDescendantIds(n){
   const out = new Set([n.id]);
