@@ -81,11 +81,12 @@
   .badge[data-variant="warning"]{background:rgba(255,211,105,.14);color:var(--warning);border-color:rgba(255,211,105,.3)}
   .badge[data-variant="danger"]{background:rgba(255,118,138,.12);color:var(--danger);border-color:rgba(255,118,138,.28)}
 
-  input,select,textarea{width:100%;max-width:100%;background:var(--surface);border:1px solid rgba(255,255,255,.08);
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),select,textarea{width:100%;max-width:100%;background:var(--surface);border:1px solid rgba(255,255,255,.08);
     color:var(--text);padding:10px 14px;border-radius:12px;outline:none;min-height:40px;font-size:14px;
     transition:border .15s ease,box-shadow .15s ease}
-  input:focus,select:focus,textarea:focus{border-color:rgba(255,179,71,.55);box-shadow:0 0 0 3px rgba(255,179,71,.22)}
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus,select:focus,textarea:focus{border-color:rgba(255,179,71,.55);box-shadow:0 0 0 3px rgba(255,179,71,.22)}
   input::placeholder,textarea::placeholder{color:#7085a6}
+  input[type="checkbox"],input[type="radio"]{width:auto;height:auto;min-height:0;margin:0;accent-color:var(--pc-orange);cursor:pointer}
 
   .progress{height:10px;background:var(--surface-soft);border:1px solid rgba(255,255,255,.05);border-radius:999px;overflow:hidden}
   .progress>div{height:100%;background:linear-gradient(90deg,var(--pc-orange),var(--pc-orange-strong));width:0%;transition:width .3s ease}
@@ -115,6 +116,14 @@
     main{padding:28px 0}
     .card{padding:18px}
     .title{font-size:18px}
+  }
+
+  @media (min-width:1024px){
+    .appbar{padding:20px 32px}
+    .brand{font-size:20px}
+    .brand-sub{font-size:14px}
+    .nav-links{gap:14px}
+    .nav-links .btn{padding:12px 20px;font-size:15px;border-radius:16px}
   }
   </style>
 </head>
