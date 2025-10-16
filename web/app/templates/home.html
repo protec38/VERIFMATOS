@@ -25,8 +25,7 @@
   .hero-stat .hint{font-size:13px;color:rgba(204,219,248,.72)}
   .hero-stat.highlight{background:rgba(18,54,46,.85);border-color:rgba(66,207,173,.55)}
   .hero-stat.highlight .value{color:#bff3e7}
-  .content-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:26px;align-items:start}
-  @media (max-width:1080px){.content-grid{grid-template-columns:1fr}}
+  .content-grid{display:flex;flex-direction:column;gap:26px;align-items:stretch}
   .panel{padding:26px;border-radius:24px;background:linear-gradient(160deg,rgba(13,29,51,.88),rgba(8,18,34,.92));
     border:1px solid rgba(120,160,220,.18);box-shadow:0 18px 40px rgba(4,10,26,.35)}
   .panel .title{font-size:22px;margin-bottom:6px}
@@ -136,6 +135,61 @@
   </div>
 
   <div class="content-grid">
+    <section class="panel events-panel" id="events-list">
+      <div class="title">Derniers événements <span>journal</span></div>
+      <form method="get" class="events-search">
+        <input type="search" name="q" placeholder="Rechercher un événement" value="{{ search_query }}">
+        <button class="btn" type="submit">Rechercher</button>
+        {% if search_query %}
+          <a class="btn ghost" href="{{ url_for('pages.dashboard') }}">Réinitialiser</a>
+        {% endif %}
+      </form>
+      {% if search_query %}
+        <div class="muted" style="margin-top:10px;">
+          {{ events|length }} résultat{{ 's' if events|length > 1 else '' }} pour « {{ search_query }} ».
+        </div>
+      {% endif %}
+
+      <div class="events-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Nom</th>
+              <th>Statut</th>
+              <th>Date</th>
+              <th style="width:280px">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="events-body">
+            {% for ev in events %}
+              <tr data-id="{{ ev.id }}">
+                <td><a href="{{ url_for('pages.event_page', event_id=ev.id) }}">{{ ev.name }}</a></td>
+                <td>
+                  <span class="status-pill" data-status="{{ ev.status }}">{{ ev.status }}</span>
+                </td>
+                <td>{{ ev.date or "—" }}</td>
+                <td class="actions">
+                  <a class="btn" href="{{ url_for('pages.event_page', event_id=ev.id) }}">Ouvrir</a>
+                  <a class="btn" target="_blank" href="/reports/event/{{ ev.id }}/pdf">Export PDF</a>
+                  <button class="btn danger btn-del" data-id="{{ ev.id }}">Supprimer</button>
+                </td>
+              </tr>
+            {% else %}
+              <tr>
+                <td colspan="4" class="empty-state">
+                  {% if search_query %}
+                    Aucun événement ne correspond à « {{ search_query }} ».
+                  {% else %}
+                    Aucun événement pour le moment.
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <section class="panel" id="create-event">
       <div class="title">Créer un événement</div>
       <p class="subtitle">Renseigne les informations principales puis ajoute les créneaux et les stocks « parents » à vérifier.</p>
@@ -227,61 +281,6 @@
       <div class="form-actions">
         <button id="btn-create" class="btn primary">Créer l'événement</button>
         <button class="btn" type="button" id="btn-reset-form">Réinitialiser le formulaire</button>
-      </div>
-    </section>
-
-    <section class="panel events-panel" id="events-list">
-      <div class="title">Derniers événements <span>journal</span></div>
-      <form method="get" class="events-search">
-        <input type="search" name="q" placeholder="Rechercher un événement" value="{{ search_query }}">
-        <button class="btn" type="submit">Rechercher</button>
-        {% if search_query %}
-          <a class="btn ghost" href="{{ url_for('pages.dashboard') }}">Réinitialiser</a>
-        {% endif %}
-      </form>
-      {% if search_query %}
-        <div class="muted" style="margin-top:10px;">
-          {{ events|length }} résultat{{ 's' if events|length > 1 else '' }} pour « {{ search_query }} ».
-        </div>
-      {% endif %}
-
-      <div class="events-table">
-        <table>
-          <thead>
-            <tr>
-              <th>Nom</th>
-              <th>Statut</th>
-              <th>Date</th>
-              <th style="width:280px">Actions</th>
-            </tr>
-          </thead>
-          <tbody id="events-body">
-            {% for ev in events %}
-              <tr data-id="{{ ev.id }}">
-                <td><a href="{{ url_for('pages.event_page', event_id=ev.id) }}">{{ ev.name }}</a></td>
-                <td>
-                  <span class="status-pill" data-status="{{ ev.status }}">{{ ev.status }}</span>
-                </td>
-                <td>{{ ev.date or "—" }}</td>
-                <td class="actions">
-                  <a class="btn" href="{{ url_for('pages.event_page', event_id=ev.id) }}">Ouvrir</a>
-                  <a class="btn" target="_blank" href="/reports/event/{{ ev.id }}/pdf">Export PDF</a>
-                  <button class="btn danger btn-del" data-id="{{ ev.id }}">Supprimer</button>
-                </td>
-              </tr>
-            {% else %}
-              <tr>
-                <td colspan="4" class="empty-state">
-                  {% if search_query %}
-                    Aucun événement ne correspond à « {{ search_query }} ».
-                  {% else %}
-                    Aucun événement pour le moment.
-                  {% endif %}
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
       </div>
     </section>
   </div>
