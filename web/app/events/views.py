@@ -1097,6 +1097,11 @@ def create_public_share_link(event_id: int):
         abort(403)
     ev = _event_or_404(event_id)
 
+    existing = EventShareLink.query.filter_by(event_id=ev.id, active=True).first()
+    if existing:
+        token = existing.token
+        return jsonify({"ok": True, "token": token, "url": f"/public/event/{token}"})
+
     EventShareLink.query.filter_by(event_id=ev.id, active=True).update({"active": False})
 
     token = secrets.token_urlsafe(24)
