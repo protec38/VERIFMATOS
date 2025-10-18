@@ -8,24 +8,33 @@
   :root{
     --se-space-1:0.35rem;
     --se-space-2:0.65rem;
-    --se-space-3:clamp(0.9rem,2.5vw,1.15rem);
-    --se-space-4:clamp(1.2rem,3vw,1.6rem);
-    --se-radius:16px;
+    --se-space-3:clamp(0.9rem,2.8vw,1.25rem);
+    --se-space-4:clamp(1.2rem,4vw,1.8rem);
+    --se-space-5:clamp(1.6rem,5vw,2.1rem);
+    --se-radius:18px;
     --se-shadow:0 18px 44px rgba(5,12,24,.35);
+  }
+
+  @media (max-width:720px){
+    :root{
+      --se-space-3:clamp(1rem,4vw,1.35rem);
+      --se-space-4:clamp(1.35rem,6vw,1.95rem);
+      --se-space-5:clamp(1.6rem,7vw,2.4rem);
+    }
   }
 
   .wrap{
     width:min(960px,100%);
     margin:0 auto;
-    padding:clamp(0.75rem,2vw,1.5rem) clamp(0.75rem,4vw,2.5rem) clamp(2.5rem,5vw,3rem);
+    padding:clamp(0.75rem,3vw,1.4rem) clamp(0.75rem,5vw,2.8rem) clamp(2.5rem,7vw,3.4rem);
     display:flex;
     flex-direction:column;
-    gap:var(--se-space-4);
+    gap:var(--se-space-5);
   }
 
   .topbar{
     position:sticky;
-    top:clamp(12px,2.5vw,22px);
+    top:calc(clamp(12px,2.5vw,22px) + env(safe-area-inset-top, 0px));
     z-index:30;
     display:grid;
     gap:var(--se-space-3);
@@ -34,61 +43,79 @@
     border-radius:var(--se-radius);
     padding:var(--se-space-3);
     box-shadow:var(--se-shadow);
+    backdrop-filter:saturate(140%) blur(10px);
   }
   .topbar .title{
     font-weight:800;
     font-size:clamp(1.15rem,4vw,1.55rem);
     letter-spacing:.3px;
   }
+  .topbar .subtitle{
+    font-size:clamp(.85rem,3.5vw,1rem);
+    color:rgba(219,230,255,.7);
+    line-height:1.45;
+  }
+  .topbar-heading{
+    display:flex;
+    flex-direction:column;
+    gap:var(--se-space-1);
+  }
   .name-edit{
     display:grid;
     gap:var(--se-space-2);
+    align-content:start;
+    background:rgba(7,17,33,.7);
+    border-radius:var(--se-radius);
+    padding:var(--se-space-3);
   }
   .name-edit label{
-    font-size:.85rem;
-    color:var(--muted);
-    letter-spacing:.2px;
+    font-size:.9rem;
+    color:rgba(219,230,255,.75);
+    letter-spacing:.3px;
   }
   .name-edit input{
     width:100%;
     min-width:0;
-    background:rgba(7,17,33,.85);
-    border:1px solid rgba(255,255,255,.08);
-    border-radius:12px;
-    padding:.65rem .8rem;
+    background:rgba(7,17,33,.9);
+    border:1px solid rgba(255,255,255,.14);
+    border-radius:14px;
+    padding:.7rem .9rem;
     color:var(--text);
-    font-size:1rem;
+    font-size:1.05rem;
+    line-height:1.4;
   }
   .name-edit .btn{
     width:100%;
     justify-content:center;
-    padding-inline:1rem;
+    padding-inline:1.2rem;
+    font-size:1.05rem;
   }
 
   .card-like{
-    background:rgba(12,32,60,.78);
-    border:1px solid rgba(255,255,255,.06);
+    background:rgba(12,32,60,.8);
+    border:1px solid rgba(255,255,255,.08);
     border-radius:var(--se-radius);
     box-shadow:0 12px 32px rgba(5,12,24,.35);
     padding:var(--se-space-3);
     display:flex;
     flex-direction:column;
     gap:var(--se-space-2);
+    scroll-margin-top:var(--se-space-5);
   }
   .card-like .title{
     font-weight:700;
-    font-size:clamp(1.05rem,3.4vw,1.35rem);
+    font-size:clamp(1.1rem,3.8vw,1.4rem);
     margin:0;
   }
   .legend{
-    color:var(--muted);
-    font-size:.85rem;
-    line-height:1.4;
+    color:rgba(209,220,240,.75);
+    font-size:.9rem;
+    line-height:1.5;
   }
 
   .stats-chipbar{display:flex;flex-wrap:wrap;gap:var(--se-space-2)}
   .stats-card .muted{font-size:.95rem}
-  .progress{height:10px;border-radius:999px;overflow:hidden;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.05)}
+  .progress{height:12px;border-radius:999px;overflow:hidden;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.08)}
   .progress>div{height:100%;width:0;background:linear-gradient(90deg,var(--pc-orange),var(--pc-orange-strong));transition:width .25s ease}
 
   .parents-card .title{display:flex;align-items:center;gap:.75rem}
@@ -114,8 +141,18 @@
     cursor:pointer;
     user-select:none;
     transition:transform .18s ease,background .18s ease,border-color .18s ease;
+    appearance:none;
+    -webkit-appearance:none;
+    -moz-appearance:none;
   }
   .parent-pill:hover{transform:translateY(-1px)}
+  .parent-pill:focus-visible,
+  .btn:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible{
+    outline:2px solid rgba(102,164,255,.8);
+    outline-offset:2px;
+  }
   .pill-ok{border-color:rgba(43,212,161,.45);background:rgba(23,63,57,.85);color:#c9ffef}
   .pill-bad{border-color:rgba(255,118,138,.45);background:rgba(72,24,36,.85);color:#ffe3e8}
   .pill-wait{border-color:rgba(61,110,189,.45);background:rgba(16,33,58,.85);color:#d5e4ff}
@@ -161,15 +198,15 @@
     display:flex;
     flex-direction:column;
     gap:var(--se-space-2);
-    padding:clamp(.75rem,2.4vw,1.1rem);
-    border-radius:14px;
-    border:1px solid rgba(255,255,255,.05);
-    background:rgba(11,27,49,.8);
+    padding:clamp(.85rem,3vw,1.2rem);
+    border-radius:16px;
+    border:1px solid rgba(255,255,255,.08);
+    background:rgba(11,27,49,.82);
   }
   .item .left{display:flex;gap:.45rem .75rem;align-items:center;flex-wrap:wrap}
-  .item .right{display:flex;gap:.5rem;flex-wrap:wrap}
-  .item .right .btn{flex:1 1 140px;justify-content:center}
-  .label{font-weight:700;font-size:1rem}
+  .item .right{display:flex;gap:.65rem;flex-wrap:wrap}
+  .item .right .btn{flex:1 1 160px;justify-content:center;font-size:1.05rem;padding:.65rem 1rem}
+  .label{font-weight:700;font-size:1.05rem}
   .qty{font-size:.85rem;border:1px dashed rgba(255,255,255,.18);border-radius:999px;padding:.2rem .6rem}
   .warn{display:inline-flex;align-items:center;gap:.35rem;font-size:.8rem;padding:.2rem .55rem;border-radius:8px;border:1px solid rgba(255,211,105,.35);background:rgba(66,47,15,.85);color:#ffd98b}
 
@@ -177,6 +214,7 @@
   .chip.ok{background:rgba(23,63,57,.8);border-color:rgba(43,212,161,.4);color:#c9ffef}
   .chip.bad{background:rgba(72,24,36,.8);border-color:rgba(255,118,138,.4);color:#ffe3e8}
   .chip.wait{background:rgba(17,34,61,.8);border-color:rgba(61,110,189,.4);color:#d5e4ff}
+  .chip{line-height:1.3;text-transform:none;letter-spacing:.2px}
 
   .substats{display:flex;gap:.5rem;flex-wrap:wrap;padding-left:.2rem}
 
@@ -184,21 +222,21 @@
   .modal-card,.modal{
     width:min(520px,100%);
     background:rgba(11,27,49,.95);
-    border:1px solid rgba(255,255,255,.06);
-    border-radius:18px;
-    padding:clamp(1rem,3vw,1.4rem);
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:20px;
+    padding:clamp(1.05rem,3vw,1.6rem);
     box-shadow:0 20px 48px rgba(5,12,24,.45);
     max-height:calc(100vh - clamp(2rem,8vh,4rem));
     overflow-y:auto;
   }
   .modal input,.modal textarea,.modal-card input,.modal-card textarea{
     width:100%;
-    border-radius:12px;
-    border:1px solid rgba(255,255,255,.1);
+    border-radius:14px;
+    border:1px solid rgba(255,255,255,.14);
     background:rgba(7,17,33,.9);
     color:var(--text);
-    padding:.65rem .75rem;
-    font-size:1rem;
+    padding:.75rem .85rem;
+    font-size:1.05rem;
   }
   .modal-actions{display:flex;gap:.6rem;flex-wrap:wrap;justify-content:flex-end}
   .modal .field{display:flex;flex-direction:column;gap:.6rem}
@@ -217,8 +255,8 @@
   .strong{font-weight:700}
 
   @media (min-width:720px){
-    .topbar{grid-template-columns:1fr auto;align-items:center}
-    .name-edit{grid-template-columns:auto minmax(220px,1fr) auto;align-items:center}
+    .topbar{grid-template-columns:1fr minmax(320px,2fr);align-items:stretch}
+    .name-edit{grid-template-columns:auto minmax(220px,1fr) auto;align-items:center;padding:var(--se-space-2) var(--se-space-3)}
     .name-edit .btn{width:auto}
     .item{flex-direction:row;align-items:flex-start;justify-content:space-between}
     .item .right{justify-content:flex-end}
@@ -227,9 +265,24 @@
 
   @media (max-width:640px){
     .topbar{position:static;padding:var(--se-space-3)}
-    .wrap{padding-inline:clamp(.65rem,5vw,1.25rem)}
+    .wrap{padding-inline:clamp(.65rem,5vw,1.4rem);gap:var(--se-space-4)}
     .parents-bar{margin-right:-.5rem;padding-right:.5rem}
-    .name-edit label{font-size:.8rem}
+    .name-edit{padding:var(--se-space-3);border-radius:16px;background:rgba(7,17,33,.82)}
+    .name-edit label{font-size:.85rem}
+    .name-edit input{font-size:1.02rem}
+    .card-like{padding:var(--se-space-3);gap:var(--se-space-3)}
+    .item .right .btn{flex:1 1 120px}
+  }
+
+  @media (max-width:480px){
+    .stats-chipbar{flex-direction:column}
+    .stats-chipbar .chip{width:100%;text-align:center;padding:.55rem .8rem}
+    .parents-bar{gap:var(--se-space-1)}
+    .parent-pill{padding:.55rem .7rem;font-size:.95rem}
+    .item{padding:clamp(.9rem,4vw,1.25rem)}
+    .item .left{gap:.4rem .6rem}
+    .item .right{flex-direction:column}
+    .item .right .btn{flex:1 1 auto;width:100%}
   }
 
   @media (prefers-reduced-motion:reduce){
@@ -238,34 +291,37 @@
 </style>
 
 <div class="wrap">
-  <div class="topbar">
-    <div class="title">Vérification secouriste</div>
-    <div class="name-edit">
-      <label for="opname" class="muted">Nom & Prénom :</label>
-      <input id="opname" placeholder="Ex : Dupont Marie" />
-      <button class="btn" id="save-name">Enregistrer</button>
+  <div class="topbar" role="banner">
+    <div class="topbar-heading">
+      <div class="title">Vérification secouriste</div>
+      <div class="subtitle">Interface optimisée mobile pour cocher et signaler le matériel en mission.</div>
+    </div>
+    <div class="name-edit" role="group" aria-labelledby="label-opname">
+      <label id="label-opname" for="opname" class="muted">Nom &amp; prénom du binôme</label>
+      <input id="opname" placeholder="Ex : Dupont Marie" autocomplete="name" inputmode="text" aria-describedby="label-opname" />
+      <button class="btn" id="save-name" type="button" aria-label="Enregistrer le nom saisi">Enregistrer</button>
     </div>
   </div>
 
-  <div class="card-like stats-card">
-    <div class="title">Progression</div>
-    <div class="stats-chipbar">
-      <span class="chip ok"  id="stat-ok">OK : 0</span>
-      <span class="chip bad" id="stat-bad">Non conformes : 0</span>
-      <span class="chip wait" id="stat-wait">En attente : 0</span>
+  <div class="card-like stats-card" role="region" aria-labelledby="stats-title">
+    <div class="title" id="stats-title">Progression</div>
+    <div class="stats-chipbar" role="list">
+      <span class="chip ok"  id="stat-ok" role="listitem">OK : 0</span>
+      <span class="chip bad" id="stat-bad" role="listitem">Non conformes : 0</span>
+      <span class="chip wait" id="stat-wait" role="listitem">En attente : 0</span>
     </div>
-    <div class="progress"><div id="progress-bar"></div></div>
-    <div class="muted" id="progress-text" style="margin-top:6px;">0 / 0 vérifiés</div>
+    <div class="progress" role="presentation"><div id="progress-bar" aria-hidden="true"></div></div>
+    <div class="muted" id="progress-text" style="margin-top:6px;" aria-live="polite">0 / 0 vérifiés</div>
   </div>
 
-  <div class="card-like parents-card">
-    <div class="title">Parents</div>
-    <div id="parents-bar" class="parents-bar"></div>
+  <div class="card-like parents-card" role="region" aria-labelledby="parents-title">
+    <div class="title" id="parents-title">Sections</div>
+    <div id="parents-bar" class="parents-bar" role="list"></div>
   </div>
 
-  <div class="card-like">
+  <div class="card-like" role="region" aria-labelledby="materials-title">
     <div class="row space-between">
-      <div class="title">Matériel</div>
+      <div class="title" id="materials-title">Matériel</div>
       <div class="legend">Vert = tout OK • Rouge = non conforme • Bleu = en attente • ⚠️ proche péremption</div>
     </div>
     <div id="tree"></div>
@@ -440,7 +496,14 @@ function buildParentsBar(){
     const s   = groupStatus(p);
     const cls = s==="OK" ? "pill-ok" : (s==="BAD" ? "pill-bad" : "pill-wait");
     const reassortChip = p.reassort_note ? el("span",{class:"reassort-chip"}, `Réassort : ${p.reassort_note}`) : null;
-    const pill = el("div",{class:"parent-pill "+cls, onclick:()=>scrollAndOpen(p.id)},
+    const pill = el("button",{
+      type:"button",
+      class:"parent-pill "+cls,
+      role:"listitem",
+      "aria-label":`Afficher la section ${p.name}`,
+      onclick:()=>scrollAndOpen(p.id),
+      onkeydown:(ev)=>{ if(ev.key===" "||ev.key==="Enter"){ ev.preventDefault(); scrollAndOpen(p.id);} }
+    },
       statusDot(s==="OK", s==="BAD"),
       el("span",{class:"strong"}, p.name),
       p.charged_vehicle ? el("span",{class:"veh on"}, formatChargeInfo(p.charged_vehicle_name, p.charged_operator_name)) : null,
