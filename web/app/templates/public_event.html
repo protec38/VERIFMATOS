@@ -46,6 +46,7 @@
       radial-gradient(circle at top, rgba(59, 130, 246, 0.14), transparent 60%) fixed,
       var(--bg);
     color: var(--text);
+    overflow-x: hidden;
   }
 
   body>.appbar,
@@ -146,6 +147,7 @@
     font-size: clamp(1.6rem, 6vw, 2.15rem);
     font-weight: 800;
     letter-spacing: 0.3px;
+    color: var(--text);
   }
 
   .topbar .subtitle {
@@ -204,6 +206,11 @@
     font-size: clamp(1.15rem, 4vw, 1.45rem);
     font-weight: 700;
     margin: 0;
+    color: var(--text);
+  }
+
+  .card-like .title .muted {
+    color: var(--text-muted);
   }
 
   .legend {
