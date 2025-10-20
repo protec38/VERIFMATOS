@@ -885,7 +885,6 @@ const GROUP_EL  = new Map();
 const ITEM_EL   = new Map();
 const VEH_LABEL = new Map();
 const COLLAPSED = new Map();
-const REASSORT_CACHE = new Map();
 const CHARGE_BUTTON = new Map();
 const REASSORT_LABEL = new Map();
 const REASSORT_BUTTON = new Map();
@@ -1115,7 +1114,7 @@ function renderItem(n){
 
   const right = el("div",{class:"right"},
     el("button",{class:"btn xs success", onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(targetId,"OK"); }},"OK"),
-    el("button",{class:"btn xs ghost",   onclick:()=>{ if(!ensureOperatorOrAsk()) return; openNotOkModal(n); }},"Non conforme")
+    el("button",{class:"btn xs ghost",   onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(targetId,"NOT_OK", {issue_code:'OTHER'}); }},"Non conforme")
   );
 
   const wrap = el("div",{class:"item "+(s==="OK"?"state-ok":(s==="NOT_OK"?"state-bad":"state-wait")), id:`item-${safeId}`}, left, right);
@@ -1141,7 +1140,7 @@ function renderUniqueParentRow(n){
 
   const right = el("div",{class:"right"},
     el("button",{class:"btn xs success", onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(targetId,"OK"); }},"OK"),
-    el("button",{class:"btn xs ghost",   onclick:()=>{ if(!ensureOperatorOrAsk()) return; openNotOkModal(n); }},"Non conforme")
+    el("button",{class:"btn xs ghost",   onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(targetId,"NOT_OK", {issue_code:'OTHER'}); }},"Non conforme")
   );
 
   const wrap = el("div",{class:`item unique-parent ${s==="OK"?"state-ok":(s==="NOT_OK"?"state-bad":"state-wait")}`, id:`item-${safeId}`}, left, right);
@@ -1557,166 +1556,6 @@ function buildExpiryChoices(item){
     });
   }
   return out;
-}
-
-async function fetchReassortOptions(nodeId){
-  if(REASSORT_CACHE.has(nodeId)) return REASSORT_CACHE.get(nodeId);
-  const res = await fetch(`/public/event/{{ token }}/reassort/${nodeId}`);
-  if(!res.ok){ const txt = await res.text(); throw new Error(txt || 'Chargement impossible'); }
-  const data = await res.json();
-  REASSORT_CACHE.set(nodeId, data);
-  return data;
-}
-
-function invalidateReassort(nodeId){ REASSORT_CACHE.delete(nodeId); }
-
-function openNotOkModal(item){
-  const targetId = targetNodeId(item);
-  const choices = buildExpiryChoices(item);
-  let selectedExpiry = choices[0] || null;
-  let selectedReassort = null;
-
-  const commentInput = el('textarea',{placeholder:'Commentaire (optionnel)', style:'margin-top:6px'});
-
-  const expiryList = el('div',{class:'exp-list'}, ...choices.map(choice=>{
-    const input = el('input',{type:'radio',name:'exp-choice',value:choice.key});
-    if(choice===selectedExpiry) input.checked = true;
-    input.addEventListener('change',()=>{ selectedExpiry = choice; });
-    return el('label',{class:'exp-option'}, input, el('div',{class:'exp-text'}, choice.label));
-  }));
-
-  const qtyInput = el('input',{type:'number',min:'1',value:String(Math.max(1, item.missing_qty || 1)), style:'width:120px'});
-  const reassortList = el('div',{class:'reassort-list'});
-  const reassortSection = el('div',{class:'reassort-section',style:'display:none'},
-    el('div',{class:'section-title'},'Sélectionnez un article de réassort à utiliser :'),
-    reassortList,
-    el('div',{class:'reassort-controls'},
-      el('label',{},'Quantité'),
-      qtyInput
-    )
-  );
-
-  const btnConfirmReplace = el('button',{class:'btn primary',disabled:true},'Confirmer le remplacement');
-  const confirmWrap = el('div',{class:'reassort-confirm',style:'display:none'}, btnConfirmReplace);
-
-  const closeAndRefresh = ()=>{ closeModal(); refreshTree(true); };
-
-  async function loadReassort(){
-    reassortSection.style.display = 'flex';
-    reassortList.innerHTML = '';
-    const loader = el('div',{class:'muted'},'Chargement en cours…');
-    reassortList.appendChild(loader);
-    try{
-      const data = await fetchReassortOptions(targetId);
-      reassortList.innerHTML = '';
-      const items = Array.isArray(data?.items) ? data.items : [];
-      if(!items.length){
-        reassortList.appendChild(el('div',{class:'muted'},'Aucun lot de réassort disponible.'));
-        btnConfirmReplace.disabled = true;
-        return;
-      }
-      items.forEach(entry=>{
-        const input = el('input',{type:'radio',name:'reassort-choice',value:String(entry.batch_id)});
-        input.addEventListener('change',()=>{ selectedReassort = entry; btnConfirmReplace.disabled = false; });
-        if(!selectedReassort){ input.checked = true; selectedReassort = entry; btnConfirmReplace.disabled = false; }
-        const option = el('label',{class:'reassort-option'},
-          input,
-          el('div',{class:'reassort-text'},
-            el('div',{class:'strong'}, entry.item_name || 'Réassort'),
-            el('div',{class:'muted'}, `Qté dispo: ${entry.quantity}`),
-            el('div',{class:'muted'}, entry.expiry_date ? `Péremption ${formatISODate(entry.expiry_date)}` : 'Péremption inconnue'),
-            entry.lot ? el('div',{class:'muted'}, `Lot ${entry.lot}`) : null,
-            entry.preferred ? el('div',{class:'tag'},'Article recommandé') : null
-          )
-        );
-        reassortList.appendChild(option);
-      });
-    }catch(err){
-      reassortList.innerHTML = '';
-      reassortList.appendChild(el('div',{class:'muted'}, err.message || 'Impossible de charger le réassort.'));
-      btnConfirmReplace.disabled = true;
-    }
-  }
-
-  async function confirmNotOk(){
-    const btn = btnMarkNotOk;
-    btn.disabled = true;
-    const parts = [];
-    if(selectedExpiry){
-      const detail = [];
-      if(selectedExpiry.date) detail.push(`péremption ${formatISODate(selectedExpiry.date)}`);
-      if(selectedExpiry.lot) detail.push(`lot ${selectedExpiry.lot}`);
-      if(detail.length) parts.push(detail.join(' · '));
-    }
-    const raw = (commentInput.value || '').trim();
-    if(raw) parts.push(raw);
-    const payload = { comment: parts.join(' — ') || undefined, issue_code: 'OTHER' };
-    try{
-      await verify(targetId, 'NOT_OK', payload);
-      closeModal();
-    }catch(err){
-      console.error(err);
-    }finally{
-      btn.disabled = false;
-    }
-  }
-
-  async function confirmReplace(){
-    if(!selectedReassort){ alert('Choisissez un lot de réassort.'); return; }
-    const qty = Math.max(1, parseInt(qtyInput.value, 10) || 1);
-    const payload = {
-      node_id: targetId,
-      batch_id: selectedReassort.batch_id,
-      quantity: qty,
-      verifier_name: getOperator() || '',
-      comment: (commentInput.value || '').trim() || undefined,
-    };
-    if(selectedExpiry){
-      if(selectedExpiry.expiry_id) payload.expiry_id = selectedExpiry.expiry_id;
-      else if(selectedExpiry.date) payload.expiry_date = selectedExpiry.date;
-    }
-    btnConfirmReplace.disabled = true;
-    try{
-      const res = await fetch(`/public/event/{{ token }}/replace`,{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(payload)
-      });
-      if(!res.ok){ const txt = await res.text(); throw new Error(txt || 'Remplacement impossible'); }
-      await res.json().catch(()=>null);
-      invalidateReassort(targetId);
-      closeAndRefresh();
-    }catch(err){
-      alert(err.message || 'Remplacement impossible');
-      btnConfirmReplace.disabled = false;
-    }
-  }
-
-  const btnMarkNotOk = el('button',{class:'btn ghost'},'Marquer non conforme');
-  btnMarkNotOk.addEventListener('click', confirmNotOk);
-
-  const btnShowReassort = el('button',{class:'btn primary'},'Remplacer via réassort');
-  btnShowReassort.addEventListener('click',()=>{
-    btnShowReassort.disabled = true;
-    reassortSection.style.display = 'flex';
-    confirmWrap.style.display = 'flex';
-    loadReassort();
-  });
-
-  btnConfirmReplace.addEventListener('click', confirmReplace);
-
-  const content = el('div',{},
-    el('h3',{},`Résoudre la non conformité`),
-    el('div',{class:'muted'}, item.name),
-    el('div',{class:'section-title'},'Quel lot est concerné ?'),
-    expiryList,
-    el('div',{class:'field'}, commentInput),
-    el('div',{class:'modal-action-row'}, btnMarkNotOk, btnShowReassort),
-    reassortSection,
-    confirmWrap
-  );
-
-  openModal(content);
 }
 
 /* ===== Charger (racine) ===== */
