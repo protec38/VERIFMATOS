@@ -5,6 +5,7 @@
   <title>{{ title or "Protection Civile — Préparation Matériel" }}</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0b4b8f">
 
   <!-- ===== CSS INLINE — Nouvelle identité UI Protection Civile ===== -->
   <style>
@@ -130,7 +131,7 @@
 <body>
   <header class="appbar">
     <div class="brand-area">
-      <img src="/static/logo_pc.png" alt="Protection Civile" class="logo" onerror="this.style.display='none'">
+      <img src="{{ url_for('static', filename='pc_logo.webp') }}" alt="Protection Civile" class="logo" onerror="this.style.display='none'">
       <div class="brand-block">
         <span class="brand">Protection Civile</span>
         <span class="brand-sub">Préparation Matériel</span>
