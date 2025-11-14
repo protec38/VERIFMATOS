@@ -1,48 +1,87 @@
 {% extends "base.html" %}
 {% set title = "Administration — Connexions" %}
 {% block content %}
-  <div class="card">
-    <div class="title">Historique des connexions</div>
-    <p class="muted" style="margin-top:6px;">Derniers accès à l’interface (succès et échecs). Maximum 200 entrées.</p>
-    <a class="btn" href="/admin" style="margin-top:12px;display:inline-flex;align-items:center;gap:6px;">⬅ Retour administration</a>
-  </div>
+  <style>
+    .logs-page{display:flex;flex-direction:column;gap:20px}
+    .logs-hero{background:linear-gradient(140deg,rgba(34,74,133,.92),rgba(14,30,54,.94));border:1px solid rgba(158,201,255,.28);
+      border-radius:24px;padding:26px 28px;box-shadow:0 24px 52px rgba(6,16,34,.4)}
+    .logs-hero .title{font-size:24px;margin-bottom:6px}
+    .logs-hero .subtitle{color:rgba(210,225,255,.8);font-size:14px;max-width:600px}
+    .logs-hero .hero-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+    .logs-hero .hero-actions .btn{background:rgba(11,27,51,.6);border-color:rgba(255,255,255,.2)}
+    .logs-hero .hero-actions .btn:hover{background:rgba(16,36,66,.75)}
 
-  <div class="card" style="margin-top:16px;overflow-x:auto;">
-    {% if logs %}
-      <table class="table" style="min-width:720px;">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Utilisateur</th>
-            <th>Adresse IP</th>
-            <th>Statut</th>
-            <th>Message</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for log in logs %}
-            {% set meta = log.meta or {} %}
-            {% set status = meta.get('status') or (log.action.split('.')[-1] if log.action else '') %}
-            {% set badge_class = 'badge' %}
-            {% if status == 'success' %}
-              {% set badge_style = 'background:#0f3b33;border-color:#1d6e5d;color:#bff3e7;' %}
-              {% set status_label = 'Succès' %}
-            {% else %}
-              {% set badge_style = 'background:#2a0e14;border-color:#75212f;color:#ffd5dc;' %}
-              {% set status_label = 'Échec' %}
-            {% endif %}
-            <tr>
-              <td>{{ log.ts.strftime('%d/%m/%Y %H:%M') if log.ts else '—' }}</td>
-              <td>{{ meta.get('username') or (log.user.username if log.user else 'Inconnu') }}</td>
-              <td>{{ meta.get('client_ip') or '—' }}</td>
-              <td><span class="badge" style="{{ badge_style }}">{{ status_label }}</span></td>
-              <td>{{ meta.get('message') or '—' }}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <div class="muted">Aucune connexion enregistrée pour le moment.</div>
-    {% endif %}
+    .logs-table-card{background:linear-gradient(160deg,rgba(11,26,48,.9),rgba(7,16,30,.94));border:1px solid rgba(158,201,255,.14);
+      border-radius:22px;padding:22px;box-shadow:0 22px 46px rgba(4,12,26,.32)}
+    .logs-table-card .title{margin-bottom:6px}
+    .logs-table-card .subtitle{margin:0;color:rgba(193,211,238,.7)}
+    .logs-table-wrapper{margin-top:16px;border-radius:18px;border:1px solid rgba(255,255,255,.06);overflow:hidden;
+      background:rgba(10,24,46,.6);box-shadow:0 18px 36px rgba(4,11,24,.3)}
+    .logs-table-wrapper table{width:100%;border-collapse:collapse;min-width:780px}
+    .logs-table-wrapper th,.logs-table-wrapper td{padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.05);font-size:14px}
+    .logs-table-wrapper th{text-align:left;text-transform:uppercase;font-size:11px;letter-spacing:.32em;color:rgba(193,211,238,.6);
+      background:rgba(12,28,52,.65)}
+    .logs-table-wrapper tr:hover td{background:rgba(36,86,148,.12)}
+    .status-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-weight:700;font-size:12px;
+      border:1px solid rgba(255,255,255,.08)}
+    .status-pill[data-state="success"]{background:rgba(18,184,134,.15);border-color:rgba(18,184,134,.35);color:#bff3e7}
+    .status-pill[data-state="error"]{background:rgba(255,107,107,.12);border-color:rgba(255,107,107,.3);color:#ffd5dc}
+    .empty-state{margin-top:14px;padding:16px;border-radius:14px;border:1px dashed rgba(255,255,255,.12);color:rgba(193,211,238,.7);
+      text-align:center}
+    .table-scroll{overflow-x:auto}
+  </style>
+
+  <div class="logs-page">
+    <section class="logs-hero">
+      <div class="title">Historique des connexions</div>
+      <p class="subtitle">Surveille les accès récents à l’interface : chaque tentative est enregistrée avec le résultat, l’adresse IP et le message renvoyé.</p>
+      <div class="hero-actions">
+        <a class="btn" href="/admin">⬅ Retour administration</a>
+      </div>
+    </section>
+
+    <section class="logs-table-card">
+      <div class="title">Derniers accès</div>
+      <p class="subtitle">Affiche jusqu’à 200 lignes pour faciliter les audits de sécurité.</p>
+      {% if logs %}
+        <div class="table-scroll">
+          <div class="logs-table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Utilisateur</th>
+                  <th>Adresse IP</th>
+                  <th>Statut</th>
+                  <th>Message</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for log in logs %}
+                  {% set meta = log.meta or {} %}
+                  {% set status = meta.get('status') or (log.action.split('.')[-1] if log.action else '') %}
+                  {% if status == 'success' %}
+                    {% set pill_state = 'success' %}
+                    {% set status_label = 'Succès' %}
+                  {% else %}
+                    {% set pill_state = 'error' %}
+                    {% set status_label = 'Échec' %}
+                  {% endif %}
+                  <tr>
+                    <td>{{ log.ts.strftime('%d/%m/%Y %H:%M') if log.ts else '—' }}</td>
+                    <td>{{ meta.get('username') or (log.user.username if log.user else 'Inconnu') }}</td>
+                    <td>{{ meta.get('client_ip') or '—' }}</td>
+                    <td><span class="status-pill" data-state="{{ pill_state }}">{{ status_label }}</span></td>
+                    <td>{{ meta.get('message') or '—' }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      {% else %}
+        <div class="empty-state">Aucune connexion enregistrée pour le moment.</div>
+      {% endif %}
+    </section>
   </div>
 {% endblock %}

@@ -5,77 +5,109 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 
 <style>
-  :root{
-    --radius: 14px;
-    --shadow: 0 6px 22px rgba(0,0,0,.25);
-    --bg-card: #0f1726;
-  }
-  .wrap{max-width:1100px;margin:0 auto;padding:14px}
-  .card{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px;margin-bottom:14px}
+  .peremption-page{max-width:1100px;margin:0 auto;padding:18px;display:flex;flex-direction:column;gap:22px}
+  .peremption-hero{background:linear-gradient(135deg,rgba(32,68,126,.9),rgba(14,30,54,.94));border:1px solid rgba(158,201,255,.26);
+    border-radius:26px;padding:26px 30px;box-shadow:0 26px 58px rgba(6,16,34,.42);display:grid;gap:18px;
+    grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr)}
+  .peremption-hero .title{font-size:26px;margin:0;color:#fff;font-weight:800}
+  .peremption-hero .subtitle{margin:8px 0 0;color:rgba(210,225,255,.82);font-size:15px;line-height:1.6}
+  .peremption-summary{align-self:start;display:flex;flex-direction:column;gap:10px;padding:20px;border-radius:18px;
+    background:rgba(11,27,51,.72);border:1px solid rgba(184,211,255,.22);box-shadow:0 18px 36px rgba(5,14,28,.32)}
+  .peremption-summary-label{font-size:12px;text-transform:uppercase;letter-spacing:.32em;color:rgba(203,220,255,.68);font-weight:700}
+  .peremption-summary-value{display:flex;flex-direction:column;gap:6px;font-size:28px;font-weight:800;color:#fff}
+  .peremption-summary-value .count{font-size:42px;font-weight:800;color:#fff;line-height:1.1}
+  .peremption-summary-value .window{font-size:13px;color:rgba(203,220,255,.78);text-transform:uppercase;letter-spacing:.24em}
+  .peremption-summary-hint{font-size:13px;color:rgba(203,220,255,.75)}
 
-  .filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-  .filters input, .filters select{
-    background:#0b1120;border:1px solid var(--border);border-radius:10px;color:var(--text);
-    padding:10px 12px;min-width:120px
-  }
-  .filters .btn{padding:10px 12px;border-radius:10px}
+  .peremption-panel{background:linear-gradient(160deg,rgba(12,28,54,.9),rgba(7,16,30,.95));border:1px solid rgba(158,201,255,.18);
+    border-radius:22px;box-shadow:0 22px 46px rgba(5,14,28,.32);padding:24px;display:flex;flex-direction:column;gap:18px}
+  .peremption-panel .panel-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .peremption-panel .panel-header .title{font-size:20px;margin:0;color:#f1f5ff;font-weight:800}
+  .peremption-panel .panel-header .muted{margin:0;color:rgba(193,211,238,.7)}
+  .filters{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+  .filters label{font-size:13px;font-weight:600;color:rgba(193,211,238,.7)}
+  .filters input,.filters select{padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(13,30,56,.75);
+    color:#f1f5ff;min-width:140px;font-weight:600}
+  .filters input:focus,.filters select:focus{border-color:rgba(255,179,71,.55);box-shadow:0 0 0 3px rgba(255,179,71,.2);outline:none}
+  .filters .search{flex:1 1 220px}
+  .filters .btn{padding:10px 16px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(13,30,56,.78);
+    color:#f1f5ff;font-weight:600;cursor:pointer;transition:transform .12s ease,box-shadow .12s ease}
+  .filters .btn:hover{transform:translateY(-1px);box-shadow:0 12px 24px rgba(7,16,30,.28)}
 
-  .table{width:100%;border-collapse:separate;border-spacing:0 8px}
-  .table th{font-weight:800;text-align:left;color:#b7c7dc;padding:6px 10px}
-  .row{
-    display:grid;grid-template-columns: 1fr 1fr 140px 120px 110px;
-    gap:10px;align-items:center;background:#0f1726;border:1px solid var(--border);
-    border-radius:12px;padding:10px
-  }
-  .row.expired{border-color:#7a2330;background:#2a0e14}
-  .row.soon{border-color:#7a5d1e;background:#221a07}
-  .row.ok{opacity:.95}
+  .peremption-table{background:linear-gradient(160deg,rgba(11,26,48,.9),rgba(7,16,30,.94));border:1px solid rgba(158,201,255,.16);
+    border-radius:22px;box-shadow:0 22px 46px rgba(4,12,26,.32);padding:22px;display:flex;flex-direction:column;gap:16px}
+  .peremption-table .title{margin:0;font-size:20px;font-weight:800;color:#f1f5ff}
+  .peremption-table .muted{margin:0;color:rgba(193,211,238,.68)}
+  .table-head{display:grid;grid-template-columns:1fr 1fr 140px 120px 120px;gap:10px;padding:0 12px;font-size:11px;
+    text-transform:uppercase;letter-spacing:.3em;color:rgba(193,211,238,.58)}
+  .peremption-row{display:grid;grid-template-columns:1fr 1fr 140px 120px 120px;gap:12px;align-items:center;padding:16px;
+    border-radius:16px;border:1px solid rgba(255,255,255,.08);background:rgba(13,30,56,.72);box-shadow:0 16px 32px rgba(5,14,28,.28);
+    margin-top:12px}
+  .peremption-row.expired{border-color:rgba(255,107,107,.38);background:rgba(66,16,28,.78);box-shadow:0 18px 34px rgba(255,107,107,.25)}
+  .peremption-row.soon{border-color:rgba(255,179,71,.4);background:rgba(72,45,12,.72);box-shadow:0 18px 34px rgba(255,179,71,.22)}
+  .peremption-row.ok{border-color:rgba(18,184,134,.35);background:rgba(15,42,36,.72)}
+  .peremption-row .name{font-weight:700;color:#f1f5ff}
+  .peremption-row .details{font-size:12px;color:rgba(193,211,238,.7);margin-top:4px}
+  .peremption-row .path{color:rgba(193,211,238,.7);font-size:14px}
+  .peremption-row .value{font-weight:600;color:#f1f5ff}
+  .status-badge{display:inline-flex;align-items:center;justify-content:center;padding:6px 12px;border-radius:999px;font-weight:700;font-size:12px;
+    border:1px solid rgba(255,255,255,.12)}
+  .status-badge[data-state="expired"]{background:rgba(255,107,107,.18);border-color:rgba(255,107,107,.32);color:#ffd5dc}
+  .status-badge[data-state="soon"]{background:rgba(255,179,71,.18);border-color:rgba(255,179,71,.34);color:#ffe1b3}
+  .status-badge[data-state="ok"]{background:rgba(18,184,134,.18);border-color:rgba(18,184,134,.32);color:#bff3e7}
 
-  .status-badge{padding:4px 8px;border-radius:999px;border:1px solid var(--border);font-weight:800;font-size:12px;display:inline-block;text-align:center}
-  .badge-exp{background:#2a0e14;color:#ffd5dc;border-color:#75212f}
-  .badge-soon{background:#221a07;color:#ffd679;border-color:#7a5d1e}
-  .badge-ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
+  #list{margin-top:6px}
+  #empty{display:none;margin-top:12px;padding:16px;border-radius:14px;border:1px dashed rgba(255,255,255,.14);
+    color:rgba(193,211,238,.7);text-align:center;background:rgba(10,24,46,.55)}
 
-  .muted{color:#9fb0c6}
-  .details{opacity:.85;font-size:12px;margin-top:4px}
-  .search{flex:1}
-  @media (max-width: 820px){
-    .row{grid-template-columns: 1fr 140px 100px;gap:8px}
-    .col-path{grid-column: 1 / -1; order: 3}
-    .col-date{order: 4}
-    .col-days{order: 5}
+  @media(max-width:920px){
+    .peremption-hero{grid-template-columns:1fr;padding:22px}
+    .peremption-summary{flex-direction:row;align-items:flex-end;justify-content:space-between}
+    .table-head{display:none}
+    .peremption-row{grid-template-columns:1fr;gap:10px}
+    .peremption-row .path,.peremption-row .value{text-align:left}
   }
 </style>
 
-<div class="wrap">
-  <div class="card">
-    <div class="row space-between" style="margin-bottom:10px">
-      <div class="title">Articles à surveiller</div>
-      <div class="muted" id="summary">—</div>
+<div class="peremption-page">
+  <section class="peremption-hero">
+    <div>
+      <h1 class="title">Articles à surveiller</h1>
+      <p class="subtitle">Identifie rapidement les consommables proches de leur date de péremption et pilote les réassorts depuis une interface optimisée.</p>
+    </div>
+    <div class="peremption-summary">
+      <span class="peremption-summary-label">Synthèse</span>
+      <span class="peremption-summary-value" id="summary">—</span>
+      <span class="peremption-summary-hint">Actualise la liste pour rafraîchir les données en direct.</span>
+    </div>
+  </section>
+
+  <section class="peremption-panel">
+    <div class="panel-header">
+      <h2 class="title">Filtrer les résultats</h2>
+      <p class="muted">Affiche uniquement les articles concernés par ta fenêtre de surveillance.</p>
     </div>
     <div class="filters">
-      <label for="days" class="muted">Fenêtre (jours) :</label>
-      <input id="days" type="number" value="30" min="0" step="1" />
-      <input id="q" class="search" placeholder="Rechercher par nom / chemin…" />
-      <button class="btn" id="refresh">Actualiser</button>
+      <label for="days">Fenêtre (jours)</label>
+      <input id="days" type="number" value="30" min="0" step="1">
+      <input id="q" class="search" placeholder="Rechercher par nom ou chemin…">
+      <button class="btn" id="refresh" type="button">Actualiser</button>
     </div>
-  </div>
+  </section>
 
-  <div class="card">
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Article</th>
-          <th class="col-path">Chemin</th>
-          <th class="col-date">Péremption</th>
-          <th class="col-days">Jours restants</th>
-          <th>Statut</th>
-        </tr>
-      </thead>
-    </table>
-    <div id="list" style="margin-top:6px"></div>
-    <div id="empty" class="muted" style="display:none;margin-top:8px">Aucun article dans la fenêtre choisie.</div>
-  </div>
+  <section class="peremption-table">
+    <h2 class="title">Liste détaillée</h2>
+    <p class="muted">Triée du plus urgent au moins urgent.</p>
+    <div class="table-head">
+      <div>Article</div>
+      <div>Chemin</div>
+      <div>Péremption</div>
+      <div>Jours restants</div>
+      <div>Statut</div>
+    </div>
+    <div id="list"></div>
+    <div id="empty">Aucun article dans la fenêtre choisie.</div>
+  </section>
 </div>
 
 <script>
@@ -90,9 +122,9 @@ function el(tag, attrs={}, ...children){
   return e;
 }
 function badge(status){
-  if(status==="EXPIRED") return el("span",{class:"status-badge badge-exp"},"Périmé");
-  if(status==="SOON") return el("span",{class:"status-badge badge-soon"},"Bientôt");
-  return el("span",{class:"status-badge badge-ok"},"OK");
+  const norm = status === "EXPIRED" ? "expired" : status === "SOON" ? "soon" : "ok";
+  const label = norm === "expired" ? "Périmé" : norm === "soon" ? "Bientôt" : "OK";
+  return el("span",{class:"status-badge","data-state":norm},label);
 }
 
 function fmtDate(iso){
@@ -120,14 +152,14 @@ function renderRows(items){
     if(it.lot) metaParts.push(`Lot ${it.lot}`);
     if(it.note) metaParts.push(it.note);
 
-    const row = el("div",{class:"row "+cls},
+    const row = el("div",{class:"peremption-row "+cls},
       el("div", null,
-        el("div",{class:"strong"}, it.name),
-        metaParts.length ? el("div",{class:"muted details"}, metaParts.join(" • ")) : el("div",{class:"muted"}, "Qté cible : ", (it.quantity!=null?it.quantity:"—"))
+        el("div",{class:"name"}, it.name),
+        metaParts.length ? el("div",{class:"details"}, metaParts.join(" • ")) : null
       ),
-      el("div",{class:"col-path muted"}, it.path || "—"),
-      el("div",{class:"col-date"}, fmtDate(it.expiry_date)),
-      el("div",{class:"col-days"}, it.days_left!=null ? it.days_left+" j" : "—"),
+      el("div",{class:"path"}, it.path || "—"),
+      el("div",{class:"value"}, fmtDate(it.expiry_date)),
+      el("div",{class:"value"}, it.days_left!=null ? it.days_left+" j" : "—"),
       el("div", null, badge(it.status))
     );
     holder.appendChild(row);
@@ -143,7 +175,10 @@ async function loadData(){
   if(!r.ok){ document.getElementById("summary").textContent = "Erreur de chargement"; return; }
   const data = await r.json();
   const items = data.items || [];
-  document.getElementById("summary").textContent = `${items.length} entrée(s) • fenêtre ${data.window_days} j`;
+  const summaryEl = document.getElementById("summary");
+  if(summaryEl){
+    summaryEl.innerHTML = `<span class="count">${items.length}</span><span class="window">Fenêtre ${data.window_days} j</span>`;
+  }
   renderRows(items);
 }
 

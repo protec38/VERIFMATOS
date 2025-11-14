@@ -1,21 +1,65 @@
 {% extends "base.html" %}
 {% set title = "Connexion" %}
 {% block content %}
-  <div class="card" style="max-width:420px;margin:40px auto;">
-    <div class="title">Connexion</div>
-    <p class="muted" style="margin-top:6px;">Entre ton identifiant et ton mot de passe.</p>
-    {% if error %}
-      <div class="alert" style="margin-top:14px;border-color:#75212f;background:#2a0e14;color:#ffd5dc;font-weight:600;">
-        {{ error }}
+  <style>
+    .auth-wrapper{display:flex;align-items:center;justify-content:center;min-height:calc(100vh - 200px);padding:32px 0}
+    .auth-card{width:100%;max-width:420px;background:linear-gradient(160deg,rgba(22,46,86,.9),rgba(11,27,51,.92));
+      border:1px solid rgba(158,201,255,.22);border-radius:24px;padding:34px 32px;box-shadow:0 28px 60px rgba(6,16,34,.45);
+      display:flex;flex-direction:column;gap:18px}
+    .auth-card .brand-block{display:flex;align-items:center;gap:14px}
+    .auth-card .brand-logo{width:58px;height:auto}
+    .auth-card h1{margin:0;font-size:26px;font-weight:800;letter-spacing:.3px;color:#fff}
+    .auth-card p{margin:0;font-size:14px;color:rgba(216,229,255,.78);line-height:1.5}
+    .auth-form{display:flex;flex-direction:column;gap:14px;margin-top:6px}
+    .auth-form label{font-size:12px;text-transform:uppercase;letter-spacing:.35em;color:rgba(193,211,238,.68);font-weight:700}
+    .auth-form input{width:100%;padding:12px 16px;border-radius:14px;border:1px solid rgba(255,255,255,.12);
+      background:rgba(9,22,42,.75);color:#f1f5ff;font-size:15px;font-weight:600}
+    .auth-form input:focus{border-color:rgba(255,179,71,.6);box-shadow:0 0 0 3px rgba(255,179,71,.22);outline:none}
+    .auth-actions{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:6px}
+    .auth-remember{display:flex;align-items:center;gap:8px;color:rgba(193,211,238,.75);font-size:13px}
+    .auth-btn{display:inline-flex;justify-content:center;align-items:center;gap:8px;padding:12px 20px;border-radius:16px;
+      border:0;background:linear-gradient(135deg,var(--pc-orange),var(--pc-orange-strong));color:#1f1200;font-weight:800;
+      cursor:pointer;transition:transform .15s ease,box-shadow .15s ease}
+    .auth-btn:hover{transform:translateY(-1px);box-shadow:0 14px 32px rgba(255,147,52,.28)}
+    .auth-error{padding:14px;border-radius:14px;border:1px solid rgba(255,118,138,.38);background:rgba(66,16,28,.78);
+      color:#ffd5dc;font-weight:600}
+    @media(max-width:600px){
+      .auth-card{padding:28px 24px;border-radius:22px}
+      .auth-card h1{font-size:22px}
+      .auth-actions{flex-direction:column;align-items:stretch}
+      .auth-btn{width:100%}
+    }
+  </style>
+
+  <div class="auth-wrapper">
+    <div class="auth-card">
+      <div class="brand-block">
+        <img src="{{ url_for('static', filename='pc_logo.webp') }}" alt="Protection Civile" class="brand-logo" loading="lazy">
+        <div>
+          <h1>Portail Protection Civile</h1>
+          <p>Identifie-toi pour accéder à la préparation du matériel et aux vérifications.</p>
+        </div>
       </div>
-    {% endif %}
-    <form method="post" action="/login" class="row" style="margin-top:16px;flex-direction:column;gap:10px;">
-      {% if next_url %}
-        <input type="hidden" name="next" value="{{ next_url }}">
+
+      {% if error %}
+        <div class="auth-error">{{ error }}</div>
       {% endif %}
-      <input name="username" placeholder="Nom d’utilisateur" required autocomplete="username">
-      <input name="password" type="password" placeholder="Mot de passe" required autocomplete="current-password">
-      <button class="btn primary" type="submit" style="align-self:flex-end;">Se connecter</button>
-    </form>
+
+      <form method="post" action="/login" class="auth-form">
+        {% if next_url %}
+          <input type="hidden" name="next" value="{{ next_url }}">
+        {% endif %}
+        <label for="auth-username">Identifiant</label>
+        <input id="auth-username" name="username" placeholder="Nom d’utilisateur" required autocomplete="username">
+
+        <label for="auth-password">Mot de passe</label>
+        <input id="auth-password" name="password" type="password" placeholder="Mot de passe" required autocomplete="current-password">
+
+        <div class="auth-actions">
+          <span class="auth-remember">Interface sécurisée interne — Protection Civile</span>
+          <button class="auth-btn" type="submit">Se connecter</button>
+        </div>
+      </form>
+    </div>
   </div>
 {% endblock %}
