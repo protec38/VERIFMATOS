@@ -3,102 +3,40 @@
 {% block content %}
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-<style>
-  .public-wrap{max-width:980px;margin:32px auto;display:flex;flex-direction:column;gap:18px;padding:0 12px}
-  .card{position:relative}
-  .finish-card .title{font-size:20px;font-weight:800}
-  .finish-card form{display:flex;flex-direction:column;gap:12px;margin-top:16px}
-  .identity-row{display:flex;flex-wrap:wrap;gap:10px}
-  .identity-row input{flex:1;min-width:200px;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0b1120;color:var(--text)}
-  .finish-card textarea{min-height:90px;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0b1120;color:var(--text)}
-  .finish-card .alert{margin-top:14px;border-radius:12px;padding:12px;font-weight:600}
-  .finish-card .alert.success{border:1px solid #1d6e5d;background:#0f3b33;color:#bff3e7}
-  .finish-card .alert.error{border:1px solid #75212f;background:#2a0e14;color:#ffd5dc}
-  .finish-header{display:flex;flex-direction:column;gap:8px;margin-top:12px}
-  .finish-meta{display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:14px;color:var(--muted)}
-  .finish-meta .btn{padding:6px 10px;font-size:12px}
-  .finish-actions{display:flex;justify-content:flex-end}
-  .finish-actions .btn[disabled]{opacity:.5;cursor:not-allowed}
-
-  .tree-card .title{font-size:20px;font-weight:800}
-  .chipbar{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
-  .chip{padding:4px 10px;border-radius:999px;font-weight:800;font-size:12px;border:1px solid var(--border)}
-  .chip.ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
-  .chip.wait{background:#101c2e;color:#b7c7dc;border-color:#24344f}
-  .progress{height:8px;border-radius:8px;overflow:hidden;background:rgba(255,255,255,.08);margin-top:12px}
-  .progress > div{height:100%;width:0;background:var(--pc-orange);transition:width .2s ease}
-  .tree-note{font-size:13px;color:var(--muted);margin-top:10px}
-
-  .tree{margin-top:16px;display:flex;flex-direction:column;gap:12px}
-  .node{border:1px solid var(--border);border-radius:14px;background:#0f1a2a;padding:10px 12px}
-  .state-ok{border-color:var(--success)!important;background:radial-gradient(600px 200px at top left, rgba(18,184,134,.15), transparent),#0f1e2f;box-shadow:0 0 0 1px rgba(18,184,134,.35) inset,0 0 18px rgba(18,184,134,.15)}
-  .state-wait{border-color:var(--border)!important;background:radial-gradient(600px 200px at top left, rgba(45,123,191,.08), transparent),var(--bg-2)}
-  .header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0;font-weight:700}
-  .header .name{display:flex;align-items:center;gap:8px}
-  .header .meta{font-size:12px;color:var(--muted)}
-  .childs{display:flex;flex-direction:column;gap:12px;margin-top:10px;padding-left:20px}
-  .item{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:14px;border-radius:12px;border:1px solid var(--border);background:#0f1e2f}
-  .item .left{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-weight:700}
-  .item .qty{font-size:12px;border:1px dashed var(--border);padding:2px 8px;border-radius:8px;opacity:.85}
-  .item .right{display:flex;gap:8px;flex-wrap:wrap}
-  .item .btn{padding:10px 14px;border-radius:10px}
-  .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block}
-  .dot-ok{background:var(--success)}
-  .dot-wait{background:#37527a}
-
-  .name-modal-backdrop{position:fixed;inset:0;background:rgba(3,7,18,.85);display:none;align-items:center;justify-content:center;padding:20px;z-index:100}
-  .name-modal-backdrop.visible{display:flex}
-  .name-modal{background:#0f1e2f;border-radius:18px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.45);display:flex;flex-direction:column;gap:16px}
-  .name-modal h2{margin:0;font-size:22px;font-weight:800}
-  .name-modal p{margin:0;font-size:14px;color:var(--muted)}
-  .name-modal form{display:flex;flex-direction:column;gap:16px}
-  .name-modal .identity-row input{background:#0b1120;border:1px solid var(--border)}
-  .name-modal .modal-actions{display:flex;justify-content:flex-end;gap:10px}
-  .name-modal .alert{border-radius:12px;padding:12px;font-weight:600;border:1px solid #75212f;background:#2a0e14;color:#ffd5dc}
-
-  @media (max-width:600px){
-    .public-wrap{padding:0 8px}
-    .childs{padding-left:14px}
-    .item{flex-direction:column;align-items:flex-start}
-    .item .right{width:100%}
-    .item .btn{width:100%}
-  }
-</style>
-
 <div class="public-wrap">
-  <div class="card tree-card">
+  <section class="card tree-card">
     <div class="title">Matériel à vérifier</div>
     <p class="tree-note">Clique sur <strong>OK</strong> pour marquer les éléments contrôlés. Ces validations sont sauvegardées localement sur ce navigateur et ne synchronisent pas les autres personnes.</p>
     <div class="chipbar">
-      <span class="chip ok" id="public-stat-ok">OK : 0</span>
-      <span class="chip wait" id="public-stat-wait">En attente : 0</span>
+      <span class="chip ok" id="public-stat-ok">OK : 0</span>
+      <span class="chip wait" id="public-stat-wait">En attente : 0</span>
     </div>
     <div class="progress"><div id="public-progress-bar"></div></div>
-    <div class="muted" id="public-progress-text" style="margin-top:6px;">0 / 0 vérifiés</div>
+    <div class="muted tree-hint" id="public-progress-text">0 / 0 vérifiés</div>
     <div id="public-tree" class="tree"></div>
-  </div>
+  </section>
 
-  <div class="card finish-card">
+  <section class="card finish-card">
     <div class="title">Finaliser la vérification</div>
-    <p class="muted" style="margin-top:6px;">Parent contrôlé : <strong>{{ root.name }}</strong></p>
+    <p class="muted finish-note">Parent contrôlé : <strong>{{ root.name }}</strong></p>
 
     {% if success %}
       <div class="alert success">✅ Merci {{ recorded_name or '' }} ! La vérification a été enregistrée.</div>
-      <p class="muted" style="margin-top:12px;">Tu peux fermer cette page ou recommencer une nouvelle vérification si besoin.</p>
+      <p class="muted finish-note">Tu peux fermer cette page ou recommencer une nouvelle vérification si besoin.</p>
     {% else %}
       <div class="finish-header">
         <div class="finish-meta">
-          <span>Vérificateur : <strong id="captured-name">Non renseigné</strong></span>
+          <span>Vérificateur : <strong id="captured-name">Non renseigné</strong></span>
           <button type="button" class="btn ghost" id="edit-name-btn">Modifier le nom</button>
         </div>
-        <div class="muted" id="finish-guard">Valide tous les éléments pour pouvoir finir la vérification.</div>
+        <div class="muted finish-guard" id="finish-guard">Valide tous les éléments pour pouvoir finir la vérification.</div>
       </div>
 
       {% if error %}
         <div class="alert error">{{ error }}</div>
       {% endif %}
 
-      <form method="post" id="verification-form">
+      <form method="post" id="verification-form" class="finish-form">
         <input type="hidden" name="first_name" id="final-first-name" value="{{ first_prefill or '' }}">
         <input type="hidden" name="last_name" id="final-last-name" value="{{ last_prefill or '' }}">
         <textarea name="comment" placeholder="Commentaire (optionnel)">{{ comment_prefill or '' }}</textarea>
@@ -107,7 +45,7 @@
         </div>
       </form>
     {% endif %}
-  </div>
+  </section>
 </div>
 
 {% if not success %}
@@ -123,7 +61,7 @@
       <div class="modal-actions">
         <button type="submit" class="btn primary">Continuer</button>
       </div>
-      <div class="alert error" id="name-modal-error" style="display:none;">Merci de renseigner ton prénom et ton nom.</div>
+      <div class="alert error hidden" id="name-modal-error">Merci de renseigner ton prénom et ton nom.</div>
     </form>
   </div>
 </div>
@@ -198,7 +136,6 @@ function openNameModal(){
   requestAnimationFrame(() => {
     if(MODAL_FIRST_INPUT){
       MODAL_FIRST_INPUT.focus();
-      MODAL_FIRST_INPUT.select();
     }
   });
 }
@@ -208,258 +145,131 @@ function closeNameModal(){
   NAME_MODAL.classList.remove('visible');
 }
 
-function loadState(){
-  STATE.clear();
-  try{
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if(!raw) return;
-    const parsed = JSON.parse(raw);
-    if(!parsed || typeof parsed !== 'object') return;
-    Object.entries(parsed).forEach(([key, value]) => {
-      if(String(value).toUpperCase() === 'OK'){
-        const id = Number(key);
-        if(!Number.isNaN(id)){
-          STATE.set(id, 'OK');
-        }
-      }
-    });
-  }catch(err){
-    // Ignored: storage may be unavailable (private mode, etc.)
-  }
-}
-
-function saveState(){
-  try{
-    const payload = {};
-    STATE.forEach((value, key) => {
-      if(String(value).toUpperCase() === 'OK'){
-        payload[key] = 'OK';
-      }
-    });
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  }catch(err){
-    // Ignore storage errors
-  }
-}
-
-function el(tag, attrs={}, ...children){
-  const element = document.createElement(tag);
-  Object.entries(attrs || {}).forEach(([key, value]) => {
-    if(value == null) return;
-    if(key === 'class') element.className = value;
-    else if(key === 'html') element.innerHTML = value;
-    else if(key.startsWith('on') && typeof value === 'function') element.addEventListener(key.slice(2), value);
-    else element.setAttribute(key, value);
-  });
-  children.forEach(child => {
-    if(child == null) return;
-    element.append(child.nodeType ? child : document.createTextNode(child));
-  });
-  return element;
-}
-
-const isItem = node => {
-  if(!node) return false;
-  if(node.unique_parent) return true;
-  const type = String(node.type || '').toUpperCase();
-  return type === 'ITEM' || (!!node.unique_item && !(node.children || []).length);
-};
-const isGroup = node => !isItem(node);
-
-function getItemStatus(node){
-  const status = STATE.get(Number(node.id));
-  return String(status || '').toUpperCase() === 'OK' ? 'OK' : 'WAIT';
-}
-
-function groupStatus(node){
-  let hasWait = false;
-  let hasOk = false;
-  const scan = n => {
-    if(!n) return;
-    if(isItem(n)){
-      const st = getItemStatus(n);
-      if(st === 'OK') hasOk = true;
-      else hasWait = true;
-      return;
-    }
-    (n.children || []).forEach(scan);
-  };
-  scan(node);
-  if(hasOk && !hasWait) return 'OK';
-  return 'WAIT';
-}
-
-const itemClass = node => getItemStatus(node) === 'OK' ? 'state-ok' : 'state-wait';
-const groupClass = node => groupStatus(node) === 'OK' ? 'state-ok' : 'state-wait';
-const statusDot = status => {
-  const cls = status === 'OK' ? 'dot-ok' : 'dot-wait';
-  return el('span', {class: `status-dot ${cls}`});
-};
-
-function toggleItem(node){
-  if(!node) return;
-  const current = getItemStatus(node) === 'OK';
-  if(current){
-    STATE.delete(Number(node.id));
-  }else{
-    STATE.set(Number(node.id), 'OK');
-  }
-  saveState();
-  renderTree();
-}
-
-function renderItem(node){
-  const status = getItemStatus(node);
-  const qty = node.selected_quantity ?? node.quantity ?? node.unique_quantity ?? 1;
-  const left = el('div', {class:'left'},
-    statusDot(status),
-    el('span', {class:'name'}, node.name || 'Item'),
-    el('span', {class:'qty'}, `Qté : ${qty}`)
-  );
-  const toggleBtn = el('button', {class:`btn ${status === 'OK' ? 'ghost' : 'success'}`}, status === 'OK' ? 'Annuler' : 'OK');
-  toggleBtn.addEventListener('click', () => toggleItem(node));
-  const right = el('div', {class:'right'}, toggleBtn);
-  return el('div', {class:`item ${itemClass(node)}`}, left, right);
-}
-
-function renderGroup(node){
-  const status = groupStatus(node);
-  const header = el('div', {class:'header'},
-    el('div', {class:'name'}, statusDot(status), node.name || 'Groupe'),
-    el('div', {class:'meta'}, status === 'OK' ? 'Tous les éléments sont OK' : 'En attente')
-  );
-  const bodyChildren = [];
-  (node.children || []).forEach(child => {
-    bodyChildren.push(renderNode(child));
-  });
-  if(node.unique_item || node.unique_parent){
-    bodyChildren.unshift(renderItem(node));
-  }
-  const body = el('div', {class:'childs'}, ...bodyChildren);
-  return el('div', {class:`node ${groupClass(node)}`}, header, body);
-}
-
-function renderNode(node){
-  return isGroup(node) ? renderGroup(node) : renderItem(node);
-}
-
-function flattenItems(nodes, acc=[]){
-  (nodes || []).forEach(node => {
-    if(isItem(node)) acc.push(node);
-    (node.children || []).forEach(child => flattenItems([child], acc));
-  });
-  return acc;
-}
-
-function updateStats(){
-  const items = flattenItems(TREE_DATA, []);
-  const total = items.length;
-  const ok = items.filter(item => getItemStatus(item) === 'OK').length;
-  const wait = total - ok;
-  LAST_TOTAL = total;
-  LAST_OK = ok;
-  const okEl = document.getElementById('public-stat-ok');
-  if(okEl) okEl.textContent = `OK : ${ok}`;
-  const waitEl = document.getElementById('public-stat-wait');
-  if(waitEl) waitEl.textContent = `En attente : ${wait}`;
-  const bar = document.getElementById('public-progress-bar');
-  if(bar) bar.style.width = total ? `${Math.round((ok / Math.max(total, 1)) * 100)}%` : '0%';
-  const txt = document.getElementById('public-progress-text');
-  if(txt) txt.textContent = `${ok} / ${total} vérifiés`;
-  updateFinishState();
-}
-
-function renderTree(){
-  const container = document.getElementById('public-tree');
-  if(!container) return;
-  container.innerHTML = '';
-  if(!TREE_DATA.length){
-    container.appendChild(el('div', {class:'muted'}, 'Aucun matériel à vérifier pour ce parent.'));
-    updateStats();
-    return;
-  }
-  TREE_DATA.forEach(node => container.appendChild(renderNode(node)));
-  updateStats();
-}
-
-loadState();
-renderTree();
-updateFinishState();
-
 if(NAME_FORM){
-  NAME_FORM.addEventListener('submit', event => {
-    event.preventDefault();
-    if(!MODAL_FIRST_INPUT || !MODAL_LAST_INPUT){
-      if(FIRST_FIELD && LAST_FIELD){
-        closeNameModal();
-        updateFinishState();
-      }
-      return;
-    }
-    const first = MODAL_FIRST_INPUT.value.trim();
-    const last = MODAL_LAST_INPUT.value.trim();
+  NAME_FORM.addEventListener('submit', (evt) => {
+    evt.preventDefault();
+    const first = (MODAL_FIRST_INPUT && MODAL_FIRST_INPUT.value ? MODAL_FIRST_INPUT.value.trim() : '');
+    const last = (MODAL_LAST_INPUT && MODAL_LAST_INPUT.value ? MODAL_LAST_INPUT.value.trim() : '');
     if(!first || !last){
       if(NAME_MODAL_ERROR){
-        NAME_MODAL_ERROR.style.display = 'block';
-      }
-      if(!first && MODAL_FIRST_INPUT){
-        MODAL_FIRST_INPUT.focus();
-      }else if(!last && MODAL_LAST_INPUT){
-        MODAL_LAST_INPUT.focus();
+        NAME_MODAL_ERROR.classList.remove('hidden');
       }
       return;
     }
     if(NAME_MODAL_ERROR){
-      NAME_MODAL_ERROR.style.display = 'none';
+      NAME_MODAL_ERROR.classList.add('hidden');
     }
     if(FIRST_FIELD) FIRST_FIELD.value = first;
     if(LAST_FIELD) LAST_FIELD.value = last;
-    closeNameModal();
     updateFinishState();
+    closeNameModal();
   });
 }
 
 if(EDIT_NAME_BTN){
   EDIT_NAME_BTN.addEventListener('click', () => {
-    if(NAME_MODAL_ERROR){
-      NAME_MODAL_ERROR.style.display = 'none';
-    }
     openNameModal();
   });
 }
 
-if(VERIFICATION_FORM){
-  VERIFICATION_FORM.addEventListener('submit', event => {
-    const hasNames = Boolean((FIRST_FIELD && FIRST_FIELD.value ? FIRST_FIELD.value.trim() : '') && (LAST_FIELD && LAST_FIELD.value ? LAST_FIELD.value.trim() : ''));
-    const allOk = LAST_TOTAL === 0 || LAST_OK === LAST_TOTAL;
-    if(!hasNames){
-      event.preventDefault();
-      if(NAME_MODAL_ERROR){
-        NAME_MODAL_ERROR.style.display = 'none';
-      }
-      openNameModal();
-      return;
+function restoreState(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return;
+    const parsed = JSON.parse(raw);
+    if(parsed && typeof parsed === 'object'){
+      STATE.clear();
+      Object.entries(parsed).forEach(([k,v]) => {
+        STATE.set(Number(k), v);
+      });
     }
-    if(!allOk){
-      event.preventDefault();
-      updateFinishState();
-    }
-  });
+  }catch(e){}
 }
 
-if(NAME_MODAL){
-  openNameModal();
+function persistState(){
+  try{
+    const payload = {};
+    for(const [k,v] of STATE.entries()){
+      payload[k] = v;
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  }catch(e){}
 }
 
-[MODAL_FIRST_INPUT, MODAL_LAST_INPUT].forEach(input => {
-  if(!input) return;
-  input.addEventListener('input', () => {
-    if(NAME_MODAL_ERROR && NAME_MODAL_ERROR.style.display !== 'none'){
-      if((MODAL_FIRST_INPUT ? MODAL_FIRST_INPUT.value.trim() : '') && (MODAL_LAST_INPUT ? MODAL_LAST_INPUT.value.trim() : '')){
-        NAME_MODAL_ERROR.style.display = 'none';
-      }
-    }
-  });
-});
+function renderTree(tree){
+  const wrap = document.getElementById('public-tree');
+  if(!wrap) return;
+  wrap.innerHTML = '';
+  LAST_TOTAL = 0;
+  LAST_OK = 0;
+  (tree||[]).forEach(node => wrap.appendChild(renderNode(node)));
+  updateProgress();
+}
+
+function renderNode(node){
+  const status = STATE.get(node.id) || 'WAIT';
+  if(!node.children || !node.children.length){
+    LAST_TOTAL += 1;
+    if(status === 'OK') LAST_OK += 1;
+  }
+  const card = document.createElement('div');
+  card.className = `node ${status === 'OK' ? 'state-ok' : 'state-wait'}`;
+  const header = document.createElement('div');
+  header.className = 'header';
+  const name = document.createElement('div');
+  name.className = 'name';
+  name.textContent = node.name || '—';
+  header.appendChild(name);
+  if(node.unique_item){
+    const badge = document.createElement('span');
+    badge.className = 'chip';
+    badge.textContent = 'Objet unique';
+    header.appendChild(badge);
+  }
+  card.appendChild(header);
+
+  if(node.children && node.children.length){
+    const childWrap = document.createElement('div');
+    childWrap.className = 'childs';
+    node.children.forEach(child => childWrap.appendChild(renderNode(child)));
+    card.appendChild(childWrap);
+  }else{
+    const actions = document.createElement('div');
+    actions.className = 'item-actions';
+    const okBtn = document.createElement('button');
+    okBtn.type = 'button';
+    okBtn.className = 'btn success xs';
+    okBtn.textContent = 'OK';
+    okBtn.addEventListener('click', () => setState(node.id, 'OK'));
+    const waitBtn = document.createElement('button');
+    waitBtn.type = 'button';
+    waitBtn.className = 'btn ghost xs';
+    waitBtn.textContent = 'Réinitialiser';
+    waitBtn.addEventListener('click', () => setState(node.id, 'WAIT'));
+    actions.appendChild(okBtn);
+    actions.appendChild(waitBtn);
+    card.appendChild(actions);
+  }
+  return card;
+}
+
+function setState(id, status){
+  STATE.set(id, status);
+  persistState();
+  renderTree(TREE_DATA);
+}
+
+function updateProgress(){
+  const bar = document.getElementById('public-progress-bar');
+  const text = document.getElementById('public-progress-text');
+  const pct = LAST_TOTAL === 0 ? 0 : Math.round((LAST_OK / LAST_TOTAL) * 100);
+  if(bar){ bar.style.width = pct + '%'; }
+  if(text){ text.textContent = `${LAST_OK} / ${LAST_TOTAL} vérifiés`; }
+  updateFinishState();
+}
+
+restoreState();
+renderTree(TREE_DATA);
+updateFinishState();
 </script>
 {% endblock %}

@@ -2,72 +2,7 @@
 {% set title = "Péremption" %}
 {% block content %}
 
-<meta name="viewport" content="width=device-width, initial-scale=1" />
 
-<style>
-  .peremption-page{max-width:1100px;margin:0 auto;padding:18px;display:flex;flex-direction:column;gap:22px}
-  .peremption-hero{background:linear-gradient(135deg,rgba(32,68,126,.9),rgba(14,30,54,.94));border:1px solid rgba(158,201,255,.26);
-    border-radius:26px;padding:26px 30px;box-shadow:0 26px 58px rgba(6,16,34,.42);display:grid;gap:18px;
-    grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr)}
-  .peremption-hero .title{font-size:26px;margin:0;color:#fff;font-weight:800}
-  .peremption-hero .subtitle{margin:8px 0 0;color:rgba(210,225,255,.82);font-size:15px;line-height:1.6}
-  .peremption-summary{align-self:start;display:flex;flex-direction:column;gap:10px;padding:20px;border-radius:18px;
-    background:rgba(11,27,51,.72);border:1px solid rgba(184,211,255,.22);box-shadow:0 18px 36px rgba(5,14,28,.32)}
-  .peremption-summary-label{font-size:12px;text-transform:uppercase;letter-spacing:.32em;color:rgba(203,220,255,.68);font-weight:700}
-  .peremption-summary-value{display:flex;flex-direction:column;gap:6px;font-size:28px;font-weight:800;color:#fff}
-  .peremption-summary-value .count{font-size:42px;font-weight:800;color:#fff;line-height:1.1}
-  .peremption-summary-value .window{font-size:13px;color:rgba(203,220,255,.78);text-transform:uppercase;letter-spacing:.24em}
-  .peremption-summary-hint{font-size:13px;color:rgba(203,220,255,.75)}
-
-  .peremption-panel{background:linear-gradient(160deg,rgba(12,28,54,.9),rgba(7,16,30,.95));border:1px solid rgba(158,201,255,.18);
-    border-radius:22px;box-shadow:0 22px 46px rgba(5,14,28,.32);padding:24px;display:flex;flex-direction:column;gap:18px}
-  .peremption-panel .panel-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-  .peremption-panel .panel-header .title{font-size:20px;margin:0;color:#f1f5ff;font-weight:800}
-  .peremption-panel .panel-header .muted{margin:0;color:rgba(193,211,238,.7)}
-  .filters{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
-  .filters label{font-size:13px;font-weight:600;color:rgba(193,211,238,.7)}
-  .filters input,.filters select{padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(13,30,56,.75);
-    color:#f1f5ff;min-width:140px;font-weight:600}
-  .filters input:focus,.filters select:focus{border-color:rgba(255,179,71,.55);box-shadow:0 0 0 3px rgba(255,179,71,.2);outline:none}
-  .filters .search{flex:1 1 220px}
-  .filters .btn{padding:10px 16px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(13,30,56,.78);
-    color:#f1f5ff;font-weight:600;cursor:pointer;transition:transform .12s ease,box-shadow .12s ease}
-  .filters .btn:hover{transform:translateY(-1px);box-shadow:0 12px 24px rgba(7,16,30,.28)}
-
-  .peremption-table{background:linear-gradient(160deg,rgba(11,26,48,.9),rgba(7,16,30,.94));border:1px solid rgba(158,201,255,.16);
-    border-radius:22px;box-shadow:0 22px 46px rgba(4,12,26,.32);padding:22px;display:flex;flex-direction:column;gap:16px}
-  .peremption-table .title{margin:0;font-size:20px;font-weight:800;color:#f1f5ff}
-  .peremption-table .muted{margin:0;color:rgba(193,211,238,.68)}
-  .table-head{display:grid;grid-template-columns:1fr 1fr 140px 120px 120px;gap:10px;padding:0 12px;font-size:11px;
-    text-transform:uppercase;letter-spacing:.3em;color:rgba(193,211,238,.58)}
-  .peremption-row{display:grid;grid-template-columns:1fr 1fr 140px 120px 120px;gap:12px;align-items:center;padding:16px;
-    border-radius:16px;border:1px solid rgba(255,255,255,.08);background:rgba(13,30,56,.72);box-shadow:0 16px 32px rgba(5,14,28,.28);
-    margin-top:12px}
-  .peremption-row.expired{border-color:rgba(255,107,107,.38);background:rgba(66,16,28,.78);box-shadow:0 18px 34px rgba(255,107,107,.25)}
-  .peremption-row.soon{border-color:rgba(255,179,71,.4);background:rgba(72,45,12,.72);box-shadow:0 18px 34px rgba(255,179,71,.22)}
-  .peremption-row.ok{border-color:rgba(18,184,134,.35);background:rgba(15,42,36,.72)}
-  .peremption-row .name{font-weight:700;color:#f1f5ff}
-  .peremption-row .details{font-size:12px;color:rgba(193,211,238,.7);margin-top:4px}
-  .peremption-row .path{color:rgba(193,211,238,.7);font-size:14px}
-  .peremption-row .value{font-weight:600;color:#f1f5ff}
-  .status-badge{display:inline-flex;align-items:center;justify-content:center;padding:6px 12px;border-radius:999px;font-weight:700;font-size:12px;
-    border:1px solid rgba(255,255,255,.12)}
-  .status-badge[data-state="expired"]{background:rgba(255,107,107,.18);border-color:rgba(255,107,107,.32);color:#ffd5dc}
-  .status-badge[data-state="soon"]{background:rgba(255,179,71,.18);border-color:rgba(255,179,71,.34);color:#ffe1b3}
-  .status-badge[data-state="ok"]{background:rgba(18,184,134,.18);border-color:rgba(18,184,134,.32);color:#bff3e7}
-
-  #list{margin-top:6px}
-  #empty{display:none;margin-top:12px;padding:16px;border-radius:14px;border:1px dashed rgba(255,255,255,.14);
-    color:rgba(193,211,238,.7);text-align:center;background:rgba(10,24,46,.55)}
-
-  @media(max-width:920px){
-    .peremption-hero{grid-template-columns:1fr;padding:22px}
-    .peremption-summary{flex-direction:row;align-items:flex-end;justify-content:space-between}
-    .table-head{display:none}
-    .peremption-row{grid-template-columns:1fr;gap:10px}
-    .peremption-row .path,.peremption-row .value{text-align:left}
-  }
-</style>
 
 <div class="peremption-page">
   <section class="peremption-hero">

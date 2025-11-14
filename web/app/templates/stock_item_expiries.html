@@ -1,95 +1,54 @@
 {% extends "base.html" %}
 {% set title = "Péremptions — " ~ (item.name or "Item") %}
 {% block content %}
-<style>
-  .exp-page{display:flex;flex-direction:column;gap:22px}
-  .exp-hero{background:linear-gradient(135deg,rgba(32,68,126,.92),rgba(14,30,54,.94));border:1px solid rgba(158,201,255,.28);
-    border-radius:26px;padding:26px 30px;box-shadow:0 26px 58px rgba(6,16,34,.42);display:flex;flex-direction:column;gap:14px}
-  .exp-hero .title{font-size:24px;margin:0;color:#fff;font-weight:800}
-  .exp-hero .meta{display:flex;flex-wrap:wrap;gap:10px;align-items:center;color:rgba(210,225,255,.8);font-size:14px}
-  .exp-hero .meta .chip{padding:6px 12px;border-radius:999px;background:rgba(11,27,51,.6);border:1px solid rgba(184,211,255,.22);
-    font-weight:600}
-  .exp-hero .actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
-  .exp-hero .btn{background:rgba(11,27,51,.65);border:1px solid rgba(255,255,255,.18);color:#f1f5ff;padding:10px 16px;
-    border-radius:14px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:8px;transition:transform .12s ease,box-shadow .12s ease}
-  .exp-hero .btn:hover{transform:translateY(-1px);box-shadow:0 14px 28px rgba(7,16,30,.32)}
-
-  .exp-card{background:linear-gradient(160deg,rgba(12,28,54,.9),rgba(7,16,30,.94));border:1px solid rgba(158,201,255,.18);
-    border-radius:22px;box-shadow:0 22px 46px rgba(5,14,28,.32);padding:24px;display:flex;flex-direction:column;gap:18px}
-  .exp-card .title{margin:0;font-size:20px;font-weight:800;color:#f1f5ff}
-  .exp-card .muted{margin:0;color:rgba(193,211,238,.7)}
-
-  .exp-table-wrap{border-radius:18px;border:1px solid rgba(255,255,255,.08);overflow:hidden;background:rgba(10,24,46,.6);
-    box-shadow:0 18px 38px rgba(4,11,24,.3)}
-  .exp-table{width:100%;border-collapse:collapse}
-  .exp-table th,.exp-table td{padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.06);font-size:14px;color:#f1f5ff}
-  .exp-table th{text-transform:uppercase;font-size:11px;letter-spacing:.32em;color:rgba(193,211,238,.6);background:rgba(12,28,52,.65)}
-  .exp-table tbody tr:hover td{background:rgba(36,86,148,.14)}
-  .exp-table tbody tr:last-child td{border-bottom:none}
-  .exp-table button{padding:8px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(91,18,32,.75);
-    color:#ffd5dc;font-weight:600;cursor:pointer;transition:transform .12s ease,box-shadow .12s ease}
-  .exp-table button:hover{transform:translateY(-1px);box-shadow:0 10px 22px rgba(91,18,32,.4)}
-
-  .exp-form{display:flex;flex-wrap:wrap;gap:12px}
-  .exp-form input{flex:1 1 180px;min-width:160px;padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.12);
-    background:rgba(13,30,56,.75);color:#f1f5ff;font-weight:600}
-  .exp-form input:focus{border-color:rgba(255,179,71,.55);box-shadow:0 0 0 3px rgba(255,179,71,.2);outline:none}
-  .exp-form button{padding:10px 18px;border-radius:14px;border:0;background:linear-gradient(135deg,var(--pc-orange),var(--pc-orange-strong));
-    color:#1f1200;font-weight:700;cursor:pointer;transition:transform .12s ease,box-shadow .12s ease}
-  .exp-form button:hover{transform:translateY(-1px);box-shadow:0 16px 30px rgba(255,147,52,.26)}
-  .exp-hint{color:rgba(193,211,238,.7);font-size:13px}
-
-  @media(max-width:720px){
-    .exp-hero{padding:22px}
-    .exp-form input{flex:1 1 100%}
-    .exp-form button{width:100%}
-  }
-</style>
-
-<div class="exp-page">
-  <section class="exp-hero">
-    <h1 class="title">Péremptions — {{ item.name }}</h1>
-    <div class="meta">
-      <span class="chip">ID #{{ item.id }}</span>
-      <span class="chip">Qté cible : {{ item.quantity or "—" }}</span>
+<div class="expiry-page">
+  <section class="expiry-hero">
+    <h1 class="expiry-hero__title">Péremptions — {{ item.name }}</h1>
+    <div class="expiry-hero__meta">
+      <span class="expiry-chip">ID #{{ item.id }}</span>
+      <span class="expiry-chip">Qté cible : {{ item.quantity or "—" }}</span>
     </div>
-    <div class="actions">
-      <a class="btn" href="/stock">← Retour Stock</a>
+    <div class="expiry-hero__actions">
+      <a class="btn ghost" href="/stock">← Retour Stock</a>
     </div>
   </section>
 
-  <section class="exp-card">
-    <h2 class="title">Dates enregistrées</h2>
-    <p class="muted">Garde trace des lots et quantités pour assurer un suivi précis.</p>
-    <div class="exp-table-wrap">
-      <table class="exp-table" id="exp-table">
+  <section class="expiry-card">
+    <div class="expiry-card__header">
+      <h2 class="expiry-card__title">Dates enregistrées</h2>
+      <p class="expiry-card__subtitle">Garde trace des lots et quantités pour assurer un suivi précis.</p>
+    </div>
+    <div class="expiry-table__wrapper">
+      <table class="expiry-table" id="exp-table">
         <thead>
           <tr>
             <th>Date</th>
             <th>Quantité</th>
             <th>Lot</th>
             <th>Note</th>
-            <th style="width:120px">Actions</th>
+            <th class="expiry-table__actions">Actions</th>
           </tr>
         </thead>
         <tbody id="exp-tbody">
-          <tr><td colspan="5" class="muted">Chargement…</td></tr>
+          <tr><td colspan="5" class="expiry-table__empty">Chargement…</td></tr>
         </tbody>
       </table>
     </div>
   </section>
 
-  <section class="exp-card">
-    <h2 class="title">Ajouter une nouvelle date</h2>
-    <p class="muted">Renseigne la date de péremption puis complète si besoin avec la quantité, le lot et une note.</p>
-    <div class="exp-form">
+  <section class="expiry-card">
+    <div class="expiry-card__header">
+      <h2 class="expiry-card__title">Ajouter une nouvelle date</h2>
+      <p class="expiry-card__subtitle">Renseigne la date de péremption puis complète si besoin avec la quantité, le lot et une note.</p>
+    </div>
+    <div class="expiry-form">
       <input id="f-date" type="date">
       <input id="f-qty" type="number" min="0" placeholder="Quantité (optionnel)">
       <input id="f-lot" placeholder="Lot (optionnel)">
-      <input id="f-note" placeholder="Note (optionnel)" style="flex:1 1 260px">
-      <button id="btn-add" type="button">Ajouter</button>
+      <input id="f-note" class="expiry-form__note" placeholder="Note (optionnel)">
+      <button id="btn-add" type="button" class="btn primary">Ajouter</button>
     </div>
-    <span class="exp-hint">La date est obligatoire. Les autres champs sont facultatifs.</span>
+    <span class="expiry-hint">La date est obligatoire. Les autres champs sont facultatifs.</span>
   </section>
 </div>
 
@@ -99,12 +58,12 @@ function fmt(d){ try{ return new Date(d+"T00:00:00").toLocaleDateString(); }catc
 
 async function loadList(){
   const tb = document.getElementById('exp-tbody');
-  tb.innerHTML = `<tr><td colspan="5" class="muted">Chargement…</td></tr>`;
+  tb.innerHTML = `<tr><td colspan="5" class="expiry-table__empty">Chargement…</td></tr>`;
   const r = await fetch(`/stock/api/item/${ITEM_ID}/expiries`, {credentials:'include'});
-  if(!r.ok){ tb.innerHTML = `<tr><td colspan="5" class="muted">Erreur de chargement</td></tr>`; return; }
+  if(!r.ok){ tb.innerHTML = `<tr><td colspan="5" class="expiry-table__empty">Erreur de chargement</td></tr>`; return; }
   const data = await r.json();
   if(!data.length){
-    tb.innerHTML = `<tr><td colspan="5" class="muted">Aucune date</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="5" class="expiry-table__empty">Aucune date</td></tr>`;
     return;
   }
   tb.innerHTML = "";
