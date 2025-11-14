@@ -1,9 +1,6 @@
 {% extends "base.html" %}
 {% set title = "Tableau de bord" %}
 {% block content %}
-
-
-
 {% set stats = namespace(open=0) %}
 {% for ev in events %}
   {% if ev.status == 'OPEN' %}
@@ -14,48 +11,60 @@
 {% set template_count = templates|length if templates else 0 %}
 {% set lot_count = lots|length if lots else 0 %}
 
-<div class="dashboard">
-  <div class="hero-card">
-    <div>
-      <h1 class="hero-title">Planifie sereinement tes interventions</h1>
-      <p class="hero-text">Centralise la création des événements, prépare les créneaux horaires et sélectionne le matériel à contrôler en quelques clics.</p>
-      <div class="hero-actions">
-        <a class="btn primary" href="#create-event">Créer un événement</a>
-        <a class="btn" href="/templates">Templates & lots</a>
-        <a class="btn ghost" href="#events-list">Historique des événements</a>
+<div class="dashboard-page">
+  <section class="dashboard-hero">
+    <div class="dashboard-hero__copy">
+      <span class="eyebrow">Protection Civile</span>
+      <h1 class="dashboard-hero__title">Organise facilement chaque intervention</h1>
+      <p class="dashboard-hero__subtitle">
+        Visualise l'historique, prépare tes prochains dispositifs et sélectionne en quelques clics le matériel nécessaire.
+        L'assistant de création intelligent t'accompagne étape par étape.
+      </p>
+      <div class="dashboard-hero__actions">
+        <button class="btn primary" id="btn-open-wizard">Créer un événement intelligent</button>
+        <a class="btn" href="/calendar">Voir le calendrier</a>
+        <a class="btn ghost" href="/templates">Gérer les templates & lots</a>
       </div>
     </div>
-    <div class="hero-stats">
-      <div class="hero-stat highlight">
-        <span class="label">Événements ouverts</span>
-        <span class="value">{{ stats.open }}</span>
-        <span class="hint">sur {{ total_events }} récent{{ 's' if total_events > 1 else '' }}</span>
+    <div class="dashboard-hero__stats">
+      <div class="stat-card stat-card--accent">
+        <span class="stat-card__label">Événements ouverts</span>
+        <span class="stat-card__value">{{ stats.open }}</span>
+        <span class="stat-card__hint">sur {{ total_events }} récent{{ 's' if total_events > 1 else '' }}</span>
       </div>
-      <div class="hero-stat">
-        <span class="label">Templates enregistrés</span>
-        <span class="value">{{ template_count }}</span>
-        <span class="hint">Utilise un modèle pour gagner du temps</span>
+      <div class="stat-card">
+        <span class="stat-card__label">Templates disponibles</span>
+        <span class="stat-card__value">{{ template_count }}</span>
+        <span class="stat-card__hint">Prépare des modèles réutilisables</span>
       </div>
-      <div class="hero-stat">
-        <span class="label">Lots disponibles</span>
-        <span class="value">{{ lot_count }}</span>
-        <span class="hint">Ajoute un lot pour compléter un événement</span>
+      <div class="stat-card">
+        <span class="stat-card__label">Lots enregistrés</span>
+        <span class="stat-card__value">{{ lot_count }}</span>
+        <span class="stat-card__hint">Complète tes interventions rapidement</span>
       </div>
     </div>
-  </div>
+  </section>
 
-  <div class="content-grid">
-    <section class="panel events-panel" id="events-list">
-      <div class="title">Derniers événements <span>journal</span></div>
-      <form method="get" class="events-search">
-        <input type="search" name="q" placeholder="Rechercher un événement" value="{{ search_query }}">
-        <button class="btn" type="submit">Rechercher</button>
-        {% if search_query %}
-          <a class="btn ghost" href="{{ url_for('pages.dashboard') }}">Réinitialiser</a>
-        {% endif %}
-      </form>
+  <section class="layout-grid">
+    <section class="surface-panel" id="events-list">
+      <div class="surface-panel__header">
+        <div>
+          <h2 class="surface-panel__title">Événements récents</h2>
+          <p class="surface-panel__subtitle">Analyse l'historique et accède en un clic à chaque dossier.</p>
+        </div>
+        <div class="surface-panel__toolbar">
+          <form method="get" class="search-bar">
+            <input type="search" name="q" placeholder="Rechercher un événement" value="{{ search_query }}">
+            <button class="btn" type="submit">Rechercher</button>
+            {% if search_query %}
+              <a class="btn ghost" href="{{ url_for('pages.dashboard') }}">Réinitialiser</a>
+            {% endif %}
+          </form>
+        </div>
+      </div>
+
       {% if search_query %}
-        <div class="muted" style="margin-top:10px;">
+        <div class="search-feedback">
           {{ events|length }} résultat{{ 's' if events|length > 1 else '' }} pour « {{ search_query }} ».
         </div>
       {% endif %}
@@ -67,18 +76,18 @@
               <th>Nom</th>
               <th>Statut</th>
               <th>Date</th>
-              <th style="width:280px">Actions</th>
+              <th style="width: 240px;">Actions</th>
             </tr>
           </thead>
           <tbody id="events-body">
             {% for ev in events %}
               <tr data-id="{{ ev.id }}">
-                <td><a href="{{ url_for('pages.event_page', event_id=ev.id) }}">{{ ev.name }}</a></td>
-                <td>
-                  <span class="status-pill" data-status="{{ ev.status }}">{{ ev.status }}</span>
+                <td class="events-table__name">
+                  <a href="{{ url_for('pages.event_page', event_id=ev.id) }}">{{ ev.name }}</a>
                 </td>
+                <td><span class="status-pill" data-status="{{ ev.status }}">{{ ev.status }}</span></td>
                 <td>{{ ev.date or "—" }}</td>
-                <td class="actions">
+                <td class="events-table__actions">
                   <a class="btn" href="{{ url_for('pages.event_page', event_id=ev.id) }}">Ouvrir</a>
                   <a class="btn" target="_blank" href="/reports/event/{{ ev.id }}/pdf">Export PDF</a>
                   <button class="btn danger btn-del" data-id="{{ ev.id }}">Supprimer</button>
@@ -90,7 +99,7 @@
                   {% if search_query %}
                     Aucun événement ne correspond à « {{ search_query }} ».
                   {% else %}
-                    Aucun événement pour le moment.
+                    Aucun événement enregistré pour le moment.
                   {% endif %}
                 </td>
               </tr>
@@ -100,121 +109,275 @@
       </div>
     </section>
 
-    <section class="panel" id="create-event">
-      <div class="title">Créer un événement</div>
-      <p class="subtitle">Renseigne les informations principales puis ajoute les créneaux et les stocks « parents » à vérifier.</p>
-
-      <form id="event-form" class="form-grid" onsubmit="return false;">
-        <div class="form-field">
-          <label for="ev-name">Nom de l'événement</label>
-          <input type="text" name="name" id="ev-name" placeholder="Ex. Dispositif Buvette Concert" required>
+    <aside class="surface-panel surface-panel--secondary">
+      <div class="surface-panel__header">
+        <div>
+          <h2 class="surface-panel__title">Accès rapides</h2>
+          <p class="surface-panel__subtitle">Passe de l'idée à l'action en toute simplicité.</p>
         </div>
-        <div class="form-field">
-          <label for="ev-date">Date (optionnel)</label>
-          <input type="date" name="date" id="ev-date" placeholder="Date (optionnel)">
-        </div>
-      </form>
-
-      <div class="slot-card">
-        <div class="subtitle">Créneaux horaires de l'événement</div>
-        <div class="slot-list" id="slot-list">
-          <div class="muted">Aucun créneau ajouté pour le moment.</div>
-        </div>
-        <div class="slot-form">
-          <input type="datetime-local" id="slot-start" step="900">
-          <input type="datetime-local" id="slot-end" step="900">
-          <button class="btn" type="button" id="btn-add-slot">Ajouter le créneau</button>
-        </div>
-        <div class="slot-hint" id="slot-hint">Ajoute au moins un créneau (date et heures de départ / fin).</div>
       </div>
+      <div class="quick-actions">
+        <button class="quick-action" id="btn-open-wizard-cta">
+          <span class="quick-action__icon">✨</span>
+          <span class="quick-action__body">
+            <span class="quick-action__title">Assistant événement</span>
+            <span class="quick-action__hint">Laisse toi guider étape par étape pour créer un événement.</span>
+          </span>
+        </button>
+        <a class="quick-action" href="/calendar">
+          <span class="quick-action__icon">🗓️</span>
+          <span class="quick-action__body">
+            <span class="quick-action__title">Vue calendrier</span>
+            <span class="quick-action__hint">Visualise les interventions confirmées et passées.</span>
+          </span>
+        </a>
+        <a class="quick-action" href="/templates">
+          <span class="quick-action__icon">🧩</span>
+          <span class="quick-action__body">
+            <span class="quick-action__title">Templates & lots</span>
+            <span class="quick-action__hint">Préconfigure du matériel à réutiliser.</span>
+          </span>
+        </a>
+      </div>
+    </aside>
+  </section>
+</div>
 
-      <div class="selection-card">
-        <div class="selection-header">
-          <div>
-            <div class="subtitle" style="margin:0;font-size:15px;color:#f2f6ff;font-weight:700">Sélection des parents racines</div>
-            <div class="muted">Applique un template ou sélectionne les parents nécessaires pour l'événement.</div>
-          </div>
-          <div class="row wrap" style="gap:10px">
-            <select id="template-select" style="min-width:200px">
-              <option value="">Appliquer un template…</option>
-              {% for tpl in templates %}
-                <option value="{{ tpl.id }}">{{ tpl.name }}</option>
-              {% endfor %}
-            </select>
-            <select id="lot-select" style="min-width:200px">
-              <option value="">Ajouter un lot…</option>
-              {% for lot in lots %}
-                <option value="{{ lot.id }}">{{ lot.name }}</option>
-              {% endfor %}
-            </select>
+<div class="wizard" id="event-wizard" data-open="false" aria-hidden="true">
+  <div class="wizard__backdrop" data-role="dismiss"></div>
+  <div class="wizard__dialog" role="dialog" aria-modal="true" aria-labelledby="wizard-title">
+    <div class="wizard__header">
+      <div>
+        <h2 class="wizard__title" id="wizard-title">Assistant de création d'événement</h2>
+        <p class="wizard__subtitle">4 étapes guidées pour préparer sereinement ton dispositif.</p>
+      </div>
+      <button class="wizard__close" type="button" id="btn-close-wizard" aria-label="Fermer">×</button>
+    </div>
+
+    <ol class="wizard-steps" id="wizard-steps">
+      <li class="wizard-steps__item" data-progress-step="0">Informations</li>
+      <li class="wizard-steps__item" data-progress-step="1">Créneaux</li>
+      <li class="wizard-steps__item" data-progress-step="2">Sélection</li>
+      <li class="wizard-steps__item" data-progress-step="3">Résumé</li>
+    </ol>
+
+    <div class="wizard__body">
+      <form id="wizard-form" onsubmit="return false;">
+        <div class="wizard-step" data-step="0">
+          <h3 class="wizard-step__title">Informations générales</h3>
+          <p class="wizard-step__hint">Donne un nom clair à l'événement et, si besoin, indique la date cible.</p>
+          <div class="form-grid">
+            <label class="form-field">
+              <span>Nom de l'événement</span>
+              <input type="text" name="name" id="ev-name" placeholder="Ex. Dispositif Buvette Concert" required>
+            </label>
+            <label class="form-field">
+              <span>Date (optionnel)</span>
+              <input type="date" name="date" id="ev-date" placeholder="Date (optionnel)">
+            </label>
           </div>
         </div>
 
-        {% if root_groups and root_groups|length %}
-          <div class="root-groups">
-            {% for group in root_groups %}
-              <div class="root-group">
-                <div class="root-group-title">
-                  {{ group.category.name if group.category else "Sans catégorie" }}
-                  {% if group.nodes %}
-                    <span class="badge" style="font-size:12px;">{{ group.nodes|length }} parent{{ 's' if group.nodes|length > 1 else '' }}</span>
+        <div class="wizard-step" data-step="1">
+          <h3 class="wizard-step__title">Créneaux horaires</h3>
+          <p class="wizard-step__hint">Ajoute les tranches horaires pendant lesquelles l'équipe sera mobilisée.</p>
+          <div class="slot-editor">
+            <div class="slot-editor__form">
+              <label class="form-field">
+                <span>Début</span>
+                <input type="datetime-local" id="slot-start" step="900">
+              </label>
+              <label class="form-field">
+                <span>Fin</span>
+                <input type="datetime-local" id="slot-end" step="900">
+              </label>
+              <button class="btn" type="button" id="btn-add-slot">Ajouter le créneau</button>
+            </div>
+            <div class="slot-editor__list" id="slot-list">
+              <div class="empty-state">Aucun créneau ajouté pour le moment.</div>
+            </div>
+            <div class="slot-editor__hint" id="slot-hint">Ajoute au moins un créneau (date et heures de départ / fin).</div>
+          </div>
+        </div>
+
+        <div class="wizard-step" data-step="2">
+          <h3 class="wizard-step__title">Sélection du matériel racine</h3>
+          <p class="wizard-step__hint">Applique un template ou choisis manuellement les parents à vérifier.</p>
+
+          <div class="selection-toolbar">
+            <label>
+              <span>Templates enregistrés</span>
+              <select id="template-select">
+                <option value="">Appliquer un template…</option>
+                {% for tpl in templates %}
+                  <option value="{{ tpl.id }}">{{ tpl.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              <span>Lots disponibles</span>
+              <select id="lot-select">
+                <option value="">Ajouter un lot…</option>
+                {% for lot in lots %}
+                  <option value="{{ lot.id }}">{{ lot.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          </div>
+
+          {% if root_groups and root_groups|length %}
+            <div class="root-groups">
+              {% for group in root_groups %}
+                <div class="root-group">
+                  <div class="root-group__title">
+                    {{ group.category.name if group.category else "Sans catégorie" }}
+                    {% if group.nodes %}
+                      <span class="badge">{{ group.nodes|length }} parent{{ 's' if group.nodes|length > 1 else '' }}</span>
+                    {% endif %}
+                  </div>
+                  {% if group.nodes and group.nodes|length %}
+                    <div class="root-group__nodes">
+                      {% for r in group.nodes %}
+                        <label class="root-chip" data-unique="{{ 1 if r.unique_item else 0 }}">
+                          <input type="checkbox" class="root-cb" value="{{ r.id }}"
+                                 data-name="{{ r.name }}"
+                                 data-unique="{{ 1 if r.unique_item else 0 }}"
+                                 data-max="{{ r.unique_quantity if r.unique_quantity is not none else '' }}">
+                          <span class="root-chip__content">
+                            <span class="root-chip__name">{{ r.name }}</span>
+                            {% if r.unique_item %}
+                              <span class="root-chip__meta">Objet unique{% if r.unique_quantity is not none %} · max {{ r.unique_quantity }}{% endif %}</span>
+                              <span class="root-chip__qty">
+                                <span>Quantité</span>
+                                <input type="number" class="root-qty-input"
+                                       min="0"
+                                       {% if r.unique_quantity is not none %}max="{{ r.unique_quantity }}"{% endif %}
+                                       value="{{ r.unique_quantity if r.unique_quantity is not none else 1 }}"
+                                       step="1" disabled>
+                              </span>
+                            {% endif %}
+                          </span>
+                        </label>
+                      {% endfor %}
+                    </div>
+                  {% else %}
+                    <div class="root-group__empty">Aucun parent dans cette catégorie.</div>
                   {% endif %}
                 </div>
-                {% if group.nodes and group.nodes|length %}
-                  <div class="root-group-nodes">
-                    {% for r in group.nodes %}
-                      <label class="root-chip">
-                        <input type="checkbox" class="root-cb" value="{{ r.id }}"
-                               data-name="{{ r.name }}"
-                               data-unique="{{ 1 if r.unique_item else 0 }}"
-                               data-max="{{ r.unique_quantity if r.unique_quantity is not none else '' }}">
-                        <span class="root-chip-content">
-                          <span class="root-chip-name">{{ r.name }}</span>
-                          {% if r.unique_item %}
-                            <span class="root-chip-meta">Objet unique{% if r.unique_quantity is not none %} · max {{ r.unique_quantity }}{% endif %}</span>
-                          {% endif %}
-                        </span>
-                      </label>
-                    {% endfor %}
-                  </div>
-                {% else %}
-                  <div class="root-group-empty">Aucun parent dans cette catégorie.</div>
-                {% endif %}
-              </div>
-            {% endfor %}
-          </div>
-        {% else %}
-          <span class="muted">Aucun parent racine disponible. Crée d’abord un stock parent dans 🧰 Stock.</span>
-        {% endif %}
-      </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty-state">Aucun parent racine disponible. Crée d’abord un stock parent dans 🧰 Stock.</div>
+          {% endif %}
+        </div>
 
-      <div class="form-actions">
-        <button id="btn-create" class="btn primary">Créer l'événement</button>
-        <button class="btn" type="button" id="btn-reset-form">Réinitialiser le formulaire</button>
+        <div class="wizard-step" data-step="3">
+          <h3 class="wizard-step__title">Résumé intelligent</h3>
+          <p class="wizard-step__hint">Vérifie les informations avant de lancer l'événement.</p>
+          <div class="summary" id="wizard-summary">
+            <div class="empty-state">Renseigne les étapes précédentes pour générer un résumé.</div>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <div class="wizard__footer">
+      <button class="btn ghost" type="button" id="wizard-prev">Étape précédente</button>
+      <div class="wizard__footer-right">
+        <button class="btn" type="button" id="wizard-reset">Réinitialiser</button>
+        <button class="btn primary" type="button" id="wizard-next">Étape suivante</button>
       </div>
-    </section>
+    </div>
   </div>
 </div>
 
 <script>
 (function(){
-  const byId = (id)=>document.getElementById(id);
-  const rootSelections = new Map();
-  const templateSpecs = {{ templates|tojson }};
-  const lotSpecs = {{ lots|tojson }};
-  const templateMap = new Map((templateSpecs||[]).map(t => [String(t.id), t]));
-  const lotMap = new Map((lotSpecs||[]).map(t => [String(t.id), t]));
-  const searchQuery = {{ search_query|tojson }};
-  const isSearchActive = typeof searchQuery === 'string' && searchQuery.trim().length > 0;
+  const byId = (id) => document.getElementById(id);
+  const wizardEl = byId('event-wizard');
+  const wizardForm = byId('wizard-form');
+  const btnOpenWizard = byId('btn-open-wizard');
+  const btnOpenWizardCta = byId('btn-open-wizard-cta');
+  const btnCloseWizard = byId('btn-close-wizard');
+  const btnPrev = byId('wizard-prev');
+  const btnNext = byId('wizard-next');
+  const btnReset = byId('wizard-reset');
+  const stepsEls = Array.from(document.querySelectorAll('.wizard-step'));
+  const progressEls = Array.from(document.querySelectorAll('[data-progress-step]'));
   const slotList = byId('slot-list');
   const slotHint = byId('slot-hint');
   const slotStartInput = byId('slot-start');
   const slotEndInput = byId('slot-end');
   const slotAddBtn = byId('btn-add-slot');
   const evDateInput = byId('ev-date');
-  const slotsState = [];
+  const summaryEl = byId('wizard-summary');
+  const templateSpecs = {{ templates|tojson }} || [];
+  const lotSpecs = {{ lots|tojson }} || [];
+  const templateMap = new Map(templateSpecs.map(t => [String(t.id), t]));
+  const lotMap = new Map(lotSpecs.map(t => [String(t.id), t]));
+  const tplSelect = byId('template-select');
+  const lotSelect = byId('lot-select');
+  const templateCount = {{ template_count|tojson }};
+  const searchQuery = {{ search_query|tojson }};
+  const isSearchActive = typeof searchQuery === 'string' && searchQuery.trim().length > 0;
+  const state = {
+    step: 0,
+    slots: [],
+    creating: false,
+    rootSelections: new Map(),
+  };
+
   const fmtSlotDay = new Intl.DateTimeFormat('fr-FR', {weekday:'short', day:'2-digit', month:'short'});
   const fmtSlotTime = new Intl.DateTimeFormat('fr-FR', {hour:'2-digit', minute:'2-digit'});
+
+  function openWizard(){
+    if(!wizardEl) return;
+    wizardEl.setAttribute('data-open', 'true');
+    wizardEl.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('is-modal-open');
+    showStep(state.step);
+  }
+
+  function closeWizard(){
+    if(!wizardEl) return;
+    wizardEl.setAttribute('data-open', 'false');
+    wizardEl.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('is-modal-open');
+  }
+
+  btnOpenWizard?.addEventListener('click', openWizard);
+  btnOpenWizardCta?.addEventListener('click', openWizard);
+  btnCloseWizard?.addEventListener('click', closeWizard);
+  wizardEl?.addEventListener('click', (event) => {
+    if(event.target && event.target.getAttribute('data-role') === 'dismiss'){
+      closeWizard();
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if(event.key === 'Escape' && wizardEl?.getAttribute('data-open') === 'true'){
+      closeWizard();
+    }
+  });
+
+  function showStep(index){
+    state.step = Math.max(0, Math.min(index, stepsEls.length - 1));
+    stepsEls.forEach((stepEl, idx) => {
+      stepEl.setAttribute('data-active', idx === state.step ? 'true' : 'false');
+    });
+    progressEls.forEach((item, idx) => {
+      item.setAttribute('data-active', idx === state.step ? 'true' : 'false');
+      item.setAttribute('data-complete', idx < state.step ? 'true' : 'false');
+    });
+    btnPrev.disabled = state.step === 0;
+    if(state.step === stepsEls.length - 1){
+      btnNext.textContent = state.creating ? 'Création…' : 'Créer l\'événement';
+    }else{
+      btnNext.textContent = 'Étape suivante';
+    }
+    if(state.step === stepsEls.length - 1){
+      updateSummary();
+    }
+  }
 
   function slotLabel(start, end){
     const startDate = new Date(start);
@@ -233,24 +396,24 @@
 
   function renderSlots(){
     if(!slotList) return;
-    if(slotsState.length === 0){
-      slotList.innerHTML = '<div class="muted">Aucun créneau ajouté pour le moment.</div>';
+    slotList.innerHTML = '';
+    if(state.slots.length === 0){
+      slotList.innerHTML = '<div class="empty-state">Aucun créneau ajouté pour le moment.</div>';
       if(slotHint){ slotHint.textContent = 'Ajoute au moins un créneau (date et heures de départ / fin).'; }
       return;
     }
 
-    slotList.innerHTML = '';
-    slotsState.forEach((slot, index) => {
+    state.slots.forEach((slot, index) => {
       const row = document.createElement('div');
       row.className = 'slot-chip';
 
       const info = document.createElement('div');
-      info.className = 'info';
+      info.className = 'slot-chip__info';
       info.textContent = slotLabel(slot.start, slot.end);
       row.appendChild(info);
 
       const meta = document.createElement('div');
-      meta.className = 'meta';
+      meta.className = 'slot-chip__meta';
       meta.textContent = `Créneau ${index + 1}`;
       row.appendChild(meta);
 
@@ -259,7 +422,7 @@
       remove.type = 'button';
       remove.textContent = 'Retirer';
       remove.addEventListener('click', () => {
-        slotsState.splice(index, 1);
+        state.slots.splice(index, 1);
         renderSlots();
       });
       row.appendChild(remove);
@@ -268,7 +431,7 @@
     });
 
     if(slotHint){
-      slotHint.textContent = `${slotsState.length} créneau${slotsState.length>1?'x':''} configuré${slotsState.length>1?'s':''}.`;
+      slotHint.textContent = `${state.slots.length} créneau${state.slots.length>1?'x':''} configuré${state.slots.length>1?'s':''}.`;
     }
   }
 
@@ -289,11 +452,11 @@
       alert('La fin du créneau doit être après le début.');
       return;
     }
-    if(slotsState.some(slot => slot.start === startVal && slot.end === endVal)){
+    if(state.slots.some(slot => slot.start === startVal && slot.end === endVal)){
       alert('Ce créneau est déjà présent.');
       return;
     }
-    const overlaps = slotsState.some(slot => {
+    const overlaps = state.slots.some(slot => {
       const existingStart = new Date(slot.start);
       const existingEnd = new Date(slot.end);
       return endDate > existingStart && startDate < existingEnd;
@@ -301,8 +464,8 @@
     if(overlaps && !confirm('Ce créneau chevauche un autre créneau déjà ajouté. Continuer malgré tout ?')){
       return;
     }
-    slotsState.push({start: startVal, end: endVal});
-    slotsState.sort((a,b)=> new Date(a.start) - new Date(b.start));
+    state.slots.push({start: startVal, end: endVal});
+    state.slots.sort((a,b)=> new Date(a.start) - new Date(b.start));
     if(evDateInput && !evDateInput.value){
       evDateInput.value = startVal.slice(0, 10);
     }
@@ -311,91 +474,79 @@
     renderSlots();
   });
 
-  renderSlots();
-
   function syncRootChipState(cb){
     const wrap = cb.closest('label.root-chip');
     if(!wrap) return;
-    if(cb.checked){ wrap.classList.add('is-checked'); }
-    else { wrap.classList.remove('is-checked'); }
+    if(cb.checked){
+      wrap.classList.add('is-checked');
+    }else{
+      wrap.classList.remove('is-checked');
+    }
+    const qtyInput = wrap.querySelector('.root-qty-input');
+    if(qtyInput){
+      qtyInput.disabled = !cb.checked;
+      if(cb.checked){
+        qtyInput.focus();
+      }else{
+        qtyInput.value = qtyInput.getAttribute('data-default') || qtyInput.value || '1';
+      }
+    }
   }
 
-  function updateRootBadge(cb){
-    const wrap = cb.closest('label');
+  function updateRootSelection(cb){
+    const wrap = cb.closest('label.root-chip');
     if(!wrap) return;
-    let badge = wrap.querySelector('.root-qty');
     const id = parseInt(cb.value, 10);
-    const qty = rootSelections.get(id);
-    if(badge && (!cb.checked || qty==null)){
-      badge.remove();
-      badge = null;
-    }
-    if(cb.checked && qty != null){
-      if(!badge){
-        badge = document.createElement('span');
-        badge.className = 'badge root-qty';
-        badge.style.marginLeft = '6px';
-        wrap.appendChild(badge);
+    if(!id) return;
+    const qtyInput = wrap.querySelector('.root-qty-input');
+    if(cb.checked){
+      if(cb.dataset.unique === '1'){
+        let qty = qtyInput ? parseInt(qtyInput.value, 10) : 1;
+        if(isNaN(qty) || qty < 0){ qty = 0; }
+        const maxRaw = cb.dataset.max;
+        const max = maxRaw ? parseInt(maxRaw, 10) : null;
+        if(max != null && qty > max){ qty = max; qtyInput && (qtyInput.value = max); }
+        state.rootSelections.set(id, qty);
+      }else{
+        state.rootSelections.delete(id);
       }
-      badge.textContent = `Qté: ${qty}`;
+    }else{
+      state.rootSelections.delete(id);
     }
   }
 
   document.querySelectorAll('.root-cb').forEach(cb => {
-    syncRootChipState(cb);
+    const wrap = cb.closest('label.root-chip');
+    const qtyInput = wrap?.querySelector('.root-qty-input');
+    if(qtyInput && !qtyInput.hasAttribute('data-default')){
+      qtyInput.setAttribute('data-default', qtyInput.value);
+      qtyInput.addEventListener('input', () => {
+        if(!cb.checked) return;
+        let qty = parseInt(qtyInput.value, 10);
+        if(isNaN(qty) || qty < 0){ qty = 0; }
+        const maxRaw = cb.dataset.max;
+        const max = maxRaw ? parseInt(maxRaw, 10) : null;
+        if(max != null && qty > max){ qty = max; qtyInput.value = String(max); }
+        state.rootSelections.set(parseInt(cb.value, 10), qty);
+      });
+    }
     cb.addEventListener('change', () => {
-      const id = parseInt(cb.value, 10);
-      const isUnique = (cb.dataset.unique === '1');
-      if(cb.checked){
-        if(isUnique){
-          const maxRaw = cb.dataset.max;
-          const max = maxRaw ? parseInt(maxRaw, 10) : null;
-          const current = rootSelections.get(id) ?? (max ?? 1);
-          const label = cb.dataset.name || 'parent';
-          let msg = `Quantité désirée pour ${label}`;
-          if(max != null){ msg += ` (max ${max})`; }
-          let input = prompt(msg, String(current));
-          if(input === null){
-            cb.checked = false;
-            return;
-          }
-          let qty = parseInt(input, 10);
-          if(isNaN(qty) || qty < 0){
-            alert('Quantité invalide');
-            cb.checked = false;
-            return;
-          }
-          if(max != null && qty > max){
-            alert(`Quantité supérieure au maximum (${max}).`);
-            cb.checked = false;
-            return;
-          }
-          rootSelections.set(id, qty);
-        }else{
-          rootSelections.delete(id);
-        }
-      }else{
-        rootSelections.delete(id);
-      }
       syncRootChipState(cb);
-      updateRootBadge(cb);
+      updateRootSelection(cb);
     });
   });
 
-  function clearSelection(){
+  function clearRootSelection(){
     document.querySelectorAll('.root-cb').forEach(cb => {
       cb.checked = false;
-      const id = parseInt(cb.value, 10);
-      rootSelections.delete(id);
-      updateRootBadge(cb);
       syncRootChipState(cb);
     });
-    rootSelections.clear();
+    state.rootSelections.clear();
   }
 
   function applyNodes(nodes, {reset=false}={}){
     if(reset){
-      clearSelection();
+      clearRootSelection();
     }
     if(!Array.isArray(nodes)) return;
     nodes.forEach(spec => {
@@ -405,31 +556,20 @@
       const cb = document.querySelector(`.root-cb[value="${id}"]`);
       if(!cb) return;
       cb.checked = true;
-      if(spec.quantity != null){
-        rootSelections.set(id, spec.quantity);
-      }else{
-        rootSelections.delete(id);
-      }
       syncRootChipState(cb);
-      updateRootBadge(cb);
-    });
-  }
-
-  function buildSelectionPayload(){
-    const payload = [];
-    document.querySelectorAll('.root-cb:checked').forEach(cb => {
-      const id = parseInt(cb.value, 10);
-      if(!id) return;
-      const entry = {id};
-      if(rootSelections.has(id)){
-        entry.quantity = rootSelections.get(id);
+      if(spec.quantity != null){
+        const wrap = cb.closest('label.root-chip');
+        const qtyInput = wrap?.querySelector('.root-qty-input');
+        state.rootSelections.set(id, spec.quantity);
+        if(qtyInput){
+          qtyInput.value = spec.quantity;
+        }
+      }else{
+        state.rootSelections.delete(id);
       }
-      payload.push(entry);
     });
-    return payload;
   }
 
-  const tplSelect = byId('template-select');
   tplSelect?.addEventListener('change', () => {
     const choice = tplSelect.value;
     if(!choice) return;
@@ -440,7 +580,6 @@
     tplSelect.value = '';
   });
 
-  const lotSelect = byId('lot-select');
   lotSelect?.addEventListener('change', () => {
     const choice = lotSelect.value;
     if(!choice) return;
@@ -451,57 +590,140 @@
     lotSelect.value = '';
   });
 
-  byId('btn-reset-form')?.addEventListener('click', () => {
-    byId('event-form')?.reset();
-    slotStartInput && (slotStartInput.value = '');
-    slotEndInput && (slotEndInput.value = '');
-    slotsState.splice(0, slotsState.length);
-    renderSlots();
-    clearSelection();
-    if(slotHint){ slotHint.textContent = 'Ajoute au moins un créneau (date et heures de départ / fin).'; }
-    if(tplSelect){ tplSelect.value = ''; }
-    if(lotSelect){ lotSelect.value = ''; }
-  });
-
-  // -------- Création --------
-  let creating = false;
-  byId('btn-create')?.addEventListener('click', async () => {
-    if (creating) return;
-    const name = byId('ev-name').value.trim();
-    const date = byId('ev-date').value || null;
-    const selectedCbs = Array.from(document.querySelectorAll('.root-cb:checked'));
-    const rootsPayload = [];
-    for(const cb of selectedCbs){
+  function buildSelectionPayload(){
+    const payload = [];
+    document.querySelectorAll('.root-cb:checked').forEach(cb => {
       const id = parseInt(cb.value, 10);
-      const isUnique = (cb.dataset.unique === '1');
-      if(isUnique){
-        if(!rootSelections.has(id)){
-          alert(`Sélectionne une quantité pour ${cb.dataset.name || 'ce parent'}.`);
-          return;
+      if(!id) return;
+      const entry = {id};
+      if(cb.dataset.unique === '1'){
+        const qty = state.rootSelections.get(id);
+        if(qty == null){
+          throw new Error(`Sélectionne une quantité pour ${cb.dataset.name || 'ce parent'}.`);
         }
-        rootsPayload.push({id, quantity: rootSelections.get(id)});
-      }else{
-        rootsPayload.push({id});
+        entry.quantity = qty;
+      }
+      payload.push(entry);
+    });
+    return payload;
+  }
+
+  function resetWizard(){
+    wizardForm?.reset();
+    state.slots.splice(0, state.slots.length);
+    renderSlots();
+    clearRootSelection();
+    tplSelect && (tplSelect.value = '');
+    lotSelect && (lotSelect.value = '');
+    state.step = 0;
+    showStep(0);
+    if(summaryEl){ summaryEl.innerHTML = '<div class="empty-state">Renseigne les étapes précédentes pour générer un résumé.</div>'; }
+  }
+
+  btnReset?.addEventListener('click', resetWizard);
+
+  function validateStep(step){
+    if(step === 0){
+      const name = byId('ev-name').value.trim();
+      if(!name){
+        alert('Merci d\'indiquer un nom pour l\'événement.');
+        return false;
       }
     }
+    if(step === 1){
+      if(state.slots.length === 0){
+        alert('Ajoute au moins un créneau horaire.');
+        return false;
+      }
+    }
+    if(step === 2){
+      const selected = document.querySelectorAll('.root-cb:checked');
+      if(selected.length === 0){
+        alert('Sélectionne au moins un parent racine.');
+        return false;
+      }
+      for(const cb of selected){
+        if(cb.dataset.unique === '1'){
+          const id = parseInt(cb.value, 10);
+          if(!state.rootSelections.has(id)){
+            alert(`Sélectionne une quantité pour ${cb.dataset.name || 'ce parent'}.`);
+            return false;
+          }
+        }
+      }
+    }
+    return true;
+  }
 
-    if(!name){ alert("Nom requis"); return; }
-    if(rootsPayload.length === 0){ alert("Sélectionne au moins un parent"); return; }
-    if(slotsState.length === 0){
-      alert("Ajoute au moins un créneau horaire pour l'événement.");
+  function updateSummary(){
+    if(!summaryEl) return;
+    const name = byId('ev-name').value.trim();
+    const date = byId('ev-date').value;
+    const slots = state.slots;
+    const roots = buildSelectionPayload();
+    const suggestions = [];
+    if(slots.length === 1){ suggestions.push('Un seul créneau est prévu, vérifie qu\'il couvre toute l\'intervention.'); }
+    if(templateCount === 0 && roots.length > 3){ suggestions.push('Pense à enregistrer ces parents dans un template pour les réutiliser.'); }
+
+    const listItems = roots.map(entry => {
+      const cb = document.querySelector(`.root-cb[value="${entry.id}"]`);
+      const name = cb ? (cb.dataset.name || `Parent #${entry.id}`) : `Parent #${entry.id}`;
+      const qty = entry.quantity != null ? `<span class="badge">Qté ${entry.quantity}</span>` : '';
+      return `<li>${name} ${qty}</li>`;
+    }).join('');
+
+    summaryEl.innerHTML = `
+      <div class="summary__item">
+        <span class="summary__label">Nom</span>
+        <span class="summary__value">${name || '—'}</span>
+      </div>
+      <div class="summary__item">
+        <span class="summary__label">Date</span>
+        <span class="summary__value">${date || 'Non définie'}</span>
+      </div>
+      <div class="summary__item">
+        <span class="summary__label">Créneaux</span>
+        <div class="summary__value summary__value--list">
+          ${slots.length ? `<ul>${slots.map(slot => `<li>${slotLabel(slot.start, slot.end)}</li>`).join('')}</ul>` : '<div class="empty-state">Aucun créneau</div>'}
+        </div>
+      </div>
+      <div class="summary__item">
+        <span class="summary__label">Parents sélectionnés</span>
+        <div class="summary__value summary__value--list">
+          ${roots.length ? `<ul>${listItems}</ul>` : '<div class="empty-state">Aucun parent sélectionné</div>'}
+        </div>
+      </div>
+      ${suggestions.length ? `<div class="summary__suggestions">${suggestions.map(text => `<div class="summary__suggestion">💡 ${text}</div>`).join('')}</div>` : ''}
+    `;
+  }
+
+  btnPrev?.addEventListener('click', () => {
+    showStep(state.step - 1);
+  });
+
+  btnNext?.addEventListener('click', async () => {
+    if(state.step < stepsEls.length - 1){
+      if(!validateStep(state.step)) return;
+      showStep(state.step + 1);
       return;
     }
+    if(state.creating) return;
+    if(!validateStep(2)) return;
 
-    const slotsPayload = slotsState.map(slot => ({start: slot.start, end: slot.end}));
+    const name = byId('ev-name').value.trim();
+    const date = byId('ev-date').value || null;
+    const rootsPayload = buildSelectionPayload();
+    const slotsPayload = state.slots.map(slot => ({start: slot.start, end: slot.end}));
 
-    creating = true;
+    state.creating = true;
+    showStep(state.step);
+
     try {
       const res = await fetch('/events', {
         method: 'POST',
         headers: {'Content-Type':'application/json', 'Accept':'application/json'},
         body: JSON.stringify({ name, date, roots: rootsPayload, slots: slotsPayload })
       });
-
       const text = await res.text();
       if(!res.ok){
         let message = text;
@@ -512,28 +734,31 @@
         alert(message);
         return;
       }
-      // Normalement JSON {url}
       let data; try{ data = JSON.parse(text); }catch{ data = {}; }
       if(data.url){ location.href = data.url; }
       else { location.reload(); }
     } catch (e){
-      alert("Erreur réseau: "+ e);
+      alert('Erreur réseau: '+ e);
     } finally {
-      creating = false;
+      state.creating = false;
+      showStep(state.step);
     }
   });
 
-  // -------- Suppression (POST fallback) --------
-  function bindDeleteButtons(scope=document){
-    scope.querySelectorAll('.btn-del').forEach(btn => {
-      if (btn._bound) return; // évite double-binding
-      btn._bound = true;
+  renderSlots();
+  showStep(0);
+
+  function bindDeleteButtons(root=document){
+    root.querySelectorAll('.btn-del').forEach(btn => {
+      if(btn.dataset.bound){ return; }
+      btn.dataset.bound = '1';
       btn.addEventListener('click', async () => {
-        const id = btn.getAttribute('data-id');
-        if(!confirm("Supprimer cet événement ?")) return;
+        if(!confirm('Supprimer cet événement ?')) return;
+        const id = btn.dataset.id;
+        if(!id) return;
         try {
-          const res = await fetch(`/events/${id}/delete`, {
-            method: 'POST',
+          const res = await fetch(`/events/${id}`, {
+            method: 'DELETE',
             headers: {'Accept':'application/json'}
           });
           if(!res.ok){
@@ -541,19 +766,16 @@
             alert(t);
             return;
           }
-          // Retire la ligne sans recharger
           const tr = document.querySelector(`tr[data-id="${id}"]`);
           tr?.parentNode?.removeChild(tr);
         } catch(e){
-          alert("Erreur réseau: "+e);
+          alert('Erreur réseau: '+e);
         }
       });
     });
   }
   bindDeleteButtons();
 
-  // -------- Actualisation douce de la liste (si endpoint JSON dispo) --------
-  // On tente /events/list puis /api/events (gracieux si absent).
   const bodyEl = byId('events-body');
 
   function badgeHTML(status){
@@ -561,13 +783,13 @@
   }
 
   function rowHTML(ev){
-    const date = ev.date || "—";
+    const date = ev.date || '—';
     return `
       <tr data-id="${ev.id}">
-        <td><a href="/events/${ev.id}">${ev.name}</a></td>
+        <td class="events-table__name"><a href="/events/${ev.id}">${ev.name}</a></td>
         <td>${badgeHTML(ev.status)}</td>
         <td>${date}</td>
-        <td class="actions">
+        <td class="events-table__actions">
           <a class="btn" href="/events/${ev.id}">Ouvrir</a>
           <a class="btn" target="_blank" href="/reports/event/${ev.id}/pdf">Export PDF</a>
           <button class="btn danger btn-del" data-id="${ev.id}">Supprimer</button>
@@ -576,17 +798,13 @@
   }
 
   function diffApply(list){
-    // index existants
     const existing = new Map();
     bodyEl.querySelectorAll('tr[data-id]').forEach(tr=>{
       existing.set(parseInt(tr.getAttribute('data-id'),10), tr);
     });
 
-    // ajoute/maj
     const frag = document.createDocumentFragment();
-    const order = [];
     list.forEach(ev=>{
-      order.push(ev.id);
       const tr = existing.get(ev.id);
       if(!tr){
         const tmp = document.createElement('tbody');
@@ -595,25 +813,20 @@
         frag.appendChild(newTr);
         bindDeleteButtons(newTr);
       }else{
-        // mise à jour légère des champs (sans remplacer l’élément pour éviter flicker)
         const tds = tr.querySelectorAll('td');
-        // nom (td0)
         const a = tds[0].querySelector('a');
         if (a && (a.textContent !== ev.name || a.getAttribute('href') !== `/events/${ev.id}`)) {
           a.textContent = ev.name;
           a.setAttribute('href', `/events/${ev.id}`);
         }
-        // statut (td1)
         const statusCell = tds[1];
         if (statusCell && statusCell.innerHTML.trim() !== badgeHTML(ev.status)) {
           statusCell.innerHTML = badgeHTML(ev.status);
         }
-        // date (td2)
-        const date = ev.date || "—";
+        const date = ev.date || '—';
         if (tds[2] && tds[2].textContent.trim() !== date) {
           tds[2].textContent = date;
         }
-        // actions (td3) — liens inchangés sauf PDF
         const pdf = tr.querySelector(`a[href="/reports/event/${ev.id}/pdf"]`);
         if (!pdf) {
           const actions = tds[3];
@@ -627,10 +840,8 @@
       }
     });
 
-    // insère les nouveaux à la fin
     if (frag.childNodes.length) bodyEl.appendChild(frag);
 
-    // supprime les lignes qui n’existent plus
     existing.forEach((tr, id)=>{
       if(!list.find(e=>e.id===id)){
         tr.parentNode.removeChild(tr);
@@ -642,21 +853,18 @@
     try{
       let res = await fetch('/events/list', {headers:{'Accept':'application/json'}});
       if(!res.ok){
-        // tentative alternative
         res = await fetch('/api/events', {headers:{'Accept':'application/json'}});
       }
-      if(!res.ok) return; // silencieux si pas d’endpoint
-      const data = await res.json(); // attendu: [{id,name,status,date}, ...]
+      if(!res.ok) return;
+      const data = await res.json();
       if(Array.isArray(data)) diffApply(data);
     }catch(_){}
   }
 
-  // polling doux toutes les 5s (si endpoint présent)
   if(bodyEl && !isSearchActive){
     fetchEventsOnce();
     setInterval(fetchEventsOnce, 5000);
   }
 })();
 </script>
-
 {% endblock %}
