@@ -1,188 +1,131 @@
 {% extends "base.html" %}
 {% set title = "Templates & lots" %}
 {% block content %}
-
-<style>
-  .page-header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:24px;flex-wrap:wrap}
-  .page-title{margin:0;font-size:28px;font-weight:800;letter-spacing:.3px;color:#fff}
-  .page-lead{margin:6px 0 0;color:var(--muted);max-width:560px;font-size:15px}
-  .page-actions{display:flex;gap:12px;flex-wrap:wrap}
-  .stat-chip{display:flex;flex-direction:column;gap:4px;padding:12px 16px;border-radius:16px;background:rgba(255,255,255,.05);
-    border:1px solid rgba(255,255,255,.08);min-width:140px}
-  .stat-count{font-size:22px;font-weight:800;letter-spacing:.4px;color:#fff}
-  .stat-label{font-size:12px;text-transform:uppercase;letter-spacing:.35px;color:var(--muted)}
-
-  .template-board{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,0.95fr);gap:22px;align-items:start}
-  @media (max-width:1100px){.template-board{grid-template-columns:1fr}}
-
-  .templates-card .subtitle{margin-top:4px}
-  .templates-table{margin-top:16px;border-radius:18px;background:rgba(13,29,53,.65);border:1px solid rgba(255,255,255,.06);
-    box-shadow:0 18px 38px rgba(4,11,24,.35);overflow:hidden}
-  .templates-table-scroll{overflow-x:auto}
-  .templates-table-scroll table{min-width:620px}
-  .table thead th.kind{width:110px}
-  .table thead th.nodes{width:45%}
-  .table tbody tr{transition:background .18s ease}
-  .table tbody tr:hover{background:rgba(43,123,191,.08)}
-  .table tbody tr.active{background:rgba(45,123,191,.12)}
-  .table tbody tr.active td{background:transparent}
-  .table-actions{gap:8px}
-  .entry-empty{padding:16px;text-align:center;color:var(--muted)}
-
-  .form-card .title{margin-bottom:4px}
-  .form-grid{display:grid;grid-template-columns:minmax(0,1fr) 160px;gap:12px}
-  @media (max-width:640px){.form-grid{grid-template-columns:1fr}}
-  textarea#tpl-desc{resize:vertical;min-height:96px}
-
-  .actions-row{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap}
-  .actions-row .btn{flex:1;justify-content:center}
-  .actions-row .btn.primary{flex:unset}
-  @media (max-width:640px){.actions-row{flex-direction:column}.actions-row .btn{width:100%}}
-
-  .alert{margin-top:18px;background:rgba(9,24,44,.65);border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:16px}
-  .alert>.muted{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.35px;color:var(--muted)}
-
-  .root-groups{display:flex;flex-direction:column;gap:14px;margin-top:12px}
-  .root-group{padding:14px;border-radius:14px;background:rgba(12,34,60,.65);border:1px solid rgba(255,255,255,.05);box-shadow:0 16px 30px rgba(5,14,28,.35)}
-  .root-group-title{font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:10px;font-size:15px}
-  .root-group-nodes{display:flex;flex-wrap:wrap;gap:10px}
-  .root-group-empty{font-size:13px;color:var(--muted)}
-
-  .root-chip{position:relative;display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.04);
-    background:rgba(9,25,47,.55);cursor:pointer;transition:transform .15s ease,box-shadow .2s ease,border .2s ease;background-image:linear-gradient(135deg,rgba(36,79,137,.12),transparent)}
-  .root-chip:hover{transform:translateY(-1px);box-shadow:0 12px 26px rgba(5,15,32,.4)}
-  .root-chip input{position:absolute;inset:0;opacity:0;cursor:pointer}
-  .root-chip-content{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0}
-  .root-chip-name{font-weight:600;letter-spacing:.2px;color:#f5f8ff}
-  .root-chip-meta{font-size:12px;color:var(--muted)}
-  .root-chip:focus-within{outline:3px solid rgba(255,179,71,.28);outline-offset:3px}
-  .root-chip .badge{margin-left:auto}
-  .root-chip input:checked + .root-chip-content .root-chip-name{color:#ffe3c3}
-  .root-chip input:checked + .root-chip-content{color:#ffd8a8}
-  .root-chip:has(input:checked){border-color:rgba(255,179,71,.45);box-shadow:0 18px 36px rgba(255,147,52,.22);background:rgba(32,42,64,.75)}
-
-  .muted{color:var(--muted)}
-
-  @media (max-width:880px){
-    .templates-table-scroll table{min-width:540px}
-  }
-  @media (max-width:720px){
-    .page-title{font-size:24px}
-    .stat-chip{min-width:120px;padding:10px 14px}
-    .templates-table{margin-top:12px}
-  }
-</style>
-
 {% set templates_count = templates|length if templates else 0 %}
 {% set lots_count = lots|length if lots else 0 %}
 
-<div class="page-header">
-  <div>
-    <h1 class="page-title">Templates & lots</h1>
-    <p class="page-lead">Assemble rapidement les parents racines nécessaires pour les événements récurrents et garde une trace claire de ce qui doit être préparé.</p>
-  </div>
-  <div class="page-actions">
-    <div class="stat-chip">
-      <span class="stat-count">{{ templates_count }}</span>
-      <span class="stat-label">Templates</span>
+<div class="templates-page">
+  <header class="templates-header">
+    <div class="templates-header__intro">
+      <h1 class="templates-title">Templates & lots</h1>
+      <p class="templates-lead">Assemble rapidement les parents racines nécessaires pour les événements récurrents et garde une trace claire de ce qui doit être préparé.</p>
     </div>
-    <div class="stat-chip">
-      <span class="stat-count">{{ lots_count }}</span>
-      <span class="stat-label">Lots</span>
-    </div>
-  </div>
-</div>
-
-<div class="template-board">
-  <div class="card templates-card">
-    <div class="title">Templates & lots enregistrés</div>
-    <div class="subtitle">Clique sur « Éditer » pour modifier un modèle existant ou crée un nouveau jeu de matériel.</div>
-    <div class="templates-table">
-      <div class="templates-table-scroll">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Nom</th>
-              <th class="kind">Type</th>
-              <th class="nodes">Parents inclus</th>
-              <th style="width:200px">Actions</th>
-            </tr>
-          </thead>
-          <tbody id="templates-body">
-            <tr><td colspan="4" class="muted">Chargement…</td></tr>
-          </tbody>
-        </table>
+    <div class="templates-metrics">
+      <div class="templates-metric">
+        <span class="templates-metric__value">{{ templates_count }}</span>
+        <span class="templates-metric__label">Templates</span>
+      </div>
+      <div class="templates-metric">
+        <span class="templates-metric__value">{{ lots_count }}</span>
+        <span class="templates-metric__label">Lots</span>
       </div>
     </div>
-  </div>
+  </header>
 
-  <div class="card form-card">
-    <div class="title" id="form-title">Créer un template ou un lot</div>
-    <div class="subtitle">Sélectionne les parents racines à inclure dans le modèle.</div>
-
-    <div class="form-grid" style="margin-top:16px">
-      <div>
-        <label class="muted" for="tpl-name">Nom</label>
-        <input type="text" id="tpl-name" placeholder="Nom du modèle" required>
-      </div>
-      <div>
-        <label class="muted" for="tpl-kind">Type</label>
-        <select id="tpl-kind">
-          <option value="TEMPLATE">Template</option>
-          <option value="LOT">Lot</option>
-        </select>
-      </div>
-    </div>
-
-    <label class="muted" for="tpl-desc" style="display:block;margin-top:12px">Description (optionnel)</label>
-    <textarea id="tpl-desc" rows="3" placeholder="Notes complémentaires…"></textarea>
-
-    <div class="alert">
-      <div class="muted">Parents racines disponibles</div>
-      {% if root_groups and root_groups|length %}
-        <div class="root-groups" id="root-checkboxes">
-          {% for group in root_groups %}
-            <div class="root-group">
-              <div class="root-group-title">
-                {{ group.category.name if group.category else "Sans catégorie" }}
-                {% if group.nodes %}
-                  <span class="badge" style="font-size:12px;">{{ group.nodes|length }} parent{{ 's' if group.nodes|length > 1 else '' }}</span>
-                {% endif %}
-              </div>
-              {% if group.nodes and group.nodes|length %}
-                <div class="root-group-nodes">
-                  {% for r in group.nodes %}
-                    <label class="root-chip">
-                      <input type="checkbox" class="root-cb" value="{{ r.id }}"
-                             data-name="{{ r.name }}"
-                             data-unique="{{ 1 if r.unique_item else 0 }}"
-                             data-max="{{ r.unique_quantity if r.unique_quantity is not none else '' }}">
-                      <span class="root-chip-content">
-                        <span class="root-chip-name">{{ r.name }}</span>
-                        {% if r.unique_item %}
-                          <span class="root-chip-meta">
-                            Objet unique{% if r.unique_quantity is not none %} · max {{ r.unique_quantity }}{% endif %}
-                          </span>
-                        {% endif %}
-                      </span>
-                    </label>
-                  {% endfor %}
-                </div>
-              {% else %}
-                <div class="root-group-empty">Aucun parent dans cette catégorie.</div>
-              {% endif %}
-            </div>
-          {% endfor %}
+  <div class="templates-board">
+    <section class="card templates-card">
+      <div class="hd">
+        <div>
+          <h2 class="title">Templates & lots enregistrés</h2>
+          <p class="subtitle">Clique sur « Éditer » pour modifier un modèle existant ou crée un nouveau jeu de matériel.</p>
         </div>
-      {% else %}
-        <span class="muted">Aucun parent racine disponible. Crée d’abord un stock parent dans 🧰 Stock.</span>
-      {% endif %}
-    </div>
+      </div>
+      <div class="bd">
+        <div class="templates-table">
+          <div class="templates-table__scroll">
+            <table class="table" id="templates-table">
+              <thead>
+                <tr>
+                  <th>Nom</th>
+                  <th class="templates-table__kind">Type</th>
+                  <th class="templates-table__nodes">Parents inclus</th>
+                  <th class="templates-table__actions">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="templates-body">
+                <tr><td colspan="4" class="templates-table__empty">Chargement…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
 
-    <div class="actions-row">
-      <button class="btn primary" type="button" id="btn-save">💾 Enregistrer</button>
-      <button class="btn" type="button" id="btn-reset">➕ Nouveau</button>
-    </div>
+    <section class="card templates-form">
+      <div class="hd">
+        <div>
+          <h2 class="title" id="form-title">Créer un template ou un lot</h2>
+          <p class="subtitle">Sélectionne les parents racines à inclure dans le modèle.</p>
+        </div>
+      </div>
+      <div class="bd">
+        <div class="templates-form__grid">
+          <div class="field">
+            <label for="tpl-name">Nom</label>
+            <input type="text" id="tpl-name" placeholder="Nom du modèle" required>
+          </div>
+          <div class="field">
+            <label for="tpl-kind">Type</label>
+            <select id="tpl-kind">
+              <option value="TEMPLATE">Template</option>
+              <option value="LOT">Lot</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field templates-form__description">
+          <label for="tpl-desc">Description (optionnel)</label>
+          <textarea id="tpl-desc" rows="3" placeholder="Notes complémentaires…"></textarea>
+        </div>
+
+        <div class="templates-alert">
+          <div class="templates-alert__title">Parents racines disponibles</div>
+          {% if root_groups and root_groups|length %}
+            <div class="root-groups" id="root-checkboxes">
+              {% for group in root_groups %}
+                <div class="root-group">
+                  <div class="root-group-header">
+                    <span class="root-group-label">{{ group.category.name if group.category else "Sans catégorie" }}</span>
+                    {% if group.nodes %}
+                      <span class="badge badge--soft">{{ group.nodes|length }} parent{{ 's' if group.nodes|length > 1 else '' }}</span>
+                    {% endif %}
+                  </div>
+                  {% if group.nodes and group.nodes|length %}
+                    <div class="root-group-list">
+                      {% for r in group.nodes %}
+                        <label class="root-chip">
+                          <input type="checkbox" class="root-cb" value="{{ r.id }}"
+                                 data-name="{{ r.name }}"
+                                 data-unique="{{ 1 if r.unique_item else 0 }}"
+                                 data-max="{{ r.unique_quantity if r.unique_quantity is not none else '' }}">
+                          <span class="root-chip-content">
+                            <span class="root-chip-name">{{ r.name }}</span>
+                            {% if r.unique_item %}
+                              <span class="root-chip-meta">
+                                Objet unique{% if r.unique_quantity is not none %} · max {{ r.unique_quantity }}{% endif %}
+                              </span>
+                            {% endif %}
+                          </span>
+                        </label>
+                      {% endfor %}
+                    </div>
+                  {% else %}
+                    <div class="root-group-empty">Aucun parent dans cette catégorie.</div>
+                  {% endif %}
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <span class="templates-alert__empty">Aucun parent racine disponible. Crée d’abord un stock parent dans 🧰 Stock.</span>
+          {% endif %}
+        </div>
+
+        <div class="templates-actions">
+          <button class="btn primary" type="button" id="btn-save">💾 Enregistrer</button>
+          <button class="btn ghost" type="button" id="btn-reset">➕ Nouveau</button>
+        </div>
+      </div>
+    </section>
   </div>
 </div>
 
@@ -198,341 +141,195 @@
   let currentEditId = null;
 
   const tableBody = byId('templates-body');
-  const formTitle = byId('form-title');
   const nameInput = byId('tpl-name');
+  const kindInput = byId('tpl-kind');
   const descInput = byId('tpl-desc');
-  const kindSelect = byId('tpl-kind');
-  const resetBtn = byId('btn-reset');
+  const formTitle = byId('form-title');
   const saveBtn = byId('btn-save');
+  const resetBtn = byId('btn-reset');
+  const checkboxContainer = byId('root-checkboxes');
 
-  function refreshEntries(){
-    entries = [];
-    (templateSpecs||[]).forEach(t => entries.push(t));
-    (lotSpecs||[]).forEach(t => entries.push(t));
-    entries.sort((a,b) => a.name.localeCompare(b.name, 'fr')); // alphabetical
-  }
-
-  refreshEntries();
-
-  function describeNodes(entry){
-    if(!entry || !entry.nodes || !entry.nodes.length){ return '—'; }
-    const parts = [];
-    entry.nodes.forEach(spec => {
-      const id = Number(spec.id ?? spec.node_id);
-      const node = rootMap.get(id);
-      const label = node ? node.name : `#${id}`;
-      const qty = spec.quantity;
-      if(qty != null){
-        parts.push(`${label} (×${qty})`);
-      }else{
-        parts.push(label);
-      }
-    });
-    return parts.length ? parts.join(', ') : '—';
-  }
-
-  function renderTable(){
-    tableBody.innerHTML = '';
+  function renderEntries(){
+    if(!tableBody) return;
     if(!entries.length){
-      const tr = document.createElement('tr');
-      const td = document.createElement('td');
-      td.colSpan = 4;
-      td.className = 'muted entry-empty';
-      td.textContent = 'Aucun template ou lot enregistré.';
-      tr.appendChild(td);
-      tableBody.appendChild(tr);
+      tableBody.innerHTML = '<tr><td colspan="4" class="templates-table__empty">Aucun template pour le moment.</td></tr>';
       return;
     }
-    entries.forEach(entry => {
+    tableBody.innerHTML = '';
+    for(const entry of entries){
       const tr = document.createElement('tr');
-      tr.dataset.id = String(entry.id);
-      if(entry.id === currentEditId){
-        tr.classList.add('active');
+      tr.dataset.id = entry.id;
+      tr.innerHTML = `
+        <td>${entry.name}</td>
+        <td>${entry.kind === 'LOT' ? 'Lot' : 'Template'}</td>
+        <td>${(entry.root_nodes||[]).map(n => n.name).join(', ') || '—'}</td>
+        <td class="templates-table__actions-cell">
+          <button class="btn sm" data-action="edit">Éditer</button>
+          <button class="btn danger sm" data-action="delete">Supprimer</button>
+        </td>`;
+
+      const editBtn = tr.querySelector('[data-action="edit"]');
+      const deleteBtn = tr.querySelector('[data-action="delete"]');
+
+      if(editBtn){
+        editBtn.addEventListener('click', () => loadEntry(entry.id));
       }
-      const tdName = document.createElement('td');
-      tdName.textContent = entry.name;
-      const tdKind = document.createElement('td');
-      tdKind.textContent = entry.kind === 'LOT' ? 'Lot' : 'Template';
-      const tdNodes = document.createElement('td');
-      tdNodes.textContent = describeNodes(entry);
-      const tdActions = document.createElement('td');
-      tdActions.className = 'row wrap table-actions';
-      const editBtn = document.createElement('button');
-      editBtn.type = 'button';
-      editBtn.className = 'btn';
-      editBtn.dataset.action = 'edit';
-      editBtn.textContent = 'Éditer';
-      const deleteBtn = document.createElement('button');
-      deleteBtn.type = 'button';
-      deleteBtn.className = 'btn danger';
-      deleteBtn.dataset.action = 'delete';
-      deleteBtn.textContent = 'Supprimer';
-      tdActions.appendChild(editBtn);
-      tdActions.appendChild(deleteBtn);
-      tr.appendChild(tdName);
-      tr.appendChild(tdKind);
-      tr.appendChild(tdNodes);
-      tr.appendChild(tdActions);
+
+      if(deleteBtn){
+        deleteBtn.addEventListener('click', () => deleteEntry(entry.id));
+      }
+
       tableBody.appendChild(tr);
-    });
-  }
-
-  renderTable();
-
-  function updateRootBadge(cb){
-    const wrap = cb.closest('label');
-    if(!wrap) return;
-    let badge = wrap.querySelector('.root-qty');
-    const id = Number(cb.value);
-    const qty = rootSelections.get(id);
-    if(badge && (!cb.checked || qty == null)){
-      badge.remove();
-      badge = null;
-    }
-    if(cb.checked && qty != null){
-      if(!badge){
-        badge = document.createElement('span');
-        badge.className = 'badge root-qty';
-        wrap.appendChild(badge);
-      }
-      badge.textContent = `Qté: ${qty}`;
     }
   }
 
-  function clearSelection(){
-    document.querySelectorAll('.root-cb').forEach(cb => {
-      cb.checked = false;
-      rootSelections.delete(Number(cb.value));
-      updateRootBadge(cb);
-    });
+  function serializeSelections(){
+    return Array.from(rootSelections.entries()).map(([id, meta]) => ({ id: Number(id), ...meta }));
   }
 
-  function applyNodes(nodes, {reset=false}={}){
-    if(reset){
-      clearSelection();
-    }
-    if(!Array.isArray(nodes)) return;
-    nodes.forEach(spec => {
-      if(!spec) return;
-      const id = Number(spec.id ?? spec.node_id);
-      if(!id) return;
-      const cb = document.querySelector(`.root-cb[value="${id}"]`);
-      if(!cb) return;
-      cb.checked = true;
-      if(spec.quantity != null){
-        rootSelections.set(id, Number(spec.quantity));
-      }else{
-        rootSelections.delete(id);
-      }
-      updateRootBadge(cb);
-    });
-  }
-
-  document.querySelectorAll('.root-cb').forEach(cb => {
-    cb.addEventListener('change', () => {
-      const id = Number(cb.value);
-      const isUnique = cb.dataset.unique === '1';
-      if(cb.checked){
-        if(isUnique){
-          const maxRaw = cb.dataset.max;
-          const max = maxRaw ? Number(maxRaw) : null;
-          const current = rootSelections.get(id) ?? (max ?? 1);
-          const label = cb.dataset.name || 'parent';
-          let msg = `Quantité désirée pour ${label}`;
-          if(max != null){ msg += ` (max ${max})`; }
-          let input = prompt(msg, String(current));
-          if(input === null){
-            cb.checked = false;
-            return;
-          }
-          let qty = Number.parseInt(input, 10);
-          if(Number.isNaN(qty) || qty < 0){
-            alert('Quantité invalide');
-            cb.checked = false;
-            return;
-          }
-          if(max != null && qty > max){
-            alert(`Quantité supérieure au maximum (${max}).`);
-            cb.checked = false;
-            return;
-          }
-          rootSelections.set(id, qty);
-        }else{
-          rootSelections.delete(id);
-        }
-      }else{
-        rootSelections.delete(id);
-      }
-      updateRootBadge(cb);
-    });
-  });
-
-  function buildSelectionPayload(){
-    const payload = [];
-    document.querySelectorAll('.root-cb:checked').forEach(cb => {
-      const id = Number(cb.value);
-      if(!id) return;
-      const entry = {id};
-      if(rootSelections.has(id)){
-        entry.quantity = rootSelections.get(id);
-      }
-      payload.push(entry);
-    });
-    return payload;
-  }
-
-  function focusName(){
-    setTimeout(() => nameInput.focus(), 0);
-  }
-
-  function startNew(){
+  function resetForm(){
     currentEditId = null;
     formTitle.textContent = 'Créer un template ou un lot';
     nameInput.value = '';
+    kindInput.value = 'TEMPLATE';
     descInput.value = '';
-    kindSelect.value = 'TEMPLATE';
-    clearSelection();
-    renderTable();
-    focusName();
+    rootSelections.clear();
+    if(checkboxContainer){
+      checkboxContainer.querySelectorAll('.root-cb').forEach(cb => {
+        cb.checked = false;
+        cb.closest('.root-chip')?.classList.remove('root-chip--checked');
+      });
+    }
   }
 
   function loadEntry(id){
     const entry = entries.find(e => e.id === id);
-    if(!entry){ return; }
-    currentEditId = id;
-    formTitle.textContent = `Éditer « ${entry.name} »`;
+    if(!entry) return;
+    currentEditId = entry.id;
+    formTitle.textContent = 'Modifier le modèle';
     nameInput.value = entry.name || '';
+    kindInput.value = entry.kind || 'TEMPLATE';
     descInput.value = entry.description || '';
-    if(entry.kind === 'LOT'){
-      kindSelect.value = 'LOT';
-    }else{
-      kindSelect.value = 'TEMPLATE';
+    rootSelections.clear();
+    (entry.root_nodes||[]).forEach(n => rootSelections.set(String(n.id), { name: n.name }));
+    if(checkboxContainer){
+      checkboxContainer.querySelectorAll('.root-cb').forEach(cb => {
+        const checked = rootSelections.has(cb.value);
+        cb.checked = checked;
+        cb.closest('.root-chip')?.classList.toggle('root-chip--checked', checked);
+      });
     }
-    applyNodes(entry.nodes || [], {reset:true});
-    renderTable();
-    focusName();
   }
 
-  resetBtn?.addEventListener('click', () => {
-    startNew();
-  });
-
-  saveBtn?.addEventListener('click', async () => {
-    const name = (nameInput.value || '').trim();
-    if(!name){
-      alert('Nom requis');
-      nameInput.focus();
-      return;
-    }
-    const nodes = buildSelectionPayload();
-    if(nodes.length === 0){
-      alert('Sélectionne au moins un parent.');
-      return;
-    }
-    const payload = {
-      name,
-      kind: kindSelect.value || 'TEMPLATE',
-      description: (descInput.value || '').trim(),
-      nodes,
-    };
-    let url = '/events/templates';
-    let method = 'POST';
-    if(currentEditId){
-      url = `/events/templates/${currentEditId}`;
-      method = 'PUT';
-    }
-    try{
-      saveBtn.disabled = true;
-      const res = await fetch(url, {
-        method,
-        headers: {'Content-Type':'application/json','Accept':'application/json'},
-        body: JSON.stringify(payload),
-      });
-      const text = await res.text();
-      if(!res.ok){
-        alert(text || 'Enregistrement impossible.');
-        return;
-      }
-      let data;
-      try{ data = JSON.parse(text); }catch{ data = null; }
-      if(!data){ return; }
-      if(method === 'POST'){
-        if(data.kind === 'LOT'){ lotSpecs.push(data); }
-        else { templateSpecs.push(data); }
-      }else{
-        // mise à jour: remplace dans les deux listes
-        const targetList = data.kind === 'LOT' ? lotSpecs : templateSpecs;
-        const otherList = data.kind === 'LOT' ? templateSpecs : lotSpecs;
-        // supprime de l'autre liste si déplacé
-        for(let i=otherList.length-1;i>=0;i--){
-          if(otherList[i].id === data.id){
-            otherList.splice(i,1);
+  function deleteEntry(id){
+    if(!confirm('Supprimer ce modèle ?')) return;
+    fetch(`/templates/api/${id}`, { method: 'DELETE', credentials: 'include' })
+      .then(resp => {
+        if(resp.ok){
+          entries = entries.filter(e => e.id !== id);
+          if(currentEditId === id){
+            resetForm();
           }
-        }
-        let replaced = false;
-        for(let i=0;i<targetList.length;i++){
-          if(targetList[i].id === data.id){
-            targetList[i] = data;
-            replaced = true;
-            break;
-          }
-        }
-        if(!replaced){
-          targetList.push(data);
-        }
-      }
-      refreshEntries();
-      loadEntry(data.id);
-      alert('Enregistré.');
-    }catch(err){
-      alert('Erreur: ' + err);
-    }finally{
-      saveBtn.disabled = false;
-    }
-  });
-
-  tableBody?.addEventListener('click', async (ev) => {
-    const btn = ev.target.closest('button[data-action]');
-    if(!btn) return;
-    const action = btn.dataset.action;
-    const tr = btn.closest('tr[data-id]');
-    if(!tr) return;
-    const id = Number(tr.dataset.id);
-    if(!id) return;
-    if(action === 'edit'){
-      loadEntry(id);
-      return;
-    }
-    if(action === 'delete'){
-      if(!confirm('Supprimer ce modèle ?')) return;
-      try{
-        const res = await fetch(`/events/templates/${id}`, {
-          method: 'DELETE',
-          headers: {'Accept':'application/json'},
-        });
-        if(!res.ok){
-          const text = await res.text();
-          alert(text || 'Suppression impossible.');
-          return;
-        }
-        [templateSpecs, lotSpecs].forEach(list => {
-          for(let i=list.length-1;i>=0;i--){
-            if(list[i].id === id){ list.splice(i,1); }
-          }
-        });
-        refreshEntries();
-        if(currentEditId === id){
-          startNew();
+          renderEntries();
         }else{
-          renderTable();
+          alert('Suppression refusée');
         }
-      }catch(err){
-        alert('Erreur: ' + err);
-      }
-    }
-  });
+      });
+  }
 
-  startNew();
+  function fetchEntries(){
+    const payload = [];
+    for(const tpl of templateSpecs || []){
+      payload.push({
+        id: tpl.id,
+        name: tpl.name,
+        kind: tpl.kind || 'TEMPLATE',
+        description: tpl.description,
+        root_nodes: (tpl.root_nodes||[]).map(id => rootMap.get(Number(id))).filter(Boolean)
+      });
+    }
+    for(const lot of lotSpecs || []){
+      payload.push({
+        id: lot.id,
+        name: lot.name,
+        kind: 'LOT',
+        description: lot.description,
+        root_nodes: (lot.root_nodes||[]).map(id => rootMap.get(Number(id))).filter(Boolean)
+      });
+    }
+    entries = payload.sort((a,b) => a.name.localeCompare(b.name));
+    renderEntries();
+  }
+
+  function setupCheckboxes(){
+    if(!checkboxContainer) return;
+    checkboxContainer.querySelectorAll('.root-cb').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const meta = {
+          name: cb.dataset.name,
+          unique: cb.dataset.unique === '1',
+          max: cb.dataset.max ? Number(cb.dataset.max) : null,
+        };
+        if(cb.checked){
+          rootSelections.set(cb.value, meta);
+        }else{
+          rootSelections.delete(cb.value);
+        }
+        cb.closest('.root-chip')?.classList.toggle('root-chip--checked', cb.checked);
+      });
+    });
+  }
+
+  function submitForm(){
+    if(!nameInput.value.trim()){
+      alert('Merci de renseigner un nom.');
+      return;
+    }
+    const body = {
+      name: nameInput.value.trim(),
+      kind: kindInput.value,
+      description: descInput.value.trim() || null,
+      roots: serializeSelections().map(r => r.id),
+    };
+
+    const url = currentEditId ? `/templates/api/${currentEditId}` : '/templates/api';
+    const method = currentEditId ? 'PUT' : 'POST';
+
+    fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(body),
+    }).then(resp => {
+      if(resp.ok){
+        return resp.json();
+      }
+      throw new Error('Sauvegarde refusée');
+    }).then(data => {
+      const updated = {
+        id: data.id,
+        name: data.name,
+        kind: data.kind,
+        description: data.description,
+        root_nodes: (data.root_nodes||[]).map(id => rootMap.get(Number(id))).filter(Boolean)
+      };
+      if(currentEditId){
+        entries = entries.map(e => e.id === updated.id ? updated : e);
+      }else{
+        entries = [...entries, updated];
+      }
+      renderEntries();
+      resetForm();
+    }).catch(err => {
+      alert(err.message || 'Sauvegarde refusée');
+    });
+  }
+
+  fetchEntries();
+  setupCheckboxes();
+
+  if(saveBtn){ saveBtn.addEventListener('click', submitForm); }
+  if(resetBtn){ resetBtn.addEventListener('click', resetForm); }
 })();
 </script>
 {% endblock %}

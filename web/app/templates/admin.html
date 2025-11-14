@@ -1,72 +1,7 @@
 {% extends "base.html" %}
 {% set title = "Administration — Utilisateurs" %}
 {% block content %}
-  <style>
-    .admin-page{display:flex;flex-direction:column;gap:24px}
-    .admin-hero{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,.7fr);gap:24px;align-items:stretch;
-      background:linear-gradient(135deg,rgba(34,74,133,.92),rgba(15,32,58,.94));
-      border:1px solid rgba(158,201,255,.28);border-radius:26px;padding:28px 32px;box-shadow:0 28px 60px rgba(6,16,34,.42)}
-    .admin-hero .title{font-size:26px;margin-bottom:8px}
-    .admin-hero .subtitle{font-size:15px;color:rgba(215,229,255,.82)}
-    .admin-hero .hero-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:18px}
-    .admin-hero .hero-actions .btn{background:rgba(11,27,51,.6);border-color:rgba(255,255,255,.18)}
-    .admin-hero .hero-actions .btn.primary{background:linear-gradient(135deg,var(--pc-orange),var(--pc-orange-strong));
-      color:#1f1200;border:0;box-shadow:0 14px 30px rgba(255,147,52,.28)}
-    .admin-hero-stats{display:grid;gap:12px;align-content:start}
-    .stat-card{display:flex;flex-direction:column;gap:6px;padding:18px;border-radius:18px;background:rgba(9,24,48,.78);
-      border:1px solid rgba(184,211,255,.22);box-shadow:0 16px 32px rgba(5,14,30,.32)}
-    .stat-card .label{font-size:12px;text-transform:uppercase;letter-spacing:.28em;color:rgba(203,220,255,.68);font-weight:700}
-    .stat-card .value{font-size:28px;font-weight:800;color:#fff}
-    .stat-card .hint{font-size:13px;color:rgba(203,220,255,.75)}
-
-    .admin-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
-    .admin-card{background:linear-gradient(150deg,rgba(14,30,54,.92),rgba(9,20,38,.95));border:1px solid rgba(158,201,255,.16);
-      border-radius:22px;padding:24px;box-shadow:0 20px 45px rgba(5,14,28,.32);display:flex;flex-direction:column;gap:16px}
-    .admin-card .title{margin-bottom:0;font-size:20px}
-    .admin-card ul{margin:0;padding-left:18px;color:rgba(193,211,238,.85);font-size:14px;line-height:1.6}
-    .admin-card ul li + li{margin-top:6px}
-
-    .user-form{display:grid;gap:14px}
-    .user-form .field{display:flex;flex-direction:column;gap:6px}
-    .user-form label{font-size:12px;text-transform:uppercase;letter-spacing:.32em;color:rgba(193,211,238,.6);font-weight:700}
-    .user-form input,.user-form select{padding:12px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.12);
-      background:rgba(12,28,50,.75);color:#f1f5ff;font-weight:600}
-    .user-form input:focus,.user-form select:focus{border-color:rgba(255,179,71,.5);box-shadow:0 0 0 3px rgba(255,179,71,.2);
-      outline:none}
-    .user-form .form-actions{display:flex;justify-content:flex-end}
-
-    .users-card{background:linear-gradient(160deg,rgba(11,26,48,.9),rgba(7,16,30,.94));border:1px solid rgba(158,201,255,.14);
-      border-radius:22px;padding:24px;box-shadow:0 22px 46px rgba(4,12,26,.35)}
-    .users-card .title{margin-bottom:4px}
-    .users-card .subtitle{margin-top:0;color:rgba(193,211,238,.72)}
-    .table-wrapper{margin-top:16px;border-radius:18px;border:1px solid rgba(255,255,255,.06);background:rgba(10,24,46,.6);
-      overflow:hidden;box-shadow:0 18px 38px rgba(4,11,24,.32)}
-    .table-wrapper table{width:100%;border-collapse:collapse;min-width:760px}
-    .table-wrapper th,.table-wrapper td{padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.05);font-size:14px}
-    .table-wrapper th{text-align:left;text-transform:uppercase;font-size:11px;letter-spacing:.32em;color:rgba(193,211,238,.6);
-      background:rgba(12,28,52,.65)}
-    .table-wrapper tr:hover td{background:rgba(36,86,148,.12)}
-    .status-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-weight:700;font-size:12px;
-      border:1px solid rgba(255,255,255,.08)}
-    .status-badge[data-state="active"]{background:rgba(18,184,134,.15);border-color:rgba(18,184,134,.35);color:#bff3e7}
-    .status-badge[data-state="inactive"]{background:rgba(255,107,107,.12);border-color:rgba(255,107,107,.3);color:#ffd5dc}
-    .user-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
-    .user-actions form{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-    .user-actions input{padding:8px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(9,22,40,.7);
-      color:#f1f5ff;min-width:160px}
-    .user-actions button{padding:8px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(13,30,56,.75);
-      color:#f1f5ff;font-weight:600;cursor:pointer;transition:transform .12s ease,box-shadow .12s ease}
-    .user-actions button:hover{transform:translateY(-1px);box-shadow:0 10px 22px rgba(7,16,30,.28)}
-    .user-actions .danger{background:rgba(91,18,32,.75);border-color:rgba(255,118,138,.32);color:#ffd5dc}
-    .user-actions .success{background:rgba(17,78,62,.75);border-color:rgba(18,184,134,.32);color:#bff3e7}
-    .table-scroll{overflow-x:auto}
-    @media(max-width:960px){.admin-hero{grid-template-columns:1fr;padding:24px}}
-    @media(max-width:640px){
-      .admin-card{padding:20px}
-      .users-card{padding:20px}
-      .table-wrapper table{min-width:680px}
-    }
-  </style>
+  
 
   {% set stats = namespace(active=0) %}
   {% for u in users %}

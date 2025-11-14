@@ -2,47 +2,7 @@
 {% set title = "Calendrier du matériel" %}
 {% block content %}
 
-<style>
-  .calendar-filters{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;align-items:center}
-  .calendar-filters .btn{height:38px;display:inline-flex;align-items:center}
-  .calendar-filters input[type="date"],
-  .calendar-filters select{min-width:170px}
-  .calendar-list{display:flex;flex-direction:column;gap:14px;margin-top:16px}
-  .material-group{border:1px solid var(--border);border-radius:12px;padding:14px;background:#0f1e2f}
-  .material-group .group-title{font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:10px}
-  .slot-entries{display:flex;flex-direction:column;gap:10px}
-  .slot-entry{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;background:#101d30;border:1px solid rgba(255,255,255,.05);border-radius:10px;padding:10px 12px}
-  .slot-entry .slot-time{font-weight:700;color:#dce6f5}
-  .slot-entry .slot-event{color:#9ec9ff;text-decoration:none;font-weight:600}
-  .slot-entry .slot-event:hover{text-decoration:underline}
-  .slot-status{background:#13253d;color:#9ec9ff;border-color:#1f3d63}
-  .empty-state{padding:20px;border-radius:12px;border:1px dashed var(--border);text-align:center;color:var(--muted)}
-  .error-state{padding:16px;border-radius:12px;border:1px solid rgba(255,107,107,.5);background:#2a0f16;color:#ffd5dc}
-  .range-label{color:var(--muted);font-size:13px}
-  .visual-calendar-card{margin-top:18px}
-  .calendar-mode-toggle{display:flex;gap:8px}
-  .calendar-mode-toggle .btn{min-width:110px;justify-content:center}
-  .calendar-mode-toggle .btn.active{background:#1f3d63;border-color:#29507f}
-  .visual-calendar{margin-top:18px;display:grid;gap:10px}
-  .calendar-week-grid{grid-template-columns:repeat(7,minmax(0,1fr))}
-  .calendar-week-grid .calendar-day{min-height:180px}
-  .calendar-month-grid{grid-template-columns:repeat(7,minmax(0,1fr))}
-  .calendar-day{background:#0f1e2f;border:1px solid rgba(255,255,255,.05);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px}
-  .calendar-day-header{display:flex;justify-content:space-between;align-items:center;font-weight:600;color:#dce6f5;text-transform:capitalize}
-  .calendar-day.muted-day .calendar-day-header{color:var(--muted)}
-  .calendar-day.today{border-color:#2a74ff;box-shadow:0 0 0 1px rgba(42,116,255,.3)}
-  .calendar-event{background:#13253d;border:1px solid rgba(41,80,127,.6);border-radius:8px;padding:6px 8px;display:flex;flex-direction:column;gap:4px}
-  .calendar-event .event-time{font-size:12px;color:#9ec9ff;font-weight:600}
-  .calendar-event .event-name{font-size:13px;font-weight:600;color:#dce6f5;text-decoration:none}
-  .calendar-event .event-name:hover{text-decoration:underline}
-  .calendar-event .event-status{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
-  .calendar-empty{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;min-height:60px;border:1px dashed rgba(255,255,255,.08);border-radius:8px;padding:12px}
-  @media (max-width:1024px){
-    .visual-calendar{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
-    .calendar-week-grid{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
-    .calendar-month-grid{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
-  }
-</style>
+
 
 <div class="card">
   <div class="title">Calendrier du matériel</div>

@@ -1,131 +1,63 @@
 {% extends "base.html" %}
 {% set title = "Vérification périodique" %}
 {% block content %}
-
-<style>
-  .state-ok{
-    border-color: var(--success) !important;
-    background:
-      radial-gradient(600px 200px at top left, rgba(18,184,134,.15), transparent),
-      #0f1e2f;
-    box-shadow: 0 0 0 1px rgba(18,184,134,.35) inset, 0 0 18px rgba(18,184,134,.15);
-  }
-  .state-bad{
-    border-color: var(--danger) !important;
-    background:
-      radial-gradient(600px 200px at top left, rgba(255,107,107,.12), transparent),
-      #0f1a27;
-    box-shadow: 0 0 0 1px rgba(255,107,107,.30) inset, 0 0 18px rgba(255,107,107,.12);
-  }
-  .state-wait{
-    border-color: var(--border) !important;
-    background:
-      radial-gradient(600px 200px at top left, rgba(45,123,191,.08), transparent),
-      var(--bg-2);
-  }
-  .chip{padding:4px 8px;border-radius:999px;font-weight:800;font-size:12px;border:1px solid var(--border);}
-  .chip.ok{background:#0e2a24;color:#bff3e7;border-color:#1d6e5d}
-  .chip.bad{background:#2a0e14;color:#ffd5dc;border-color:#75212f}
-  .chip.wait{background:#101c2e;color:#b7c7dc;border-color:#24344f}
-  .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
-  .dot-ok{background:var(--success)} .dot-bad{background:var(--danger)} .dot-wait{background:#37527a}
-  .parents-bar{display:flex;flex-direction:column;gap:16px;overflow-y:auto;max-height:260px;padding:6px 2px}
-  .parent-section{display:flex;flex-direction:column;gap:8px;padding-bottom:6px;border-bottom:1px solid var(--border-2)}
-  .parent-section:last-child{border-bottom:none;padding-bottom:0}
-  .parent-section-title{font-size:12px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--muted)}
-  .parent-section-list{display:flex;flex-direction:column;gap:10px}
-  .parent-empty{font-size:12px;color:var(--muted)}
-  .parent-pill{
-    display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 14px;border-radius:999px;
-    border:1px solid var(--border);background:#0f1a2a;color:var(--text);cursor:pointer;user-select:none;
-    width:100%;box-sizing:border-box;transition:transform .08s ease,border-color .08s ease,background .08s ease;
-    font:inherit;text-align:left;appearance:none;
-  }
-  .parent-pill:hover{transform:translateY(-1px)}
-  .parent-pill:focus-visible{outline:2px solid var(--pc-orange);outline-offset:2px}
-  .pill-ok{border-color:#1d6e5d;background:#0e2a24;color:#bff3e7}
-  .pill-bad{border-color:#75212f;background:#2a0e14;color:#ffd5dc}
-  .pill-wait{border-color:#24344f;background:#101c2e;color:#b7c7dc}
-  .focus-ring{outline:2px solid var(--pc-orange);outline-offset:2px;transition:outline-color .4s ease}
-  .parent-pill-left{display:flex;align-items:center;gap:8px;font-weight:700}
-  .parent-pill-status{font-size:12px;font-weight:700}
-  .modal-back{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:80}
-  .modal{width:min(520px,92%);background:#0f1726;border:1px solid var(--border);border-radius:16px;padding:18px;box-shadow:var(--shadow);max-height:calc(100vh - 40px);overflow-y:auto}
-  .modal .field{display:flex;flex-direction:column;gap:6px;margin-top:10px}
-  .modal textarea{min-height:90px}
-  .modal .exp-list{display:flex;flex-direction:column;gap:8px;margin-top:10px}
-  .modal .exp-option{display:flex;gap:10px;align-items:flex-start;padding:8px;border:1px solid var(--border);border-radius:10px;background:#101c2e}
-  .modal .exp-option input{margin-top:4px}
-  .modal .exp-text{font-size:14px;line-height:1.4}
-  .modal .modal-action-row{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
-  .modal .reassort-section{flex-direction:column;gap:10px;margin-top:14px;background:#0f1e2f;border:1px dashed var(--border);padding:12px;border-radius:12px}
-  .modal .reassort-list{display:flex;flex-direction:column;gap:8px}
-  .modal .reassort-option{display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid var(--border);border-radius:10px;background:#13263c}
-  .modal .reassort-option input{margin-top:6px}
-  .modal .reassort-text{font-size:14px;line-height:1.4}
-  .modal .reassort-controls{display:flex;align-items:center;gap:10px;font-size:14px}
-  .modal .reassort-confirm{margin-top:12px;display:flex;justify-content:flex-end}
-  .history-list{display:flex;flex-direction:column;gap:8px;margin-top:14px}
-  .history-entry{padding:10px;border:1px solid var(--border);border-radius:10px;background:#101c2e;display:flex;align-items:center;justify-content:space-between;gap:12px}
-  .history-entry .history-main{font-weight:600;font-size:14px;flex:0 0 auto}
-  .history-entry .history-right{display:flex;align-items:center;gap:10px;flex:1;justify-content:flex-end}
-  .history-entry .history-meta{font-size:12px;color:var(--muted-text, #9fb0c9);white-space:nowrap}
-  .history-entry .history-source{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--border);background:#13263c;color:#b8c7da;text-transform:uppercase;letter-spacing:.5px}
-  .share-url{width:100%;padding:10px;border-radius:10px;border:1px solid var(--border);background:#0f1e2f;color:var(--text);}
-  .share-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-  .share-meta{font-size:12px;color:var(--muted);}
-  .share-modal-body{display:flex;flex-direction:column;gap:12px;margin-top:14px;}
-</style>
-
-<div class="grid cols-2">
-  <div class="card">
-    <div class="row space-between" style="align-items:center; gap:12px;">
-      <div>
-        <div class="title">Vérification périodique du matériel</div>
-        <div class="subtitle">Sélectionne un parent racine pour afficher son contenu et enregistre les contrôles sans créer d’événement.</div>
+<div class="verification-page">
+  <div class="verification-grid">
+    <section class="card verification-card">
+      <div class="verification-card__header">
+        <div>
+          <h2 class="verification-card__title">Vérification périodique du matériel</h2>
+          <p class="verification-card__subtitle">Sélectionne un parent racine pour afficher son contenu et enregistre les contrôles sans créer d’événement.</p>
+        </div>
+        <button class="btn" id="history-btn">Historique des vérifications</button>
       </div>
-      <button class="btn" id="history-btn">Historique des vérifications</button>
-    </div>
-    <div class="alert" style="margin-top:10px;">
-      <div class="muted">Rôles autorisés : ADMIN, CHEF et VERIFICATIONPERIODIQUE.</div>
-      <div class="muted" style="margin-top:6px;">Clique sur un parent dans la liste pour charger son arbre puis marque chaque item comme conforme ou non conforme.</div>
-    </div>
-  </div>
-  <div class="card">
-    <div class="title">Parents disponibles</div>
-    <div id="root-buttons" class="parents-bar" style="margin-top:8px;"></div>
-  </div>
-</div>
+      <div class="verification-card__alert">
+        <p>Rôles autorisés : ADMIN, CHEF et VERIFICATIONPERIODIQUE.</p>
+        <p>Clique sur un parent dans la liste pour charger son arbre puis marque chaque item comme conforme ou non conforme.</p>
+      </div>
+    </section>
 
-<div class="card" style="margin-top:12px;">
-  <div class="row space-between">
-    <div>
-      <div class="title" id="current-root-name">Sélectionne un parent</div>
-      <div class="muted">Se met à jour instantanément après chaque vérification.</div>
-    </div>
-    <div class="row wrap" style="gap:10px;align-items:center;justify-content:flex-end;">
-      <span class="chip ok" id="stat-ok">OK : 0</span>
-      <span class="chip bad" id="stat-bad">Non conformes : 0</span>
-      <span class="chip wait" id="stat-wait">En attente : 0</span>
-    </div>
+    <section class="card verification-card">
+      <div class="verification-card__header">
+        <h2 class="verification-card__title">Parents disponibles</h2>
+      </div>
+      <div id="root-buttons" class="parents-bar"></div>
+    </section>
   </div>
-  <div class="progress" style="margin-top:10px;"><div id="progress-bar" style="width:0%"></div></div>
-  <div class="muted" id="progress-text" style="margin-top:6px;">0 / 0 vérifiés</div>
-</div>
 
-<div class="card" style="margin-top:12px;">
-  <div class="row space-between">
-    <div class="title">Matériel à contrôler</div>
-    <div class="muted">Vert = tout OK • Rouge = au moins un non conforme • Bleu = en attente</div>
-  </div>
-  <div id="tree" class="tree" style="margin-top:10px;"></div>
-</div>
+  <section class="card verification-card">
+    <div class="verification-card__header">
+      <div>
+        <h2 class="verification-card__title" id="current-root-name">Sélectionne un parent</h2>
+        <p class="verification-card__subtitle" id="progress-text">0 / 0 vérifiés</p>
+      </div>
+      <div class="verification-stats">
+        <span class="chip chip--ok" id="stat-ok">OK : 0</span>
+        <span class="chip chip--danger" id="stat-bad">Non conformes : 0</span>
+        <span class="chip chip--pending" id="stat-wait">En attente : 0</span>
+      </div>
+    </div>
+    <div class="verification-progress">
+      <div class="verification-progress__track">
+        <div id="progress-bar" class="verification-progress__bar"></div>
+      </div>
+    </div>
+  </section>
 
-<div class="card" style="margin-top:12px; display:flex; justify-content:flex-end;">
-  <div class="row" style="gap:10px;">
-    <button class="btn" id="public-link-btn">Lien public</button>
-    <button class="btn primary" id="finish-verification-btn">Finir la vérification</button>
-  </div>
+  <section class="card verification-card">
+    <div class="verification-card__header">
+      <h2 class="verification-card__title">Matériel à contrôler</h2>
+      <p class="verification-card__subtitle">Vert = tout OK • Rouge = au moins un non conforme • Bleu = en attente</p>
+    </div>
+    <div id="tree" class="tree"></div>
+  </section>
+
+  <section class="card verification-actions">
+    <div class="verification-actions__group">
+      <button class="btn" id="public-link-btn">Lien public</button>
+      <button class="btn primary" id="finish-verification-btn">Finir la vérification</button>
+    </div>
+  </section>
 </div>
 
 <script>
@@ -199,609 +131,168 @@ function normStatus(s){
 
 function flattenItems(nodes){
   const out = [];
-  (nodes||[]).forEach(function rec(n){
-    if(isItem(n)) out.push(n);
-    (n.children||[]).forEach(rec);
+  (nodes||[]).forEach(function walk(n){
+    out.push(n);
+    (n.children||[]).forEach(walk);
   });
   return out;
 }
 
-function updateResetButtonState(){
-  const finishBtn = document.getElementById("finish-verification-btn");
-  const shareBtn = document.getElementById("public-link-btn");
-  const hasItems = flattenItems(TREE).length > 0;
-  const finishDisabled = !CURRENT_ROOT_ID || !hasItems;
-  if(finishBtn) finishBtn.disabled = finishDisabled;
-  if(shareBtn) shareBtn.disabled = !CURRENT_ROOT_ID;
-}
-function groupAllOk(n){
-  const items = flattenItems([n]);
-  return items.length > 0 && items.every(i => normStatus(i.last_status) === "OK");
-}
-function groupHasBad(n){
-  return flattenItems([n]).some(i => normStatus(i.last_status) === "NOT_OK");
-}
-function groupStatus(n){
-  if(groupAllOk(n)) return "OK";
-  if(groupHasBad(n)) return "BAD";
-  return "WAIT";
-}
-function determineRootStatus(node){
-  if(!node) return "WAIT";
-  if(isGroup(node)) return groupStatus(node);
-  const s = normStatus(node.last_status);
-  if(s === "OK") return "OK";
-  if(s === "NOT_OK") return "BAD";
-  return "WAIT";
-}
-
-function recomputeStats(stats){
-  if(!stats){
-    const items = flattenItems(TREE);
-    const total = items.length;
-    const ok = items.filter(i => normStatus(i.last_status) === "OK").length;
-    const bad = items.filter(i => normStatus(i.last_status) === "NOT_OK").length;
-    const wait = total - ok - bad;
-    updateStats(ok, bad, wait, total);
-  }else{
-    updateStats(stats.ok || 0, stats.not_ok || 0, stats.todo || 0, stats.total || 0);
+function statusLabel(status){
+  switch(status){
+    case "OK": return "OK";
+    case "NOT_OK": return "Non conforme";
+    default: return "En attente";
   }
 }
 
-function updateStats(ok, bad, wait, total){
-  document.getElementById("stat-ok").textContent = `OK : ${ok}`;
-  document.getElementById("stat-bad").textContent = `Non conformes : ${bad}`;
-  document.getElementById("stat-wait").textContent = `En attente : ${wait}`;
-  const pct = total ? Math.round(ok/total*100) : 0;
-  document.getElementById("progress-bar").style.width = pct + "%";
-  document.getElementById("progress-text").textContent = `${ok} / ${total} vérifiés`;
-}
-
-function itemStateClass(n){
-  const s = normStatus(n.last_status);
-  if(s === "OK") return "state-ok";
-  if(s === "NOT_OK") return "state-bad";
-  return "state-wait";
-}
-function groupStateClass(n){
-  const s = groupStatus(n);
-  if(s === "OK") return "state-ok";
-  if(s === "BAD") return "state-bad";
-  return "state-wait";
-}
-function statusDot(isOk, isBad){
-  return el("span", {class: "status-dot " + (isOk ? "dot-ok" : (isBad ? "dot-bad" : "dot-wait"))});
-}
-
-function formatISODate(iso){
-  if(!iso) return "—";
-  try{
-    return new Date(iso + "T00:00:00").toLocaleDateString();
-  }catch(_){
-    return iso;
+function statusClass(status){
+  switch(status){
+    case "OK": return "pill-ok";
+    case "NOT_OK": return "pill-bad";
+    default: return "pill-wait";
   }
 }
 
-function buildExpiryChoices(item){
-  const out = [];
-  if(Array.isArray(item.expiries) && item.expiries.length){
-    item.expiries.forEach((e, idx)=>{
-      const labelParts = [];
-      if(e.date) labelParts.push(`Péremption ${formatISODate(e.date)}`);
-      if(e.lot) labelParts.push(`Lot ${e.lot}`);
-      if(typeof e.quantity === "number") labelParts.push(`Qté ${e.quantity}`);
-      if(e.note) labelParts.push(e.note);
-      out.push({
-        key: `exp-${e.id || idx}`,
-        expiry_id: e.id || null,
-        date: e.date || null,
-        lot: e.lot || null,
-        quantity: e.quantity || null,
-        label: labelParts.join(" • ") || `Péremption ${formatISODate(e.date)}`,
-      });
-    });
-  }else{
-    const d = item.expiry_date || null;
-    out.push({
-      key: `legacy-${d || "none"}`,
-      expiry_id: null,
-      date: d,
-      lot: null,
-      quantity: null,
-      label: d ? `Péremption ${formatISODate(d)}` : "Aucune date enregistrée",
-    });
+function computeRootStatus(items){
+  let ok = 0; let bad = 0; let wait = 0;
+  for(const item of items){
+    const s = normStatus(item.status);
+    if(s === "OK") ok += 1;
+    else if(s === "NOT_OK") bad += 1;
+    else wait += 1;
   }
-  return out;
+  return { ok, bad, wait };
 }
 
-function renderItem(n){
-  const s = normStatus(n.last_status);
-  const statusLbl = s === "OK" ? "✅ OK" : (s === "NOT_OK" ? "❌ Non conforme" : "⏳ En attente");
-  const by = n.last_by ? ` (${n.last_by})` : "";
-  const statusParts = [`Dernier statut: ${statusLbl}${by}`];
-  if(n.comment){
-    statusParts.push(`Commentaire: ${n.comment}`);
+function updateProgress(){
+  let total = 0;
+  let ok = 0;
+  const nodes = TREE || [];
+  nodes.forEach(function walk(n){
+    if(isItem(n)){
+      total += 1;
+      if(normStatus(n.status) === "OK") ok += 1;
+    }
+    (n.children||[]).forEach(walk);
+  });
+  const bar = document.getElementById('progress-bar');
+  const text = document.getElementById('progress-text');
+  if(bar){
+    const pct = total === 0 ? 0 : Math.round((ok / total) * 100);
+    bar.style.width = pct + '%';
   }
-  const targetId = targetNodeId(n);
-  const safeId = domSafeId(n.id);
-  const qtyValue = n.selected_quantity ?? n.quantity ?? n.unique_quantity ?? 1;
-  const qtySpan = el("span", {class: "qty", id: `qty-${safeId}`}, `Qté: ${qtyValue}`);
-  ITEM_QTY_TXT.set(n.id, qtySpan);
-  const statusDiv = el("div", {class: "muted", id: `status-${safeId}`}, statusParts.join(" • "));
-  ITEM_STATUS_TXT.set(n.id, statusDiv);
-  const wrap = el("div", {class: "item " + itemStateClass(n), id: `item-${safeId}`},
-    el("div", null,
-      el("div", {class: "name"}, statusDot(s === "OK", s === "NOT_OK"), " ", n.name, " ", qtySpan),
-      statusDiv
-    ),
-    el("div", {class: "row"},
-      el("button", {class: "btn success", onclick: ()=>markOk(n)}, "OK"),
-      el("button", {class: "btn ghost", onclick: ()=>markNotOk(n)}, "Non conforme")
-    )
-  );
-  ITEM_EL.set(n.id, wrap);
-  return wrap;
-}
-
-function renderGroup(n){
-  const header = el("div", {class: "header"},
-    el("div", {class: "name"}, statusDot(groupStatus(n) === "OK", groupStatus(n) === "BAD"), " ", n.name)
-  );
-  const bodyChildren = [];
-  if(n.unique_item || n.unique_parent){
-    bodyChildren.push(renderItem(n));
+  if(text){
+    text.textContent = `${ok} / ${total} vérifiés`;
   }
-  (n.children||[]).forEach(child => bodyChildren.push(renderNode(child)));
-  const children = el("div", {class: "childs"}, ...bodyChildren);
-  const box = el("div", {class: `node ${groupStateClass(n)}`, id: `node-${n.id}`}, header, children);
-  GROUP_EL.set(n.id, box);
-  return box;
-}
-function renderNode(n){ return isGroup(n) ? renderGroup(n) : renderItem(n); }
-
-function buildTree(){
-  const container = document.getElementById("tree");
-  container.innerHTML = "";
-  GROUP_EL.clear();
-  ITEM_EL.clear();
-  ITEM_STATUS_TXT.clear();
-  ITEM_QTY_TXT.clear();
-  (TREE||[]).forEach(n => container.appendChild(renderNode(n)));
-  buildParentsBar();
-  updateResetButtonState();
 }
 
-function buildParentsBar(){
-  const bar = document.getElementById("root-buttons");
+function renderParents(){
+  const bar = document.getElementById('root-buttons');
   if(!bar) return;
-  bar.innerHTML = "";
-
-  const buckets = {WAIT: [], BAD: [], OK: []};
-  ROOTS.forEach(root => {
-    const rawStatus = ROOT_STATUS.get(root.id) || root.status || "WAIT";
-    const status = rawStatus === "OK" ? "OK" : (rawStatus === "BAD" ? "BAD" : "WAIT");
-    buckets[status].push(Object.assign({}, root, {status}));
-  });
-
-  const sections = [
-    {key: "WAIT", title: "À vérifier", empty: "Aucun parent en attente de vérification."},
-    {key: "BAD", title: "Non conformes", empty: "Aucun parent non conforme."},
-    {key: "OK", title: "OK", empty: "Aucun parent terminé."},
-  ];
-
-  const makePill = root => {
+  bar.innerHTML = '';
+  const roots = ROOTS || [];
+  roots.forEach(root => {
+    const status = ROOT_STATUS.get(root.id) || { ok: 0, bad: 0, wait: 0 };
+    const label = status.bad > 0 ? 'Non conforme' : (status.ok > 0 ? 'OK' : 'En attente');
     const classes = ["parent-pill"];
-    if(root.status === "OK") classes.push("pill-ok");
-    else if(root.status === "BAD") classes.push("pill-bad");
-    else classes.push("pill-wait");
-    if(root.id === CURRENT_ROOT_ID) classes.push("focus-ring");
-    const label = root.status === "OK" ? "Terminé" : (root.status === "BAD" ? "Non conforme" : "À vérifier");
-    const pill = el("button", {
-      type: "button",
-      class: classes.join(" "),
-      onclick: () => loadRoot(root.id),
+    if(status.bad > 0) classes.push('pill-bad');
+    else if(status.ok > 0 && status.wait === 0) classes.push('pill-ok');
+    else classes.push('pill-wait');
+    const pill = el('button', {
+      class: classes.join(' '),
+      onclick: () => loadRoot(root.id)
     },
-      el("div", {class: "parent-pill-left"},
-        statusDot(root.status === "OK", root.status === "BAD"),
-        el("span", {class: "strong"}, root.name)
+      el('div', {class: 'parent-pill-left'},
+        el('span', {class: 'status-dot ' + (status.bad > 0 ? 'dot-bad' : (status.ok > 0 && status.wait === 0 ? 'dot-ok' : 'dot-wait'))}),
+        el('span', {class: 'parent-pill-name'}, root.name || 'Parent'),
       ),
-      el("span", {class: "parent-pill-status"}, label)
+      el('span', {class: 'parent-pill-status'}, label)
     );
-    pill.addEventListener("keydown", event => {
-      if(event.key === "Enter" || event.key === " "){
-        event.preventDefault();
-        loadRoot(root.id);
-      }
-    });
-    return pill;
-  };
-
-  sections.forEach(section => {
-    const wrap = el("div", {class: "parent-section"},
-      el("div", {class: "parent-section-title"}, section.title)
-    );
-    const list = el("div", {class: "parent-section-list"});
-    const nodes = buckets[section.key] || [];
-    if(nodes.length){
-      nodes.forEach(node => list.appendChild(makePill(node)));
-    }else{
-      list.appendChild(el("div", {class: "parent-empty muted"}, section.empty));
+    if(root.id === CURRENT_ROOT_ID){
+      pill.classList.add('is-active');
     }
-    wrap.appendChild(list);
-    bar.appendChild(wrap);
+    bar.appendChild(pill);
   });
 }
 
-function updateCurrentRootName(name){
-  const elmt = document.getElementById("current-root-name");
-  if(elmt) elmt.textContent = name || "Sélectionne un parent";
+function renderTree(nodes){
+  const treeEl = document.getElementById('tree');
+  if(!treeEl) return;
+  treeEl.innerHTML = '';
+  (nodes||[]).forEach(node => {
+    treeEl.appendChild(renderNode(node));
+  });
+  updateProgress();
 }
 
-function formatDateTime(value){
-  if(!value) return "Date inconnue";
-  try{
-    const dt = new Date(value);
-    if(Number.isNaN(dt.getTime())) return value;
-    return dt.toLocaleString('fr-FR', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  }catch(err){
-    return value;
-  }
-}
+function renderNode(node){
+  const status = normStatus(node.status);
+  const wrapper = el('div', {class: `node state-${status === 'NOT_OK' ? 'bad' : status.toLowerCase()}`});
+  const header = el('div', {class: 'header' + (isGroup(node) ? ' toggle' : '')});
+  const left = el('div', {class: 'left'},
+    el('span', {class: 'status-dot ' + (status === 'NOT_OK' ? 'dot-bad' : status === 'OK' ? 'dot-ok' : 'dot-wait')}),
+    el('span', {class: 'name'}, node.name || '—'),
+  );
+  header.appendChild(left);
 
-async function fetchHistory(rootId){
-  const res = await fetch(`/verification-periodique/history/${rootId}`, {credentials: 'include'});
-  if(!res.ok){
-    const txt = await res.text().catch(()=>null);
-    throw new Error(txt || "Impossible de récupérer l'historique");
-  }
-  return res.json();
-}
-
-async function fetchShareInfo(rootId){
-  const res = await fetch(`/verification-periodique/share/${rootId}`, {credentials:'include'});
-  if(!res.ok){
-    const txt = await res.text().catch(()=>null);
-    throw new Error(txt || "Impossible de récupérer le lien public");
-  }
-  return res.json();
-}
-
-function copyShareLink(url, btn){
-  if(!url) return;
-  const onSuccess = () => {
-    if(btn){
-      const original = btn.textContent;
-      btn.textContent = 'Copié !';
-      btn.disabled = true;
-      setTimeout(()=>{
-        btn.textContent = original;
-        btn.disabled = false;
-      }, 1500);
-    }
-  };
-  const onFailure = () => {
-    window.prompt('Copie ce lien :', url);
-  };
-  try{
-    if(navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(url).then(onSuccess).catch(onFailure);
-    }else{
-      onFailure();
-    }
-  }catch(err){
-    onFailure();
-  }
-}
-
-function renderShareModal(data){
-  CURRENT_SHARE_INFO = data;
-  const rootName = data?.root?.name || '';
-  const link = data?.link || null;
-  const header = el('h3',{}, rootName ? `Lien public — ${rootName}` : 'Lien public');
-  const subtitleText = link
-    ? 'Le lien public est unique pour ce parent. Copie-le ou partage le QR code.'
-    : "Le lien public n'a pas pu être généré automatiquement. Merci de réessayer plus tard.";
-  const subtitle = el('div',{class:'muted'}, subtitleText);
-
-  const elements = [header, subtitle];
-
-  if(link){
-    const url = link.url || '';
-    const input = el('input',{class:'share-url', value:url, readonly:true});
-    input.addEventListener('focus', ()=>input.select());
-    const copyBtn = el('button',{class:'btn'},'Copier le lien');
-    copyBtn.addEventListener('click', ()=>copyShareLink(url, copyBtn));
-    const openBtn = el('a',{class:'btn', href:url, target:'_blank', rel:'noopener'},'Ouvrir');
-    const actions = el('div',{class:'share-actions'}, copyBtn, openBtn);
-    const metaParts = [];
-    if(link.created_at) metaParts.push(`Créé le ${formatDateTime(link.created_at)}`);
-    if(link.last_used_at) metaParts.push(`Dernière utilisation ${formatDateTime(link.last_used_at)}`);
-    const meta = metaParts.length ? el('div',{class:'share-meta'}, metaParts.join(' • ')) : null;
-    const qr = url
-      ? el('img',{
-          src:`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(url)}`,
-          alt:'QR code',
-          style:'max-width:240px;border-radius:12px;background:#fff;padding:8px;align-self:center;'
-        })
-      : null;
-    const body = el('div',{class:'share-modal-body'}, input, actions);
-    if(meta) body.appendChild(meta);
-    if(qr) body.appendChild(qr);
-    elements.push(body);
-  }
-
-  const closeBtn = el('button',{class:'btn ghost', onclick: closeModal},'Fermer');
-  elements.push(el('div',{class:'modal-action-row'}, closeBtn));
-  openModal(el('div',{}, ...elements));
-}
-
-async function openShareModal(){
-  if(!CURRENT_ROOT_ID){
-    alert('Sélectionne un parent pour afficher le lien public.');
-    return;
-  }
-  const btn = document.getElementById('public-link-btn');
-  if(btn) btn.disabled = true;
-  openModal(el('div',{}, el('h3',{},'Lien public'), el('div',{class:'muted'},'Chargement…')));
-  try{
-    const data = await fetchShareInfo(CURRENT_ROOT_ID);
-    renderShareModal(data);
-  }catch(err){
-    closeModal();
-    handleError(err);
-  }finally{
-    if(btn) btn.disabled = false;
-  }
-}
-
-async function showHistoryModal(){
-  if(!CURRENT_ROOT_ID){
-    alert("Sélectionne un parent pour afficher l'historique.");
-    return;
-  }
-  const btn = document.getElementById('history-btn');
-  if(btn) btn.disabled = true;
-  try{
-    const data = await fetchHistory(CURRENT_ROOT_ID);
-    const records = data?.records || [];
-    const rootName = data?.root?.name || '';
-    const header = rootName ? `Historique - ${rootName}` : 'Historique des vérifications';
-    const subtitle = records.length
-      ? `Dernières vérifications (${records.length})`
-      : "Aucune vérification enregistrée pour ce parent.";
-
-    const list = records.length
-      ? el('div',{class:'history-list'}, ...records.map(rec => {
-          const verifier = rec.verifier || 'Inconnu';
-          const dateTxt = rec.timestamp ? formatDateTime(rec.timestamp) : 'Date inconnue';
-          const sourceLabel = rec.source_label || (rec.source === 'public' ? 'Lien public' : 'Interne');
-          const comment = (rec.comment || '').trim();
-          const metaParts = [];
-          if(dateTxt) metaParts.push(dateTxt);
-          if(comment) metaParts.push(`Commentaire : ${comment}`);
-          const metaTxt = metaParts.join(' • ');
-          const rightChildren = [el('span',{class:'history-source'}, sourceLabel)];
-          if(metaTxt){
-            rightChildren.push(el('span',{class:'history-meta'}, metaTxt));
-          }
-          return el('div',{class:'history-entry'},
-            el('span',{class:'history-main'}, verifier),
-            el('div',{class:'history-right'}, ...rightChildren)
-          );
-        }))
-      : el('div',{class:'muted', style:'margin-top:12px;'},"L'historique est vide.");
-
-    const closeBtn = el('button',{class:'btn ghost', onclick: closeModal},'Fermer');
-
-    const content = el('div',{},
-      el('h3',{}, header),
-      el('div',{class:'muted'}, subtitle),
-      list,
-      el('div',{class:'modal-action-row'}, closeBtn)
+  if(isGroup(node)){
+    const meta = computeRootStatus(flattenItems(node.children));
+    const sub = el('div', {class: 'substats'},
+      el('span', {class: 'chip ok'}, `OK : ${meta.ok}`),
+      el('span', {class: 'chip wait'}, `En attente : ${meta.wait}`),
+      el('span', {class: 'chip bad'}, `Non conformes : ${meta.bad}`),
     );
-
-    openModal(content);
-  }catch(err){
-    handleError(err);
-  }finally{
-    if(btn) btn.disabled = false;
+    header.appendChild(sub);
+    header.addEventListener('click', () => {
+      childWrap.classList.toggle('collapsed');
+    });
+  }else{
+    const actions = el('div', {class: 'actions'},
+      el('button', {class: 'btn sm success', onclick: () => setItemStatus(node.id, 'OK')}, 'OK'),
+      el('button', {class: 'btn sm danger', onclick: () => setItemStatus(node.id, 'NOT_OK')}, 'NOK'),
+      el('button', {class: 'btn sm ghost', onclick: () => setItemStatus(node.id, 'PENDING')}, 'Attente'),
+    );
+    header.appendChild(actions);
   }
+
+  wrapper.appendChild(header);
+
+  const childWrap = el('div', {class: 'childs'});
+  (node.children||[]).forEach(child => childWrap.appendChild(renderNode(child)));
+  wrapper.appendChild(childWrap);
+  return wrapper;
 }
 
-function handleError(err){
-  if(!err) return;
-  if(err instanceof Error){
-    alert(err.message || "Erreur");
-  }else if(typeof err === "string"){
-    alert(err || "Erreur");
-  }else{
-    alert("Erreur réseau");
-  }
+function setItemStatus(id, status){
+  fetch(`/verification-periodique/api/item/${id}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ status })
+  }).then(resp => {
+    if(resp.ok){
+      loadRoot(CURRENT_ROOT_ID);
+    }
+  });
 }
 
 function loadRoot(rootId){
-  if(!rootId){
-    CURRENT_ROOT_ID = null;
-    CURRENT_SHARE_INFO = null;
-    updateResetButtonState();
-    return Promise.resolve();
-  }
   CURRENT_ROOT_ID = rootId;
-  CURRENT_SHARE_INFO = null;
-  updateResetButtonState();
-  const treeEl = document.getElementById("tree");
-  treeEl.innerHTML = "<div class='muted'>Chargement…</div>";
-  return fetch(`/verification-periodique/tree/${rootId}`, {credentials: "include"})
-    .then(r => r.ok ? r.json() : r.text().then(txt => Promise.reject(txt || "Erreur serveur")))
+  fetch(`/verification-periodique/api/root/${rootId}`, { credentials: 'include' })
+    .then(resp => resp.json())
     .then(data => {
       TREE = data.tree || [];
-      indexTree(TREE);
-      updateCurrentRootName(data.root?.name || "");
-      const rootNode = TREE.length ? TREE[0] : null;
-      const status = determineRootStatus(rootNode);
-      ROOT_STATUS.set(rootId, status);
-      const found = ROOTS.find(r => r.id === rootId);
-      if(found) found.status = status;
-      buildTree();
-      recomputeStats(data.stats);
-      updateResetButtonState();
-      return data;
-    })
-    .catch(err => {
-      const msg = typeof err === "string" ? err : "Erreur de chargement";
-      treeEl.innerHTML = `<div class='muted'>Erreur de chargement : ${msg}</div>`;
-      updateResetButtonState();
-      throw err;
+      ROOT_STATUS.set(rootId, computeRootStatus(flattenItems(TREE)));
+      document.getElementById('current-root-name').textContent = data.root?.name || 'Parent';
+      renderParents();
+      renderTree(TREE);
     });
 }
 
-function verify(nodeId, status, extra={}, options={}){
-  const opts = Object.assign({refresh: true}, options || {});
-  const payload = Object.assign({node_id: nodeId, status}, extra || {});
-  return fetch(`/verification-periodique/verify`, {
-    method: "POST",
-    credentials: "include",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify(payload)
-  }).then(r => {
-    if(r.ok) return r.json();
-    return r.text().then(txt => Promise.reject(txt || "Vérification refusée."));
-  }).then(data => {
-    if(opts.refresh){
-      return loadRoot(CURRENT_ROOT_ID).then(() => data);
-    }
-    return data;
-  });
-}
-
-function markOk(item){
-  const targetId = targetNodeId(item);
-  verify(targetId, "OK", {}, {refresh: false})
-    .then(() => {
-      const targetNode = NODE_MAP.get(targetId) || null;
-      const nodesToUpdate = [];
-      if(item) nodesToUpdate.push(item);
-      if(targetNode && targetNode !== item) nodesToUpdate.push(targetNode);
-      const nowIso = new Date().toISOString();
-      nodesToUpdate.forEach(node => {
-        if(!node) return;
-        node.last_status = "OK";
-        node.comment = null;
-        node.issue_code = null;
-        node.observed_qty = null;
-        node.missing_qty = null;
-        node.last_at = nowIso;
-        if(CURRENT_USER_NAME){
-          node.last_by = CURRENT_USER_NAME;
-        }
-      });
-      indexTree(TREE);
-      if(CURRENT_ROOT_ID){
-        const rootNode = TREE.length ? TREE[0] : null;
-        const status = determineRootStatus(rootNode);
-        ROOT_STATUS.set(CURRENT_ROOT_ID, status);
-        const found = ROOTS.find(r => r.id === CURRENT_ROOT_ID);
-        if(found) found.status = status;
-      }
-      buildTree();
-      recomputeStats();
-      updateResetButtonState();
-    })
-    .catch(handleError);
-}
-
-function markNotOk(item){
-  const targetId = targetNodeId(item);
-  verify(targetId, "NOT_OK", {issue_code: "OTHER"}, {refresh: false})
-    .then(() => {
-      const targetNode = NODE_MAP.get(targetId) || null;
-      const nodesToUpdate = [];
-      if(item) nodesToUpdate.push(item);
-      if(targetNode && targetNode !== item) nodesToUpdate.push(targetNode);
-      const nowIso = new Date().toISOString();
-      nodesToUpdate.forEach(node => {
-        if(!node) return;
-        node.last_status = "NOT_OK";
-        node.comment = null;
-        node.issue_code = "OTHER";
-        node.observed_qty = null;
-        node.missing_qty = null;
-        node.last_at = nowIso;
-        if(CURRENT_USER_NAME){
-          node.last_by = CURRENT_USER_NAME;
-        }
-      });
-      indexTree(TREE);
-      if(CURRENT_ROOT_ID){
-        const rootNode = TREE.length ? TREE[0] : null;
-        const status = determineRootStatus(rootNode);
-        ROOT_STATUS.set(CURRENT_ROOT_ID, status);
-        const found = ROOTS.find(r => r.id === CURRENT_ROOT_ID);
-        if(found) found.status = status;
-      }
-      buildTree();
-      recomputeStats();
-      updateResetButtonState();
-    })
-    .catch(handleError);
-}
-
-async function completeVerification(){
-  if(!CURRENT_ROOT_ID) return;
-  const finishBtn = document.getElementById("finish-verification-btn");
-  if(finishBtn) finishBtn.disabled = true;
-  try{
-    const res = await fetch(`/verification-periodique/finish`, {
-      method:'POST',
-      credentials:'include',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({root_id: CURRENT_ROOT_ID})
-    });
-    if(!res.ok){
-      const txt = await res.text().catch(()=>null);
-      throw new Error(txt || "Impossible d'enregistrer la vérification");
-    }
-    await res.json();
-    await loadRoot(CURRENT_ROOT_ID);
-    alert('Vérification enregistrée.');
-  }catch(err){
-    handleError(err);
-  }finally{
-    if(finishBtn) finishBtn.disabled = false;
-    updateResetButtonState();
-  }
-}
-
-const finishBtn = document.getElementById("finish-verification-btn");
-if(finishBtn){
-  finishBtn.addEventListener("click", completeVerification);
-}
-
-const shareBtn = document.getElementById("public-link-btn");
-if(shareBtn){
-  shareBtn.addEventListener("click", openShareModal);
-}
-
-const historyBtn = document.getElementById("history-btn");
-if(historyBtn){
-  historyBtn.addEventListener("click", showHistoryModal);
-}
-
-(function init(){
-  if(!ROOTS.length){
-    document.getElementById("tree").innerHTML = "<div class='muted'>Aucun parent racine défini.</div>";
-    updateResetButtonState();
-    return;
-  }
-  buildParentsBar();
-  updateResetButtonState();
+renderParents();
+if(CURRENT_ROOT_ID){
   loadRoot(CURRENT_ROOT_ID);
-})();
+}
 </script>
 {% endblock %}
