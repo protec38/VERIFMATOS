@@ -4,147 +4,155 @@
   <meta charset="utf-8">
   <title>{{ title or "Protection Civile — Préparation Matériel" }}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#3d6cff">
+  <meta name="theme-color" content="#2b6be6">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
 <body>
-  <div class="sidebar-backdrop" id="sidebar-backdrop" data-open="false"></div>
-  <div class="app-shell">
-    <aside class="app-sidebar" id="sidebar" data-open="false">
-      <div class="app-sidebar__inner">
-        <div class="app-sidebar__brand">
-          <img src="{{ url_for('static', filename='pc_logo.webp') }}" alt="Protection Civile" class="app-sidebar__logo" loading="lazy" onerror="this.style.display='none'">
-          <div>
-            <div class="app-sidebar__title">Protection Civile</div>
-            <div class="app-sidebar__subtitle">Préparation matériel</div>
-          </div>
-          <button type="button" class="app-sidebar__close" id="close-sidebar" aria-label="Fermer le menu">×</button>
+  {% set _cu = current_user if current_user is defined else None %}
+  <div class="app-layout">
+    <header class="app-header">
+      <button type="button" class="app-header__toggle" id="nav-toggle" aria-controls="app-nav" aria-expanded="false">
+        <span aria-hidden="true">☰</span>
+        <span class="visually-hidden">Menu</span>
+      </button>
+      <div class="app-header__brand">
+        <img src="{{ url_for('static', filename='pc_logo.webp') }}" alt="Protection Civile" class="app-header__logo" loading="lazy" onerror="this.style.display='none'">
+        <div>
+          <div class="app-header__title">Protection Civile</div>
+          <div class="app-header__subtitle">Préparation du matériel</div>
         </div>
+      </div>
+      <div class="app-header__meta">
+        <span class="app-chip">Interface DPS</span>
+        {% if _cu and _cu.is_authenticated %}
+          <span class="app-header__user">Connecté·e : {{ _cu.username }}</span>
+        {% else %}
+          <a class="app-chip app-chip--link" href="/login">Connexion</a>
+        {% endif %}
+      </div>
+    </header>
 
-        {% set _cu = current_user if current_user is defined else None %}
-        <nav class="app-sidebar__menu">
-          <a class="app-sidebar__link" href="/dashboard">🏠 Menu principal</a>
+    <div class="app-layout__body">
+      <nav class="app-nav" id="app-nav" data-open="false">
+        <div class="app-nav__scroll">
+          <div class="app-nav__section">
+            <a class="app-nav__link" href="/dashboard">🏠 Tableau de bord</a>
+          </div>
 
           {% if _cu and _cu.is_authenticated %}
-            <a class="app-sidebar__link" href="/peremption">
-              <span>⌛ Péremptions</span>
-              <span id="peremp-badge" class="app-sidebar__badge" style="display:none">0</span>
-            </a>
-            <a class="app-sidebar__link" href="/calendar">🗓️ Calendrier</a>
-
-            {% if _cu.role and _cu.role.name in ['ADMIN', 'CHEF', 'VERIFICATIONPERIODIQUE'] %}
-              <a class="app-sidebar__link" href="/verification-periodique">✅ Vérification périodique</a>
-            {% endif %}
+            <div class="app-nav__section">
+              <div class="app-nav__title">Opérations</div>
+              <a class="app-nav__link" href="/peremption">
+                <span>⌛ Péremptions</span>
+                <span id="peremp-badge" class="app-nav__badge" style="display:none">0</span>
+              </a>
+              <a class="app-nav__link" href="/calendar">🗓️ Calendrier</a>
+              {% if _cu.role and _cu.role.name in ['ADMIN', 'CHEF', 'VERIFICATIONPERIODIQUE'] %}
+                <a class="app-nav__link" href="/verification-periodique">✅ Vérification périodique</a>
+              {% endif %}
+            </div>
 
             {% if _cu.role and _cu.role.name in ['ADMIN', 'CHEF'] %}
-              <a class="app-sidebar__link" href="/templates">🧩 Templates & lots</a>
+              <div class="app-nav__section">
+                <div class="app-nav__title">Préparation</div>
+                <a class="app-nav__link" href="/templates">🧩 Templates &amp; lots</a>
+              </div>
             {% endif %}
 
             {% if _cu.role and _cu.role.name == 'ADMIN' %}
-              <a class="app-sidebar__link" href="/stock">🧰 Stock</a>
-              <a class="app-sidebar__link" href="/admin">🔧 Administration</a>
+              <div class="app-nav__section">
+                <div class="app-nav__title">Administration</div>
+                <a class="app-nav__link" href="/stock">🧰 Stock</a>
+                <a class="app-nav__link" href="/admin">🔧 Gestion des comptes</a>
+              </div>
             {% endif %}
 
-            <a class="app-sidebar__link app-sidebar__link--ghost" href="/logout">⇦ Déconnexion</a>
+            <div class="app-nav__section">
+              <a class="app-nav__link app-nav__link--logout" href="/logout">⇦ Déconnexion</a>
+            </div>
           {% else %}
-            <a class="app-sidebar__link app-sidebar__link--highlight" href="/login">Connexion</a>
+            <div class="app-nav__section">
+              <a class="app-nav__link app-nav__link--primary" href="/login">Connexion</a>
+            </div>
           {% endif %}
-        </nav>
-      </div>
-    </aside>
-
-    <div class="app-main">
-      <header class="topbar">
-        <div class="topbar__brand">
-          <button class="topbar__toggle" type="button" id="open-sidebar" aria-controls="sidebar" aria-expanded="false">☰</button>
-          <div class="topbar__title">{{ title or "Protection Civile — Préparation Matériel" }}</div>
         </div>
-        <div class="topbar__actions">
-          <span class="badge">Interface DPS</span>
-        </div>
-      </header>
+      </nav>
 
-      <main class="page" id="main-content">
+      <main class="app-content page" id="main-content">
         {% block content %}{% endblock %}
       </main>
-
-      <footer class="footer">
-        {% set _now = now() if now is defined else None %}
-        © {{ (_now.year if _now else '—') }} Protection Civile — Interface de préparation (DPS)
-      </footer>
     </div>
+
+    <footer class="footer">
+      {% set _now = now() if now is defined else None %}
+      © {{ (_now.year if _now else '—') }} Protection Civile — Interface de préparation (DPS)
+    </footer>
   </div>
 
+  <div class="app-nav__backdrop" id="nav-backdrop" data-open="false"></div>
+
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
-
   {% macro icon(name) -%}<span class="ico">{{ name }}</span>{%- endmacro %}
-
   <script>
-  (function(){
-    var sidebar = document.getElementById('sidebar');
-    var openBtn = document.getElementById('open-sidebar');
-    var closeBtn = document.getElementById('close-sidebar');
-    var backdrop = document.getElementById('sidebar-backdrop');
+    (function(){
+      var nav = document.getElementById('app-nav');
+      var toggle = document.getElementById('nav-toggle');
+      var backdrop = document.getElementById('nav-backdrop');
 
-    var setState = function(open){
-      var state = open ? 'true' : 'false';
-      if(sidebar){ sidebar.setAttribute('data-open', state); }
-      if(backdrop){ backdrop.setAttribute('data-open', state); }
-      if(openBtn){ openBtn.setAttribute('aria-expanded', state); }
-    };
+      var setState = function(open){
+        var state = open ? 'true' : 'false';
+        if(nav){ nav.setAttribute('data-open', state); }
+        if(toggle){ toggle.setAttribute('aria-expanded', state); }
+        if(backdrop){ backdrop.setAttribute('data-open', state); }
+      };
 
-    if(openBtn){
-      openBtn.addEventListener('click', function(){
-        var isOpen = sidebar && sidebar.getAttribute('data-open') === 'true';
-        setState(!isOpen);
-      });
-    }
-
-    if(closeBtn){
-      closeBtn.addEventListener('click', function(){ setState(false); });
-    }
-
-    if(backdrop){
-      backdrop.addEventListener('click', function(){ setState(false); });
-    }
-
-    var mq = window.matchMedia('(min-width: 960px)');
-    var syncState = function(e){
-      if(e.matches){
-        setState(true);
-      }else{
-        setState(false);
+      if(toggle){
+        toggle.addEventListener('click', function(){
+          var open = nav && nav.getAttribute('data-open') === 'true';
+          setState(!open);
+        });
       }
-    };
 
-    syncState(mq);
-    if(mq.addEventListener){
-      mq.addEventListener('change', syncState);
-    }else if(mq.addListener){
-      mq.addListener(syncState);
-    }
-  })();
+      if(backdrop){
+        backdrop.addEventListener('click', function(){ setState(false); });
+      }
 
-  (function(){
-    try{
-      fetch('/stats/stock/expiry/counts', {credentials: 'include'})
-        .then(function(resp){ return resp && resp.ok ? resp.json() : null; })
-        .then(function(data){
-          if(!data) return;
-          var badge = document.getElementById('peremp-badge');
-          if(!badge) return;
-          var expired = data.expired || 0;
-          var j30 = data.j30 || 0;
-          var totalAlert = expired + j30;
-          if(totalAlert > 0){
-            badge.style.display = 'inline-flex';
-            badge.textContent = totalAlert;
-            badge.style.background = expired > 0 ? 'rgba(217,48,37,0.92)' : 'rgba(251,188,4,0.88)';
-          }
-        })
-        .catch(function(){});
-    }catch(e){}
-  })();
+      var mq = window.matchMedia('(min-width: 960px)');
+      var sync = function(e){
+        if(e.matches){
+          setState(true);
+        }else{
+          setState(false);
+        }
+      };
+      sync(mq);
+      if(mq.addEventListener){
+        mq.addEventListener('change', sync);
+      }else if(mq.addListener){
+        mq.addListener(sync);
+      }
+    })();
+
+    (function(){
+      try{
+        fetch('/stats/stock/expiry/counts', {credentials: 'include'})
+          .then(function(resp){ return resp && resp.ok ? resp.json() : null; })
+          .then(function(data){
+            if(!data) return;
+            var badge = document.getElementById('peremp-badge');
+            if(!badge) return;
+            var expired = data.expired || 0;
+            var j30 = data.j30 || 0;
+            var totalAlert = expired + j30;
+            if(totalAlert > 0){
+              badge.style.display = 'inline-flex';
+              badge.textContent = totalAlert;
+              badge.setAttribute('data-variant', expired > 0 ? 'alert' : 'warning');
+            }
+          })
+          .catch(function(){});
+      }catch(e){}
+    })();
   </script>
 </body>
 </html>
