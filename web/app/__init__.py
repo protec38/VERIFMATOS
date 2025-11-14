@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import importlib
+from pathlib import Path
+
 from flask import Flask, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
@@ -45,7 +47,11 @@ def _register_bp_if_any(app: Flask, dotted_module: str, candidates: tuple[str, .
 
 
 def create_app() -> Flask:
-    app = Flask(__name__)
+    app = Flask(
+        __name__,
+        static_folder=str(Path(__file__).resolve().parent.parent / "static"),
+        static_url_path="/static",
+    )
     cfg = get_config()
     app.config.from_object(cfg)
 
