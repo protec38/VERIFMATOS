@@ -101,9 +101,6 @@ def create_app() -> Flask:
     _register_bp_if_any(app, "app.stats.views")
     _register_bp_if_any(app, "app.pwa.views")
 
-    # PÃ©remption (nouveau)
-    _register_bp_if_any(app, "app.peremption.views", candidates=("bp_peremption", "bp"))
-
     # Pages HTML (public + dashboard)
     _register_bp_if_any(app, "app.views_html")
 

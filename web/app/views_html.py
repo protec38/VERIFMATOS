@@ -497,17 +497,6 @@ def admin_login_logs():
     )
     return render_template("admin_login_logs.html", logs=logs)
 
-# -------------------------
-# Page Péremptions
-# -------------------------
-@bp.get("/peremption")
-@login_required
-def peremption_page():
-    if not can_view():
-        abort(403)
-    return render_template("peremption.html")
-
-
 @bp.get("/verification-periodique")
 @login_required
 def verification_periodique_page():
