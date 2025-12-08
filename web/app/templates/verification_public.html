@@ -1,239 +1,209 @@
 {% extends "base.html" %}
-{% set title = "Vérification périodique — Lien public" %}
+{% set title = "Vérification publique" %}
 {% block content %}
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+.bag-picker{margin:8px 0;display:flex;flex-direction:column;gap:6px;}
+.bag-picker select{padding:8px;border-radius:6px;border:1px solid #e0e0e0;}
+.issues-list{display:flex;flex-direction:column;gap:12px;}
+.issue-row{border:1px solid #f3d2d2;border-radius:8px;padding:10px;background:#fff5f5;}
+.issue-title{font-weight:600;}
+.issue-meta{font-size:13px;color:#a10000;}
+.issue-comment{margin-top:4px;font-size:13px;}
+.item-detail{display:flex;flex-direction:column;gap:6px;padding:10px;background:#f6f9ff;border:1px solid #d9e5ff;border-radius:8px;margin:8px 0;}
+.item-detail.collapsed{display:none;}
+</style>
 
 <div class="public-wrap">
   <section class="card tree-card">
-    <div class="title">Matériel à vérifier</div>
-    <p class="tree-note">Clique sur <strong>OK</strong> pour marquer les éléments contrôlés. Ces validations sont sauvegardées localement sur ce navigateur et ne synchronisent pas les autres personnes.</p>
+    <div class="title">Choisir un sac à vérifier</div>
+    <p class="tree-note">Ce lien permet de contrôler le matériel sans compte. Sélectionne un sac puis marque chaque item en OK ou manquant.</p>
+    <div class="bag-picker">
+      <label for="bag-select">Sac / parent</label>
+      <select id="bag-select"></select>
+    </div>
     <div class="chipbar">
       <span class="chip ok" id="public-stat-ok">OK : 0</span>
+      <span class="chip danger" id="public-stat-bad">Non conformes : 0</span>
       <span class="chip wait" id="public-stat-wait">En attente : 0</span>
     </div>
     <div class="progress"><div id="public-progress-bar"></div></div>
     <div class="muted tree-hint" id="public-progress-text">0 / 0 vérifiés</div>
+  </section>
+
+  <section class="card tree-card">
+    <div class="title">Matériel à vérifier</div>
+    <div class="muted tree-hint">Vert = OK • Rouge = manquant/non conforme • Bleu = en attente</div>
     <div id="public-tree" class="tree"></div>
+  </section>
+
+  <section class="card tree-card">
+    <div class="title">Résumé des anomalies</div>
+    <p class="muted tree-hint">Les items en rouge apparaissent ici avec leurs notes et quantités manquantes.</p>
+    <div id="issues-list" class="issues-list muted">Aucune anomalie pour l’instant.</div>
   </section>
 
   <section class="card finish-card">
     <div class="title">Finaliser la vérification</div>
-    <p class="muted finish-note">Parent contrôlé : <strong>{{ root.name }}</strong></p>
-
-    {% if success %}
-      <div class="alert success">✅ Merci {{ recorded_name or '' }} ! La vérification a été enregistrée.</div>
-      <p class="muted finish-note">Tu peux fermer cette page ou recommencer une nouvelle vérification si besoin.</p>
-    {% else %}
-      <div class="finish-header">
-        <div class="finish-meta">
-          <span>Vérificateur : <strong id="captured-name">Non renseigné</strong></span>
-          <button type="button" class="btn ghost" id="edit-name-btn">Modifier le nom</button>
-        </div>
-        <div class="muted finish-guard" id="finish-guard">Valide tous les éléments pour pouvoir finir la vérification.</div>
+    <div id="feedback"></div>
+    <form id="verification-form" class="finish-form">
+      <div class="identity-row">
+        <input id="first-name" placeholder="Prénom" autocomplete="given-name" value="{{ first_prefill or '' }}" required>
+        <input id="last-name" placeholder="Nom" autocomplete="family-name" value="{{ last_prefill or '' }}" required>
       </div>
-
-      {% if error %}
-        <div class="alert error">{{ error }}</div>
-      {% endif %}
-
-      <form method="post" id="verification-form" class="finish-form">
-        <input type="hidden" name="first_name" id="final-first-name" value="{{ first_prefill or '' }}">
-        <input type="hidden" name="last_name" id="final-last-name" value="{{ last_prefill or '' }}">
-        <textarea name="comment" placeholder="Commentaire (optionnel)">{{ comment_prefill or '' }}</textarea>
-        <div class="finish-actions">
-          <button class="btn primary" type="submit" id="finish-verification-btn" disabled>Finir la vérification</button>
-        </div>
-      </form>
-    {% endif %}
+      <textarea id="global-comment" placeholder="Notes globales (optionnel)">{{ comment_prefill or '' }}</textarea>
+      <div class="finish-actions">
+        <button class="btn primary" type="submit" id="finish-verification-btn">Enregistrer la vérification</button>
+      </div>
+    </form>
   </section>
 </div>
-
-{% if not success %}
-<div class="name-modal-backdrop" id="name-modal">
-  <div class="name-modal">
-    <h2>Avant de commencer</h2>
-    <p>Indique ton prénom et ton nom pour enregistrer cette vérification.</p>
-    <form id="name-capture-form">
-      <div class="identity-row">
-        <input id="modal-first-name" placeholder="Prénom" autocomplete="given-name" value="{{ first_prefill or '' }}">
-        <input id="modal-last-name" placeholder="Nom" autocomplete="family-name" value="{{ last_prefill or '' }}">
-      </div>
-      <div class="modal-actions">
-        <button type="submit" class="btn primary">Continuer</button>
-      </div>
-      <div class="alert error hidden" id="name-modal-error">Merci de renseigner ton prénom et ton nom.</div>
-    </form>
-  </div>
-</div>
-{% endif %}
 
 <script>
 const RAW_TREE = {{ tree_data|tojson }};
 const TREE_DATA = Array.isArray(RAW_TREE) ? RAW_TREE : [];
 const PUBLIC_TOKEN = {{ token|tojson }};
-const STORAGE_KEY = PUBLIC_TOKEN ? `periodic_public_${PUBLIC_TOKEN}` : 'periodic_public';
 const STATE = new Map();
 let LAST_TOTAL = 0;
 let LAST_OK = 0;
+let LAST_BAD = 0;
+let SELECTED_PARENT = null;
 
-const FINISH_BUTTON = document.getElementById('finish-verification-btn');
-const FINISH_GUARD = document.getElementById('finish-guard');
-const NAME_DISPLAY = document.getElementById('captured-name');
-const FIRST_FIELD = document.getElementById('final-first-name');
-const LAST_FIELD = document.getElementById('final-last-name');
-const NAME_MODAL = document.getElementById('name-modal');
-const NAME_FORM = document.getElementById('name-capture-form');
-const MODAL_FIRST_INPUT = document.getElementById('modal-first-name');
-const MODAL_LAST_INPUT = document.getElementById('modal-last-name');
-const NAME_MODAL_ERROR = document.getElementById('name-modal-error');
-const EDIT_NAME_BTN = document.getElementById('edit-name-btn');
-const VERIFICATION_FORM = document.getElementById('verification-form');
-
-function updateNameDisplay(){
-  if(!NAME_DISPLAY) return;
-  const first = (FIRST_FIELD && FIRST_FIELD.value ? FIRST_FIELD.value : '').trim();
-  const last = (LAST_FIELD && LAST_FIELD.value ? LAST_FIELD.value : '').trim();
-  const full = `${first} ${last}`.trim();
-  NAME_DISPLAY.textContent = full || 'Non renseigné';
-}
-
-function updateFinishState(){
-  const hasButton = !!FINISH_BUTTON;
-  const hasGuard = !!FINISH_GUARD;
-  if(!hasButton && !hasGuard && !NAME_DISPLAY) return;
-  const hasNames = Boolean((FIRST_FIELD && FIRST_FIELD.value ? FIRST_FIELD.value.trim() : '') && (LAST_FIELD && LAST_FIELD.value ? LAST_FIELD.value.trim() : ''));
-  const total = LAST_TOTAL;
-  const ok = LAST_OK;
-  const allOk = total === 0 || ok === total;
-  if(FINISH_BUTTON){
-    FINISH_BUTTON.disabled = !(allOk && hasNames);
-  }
-  if(FINISH_GUARD){
-    if(!hasNames){
-      FINISH_GUARD.textContent = 'Renseigne ton prénom et ton nom pour pouvoir finir la vérification.';
-    }else if(!allOk){
-      FINISH_GUARD.textContent = 'Valide tous les éléments pour pouvoir finir la vérification.';
-    }else{
-      FINISH_GUARD.textContent = 'Tous les éléments sont vérifiés.';
-    }
-  }
-  updateNameDisplay();
-}
-
-function populateNameModalInputs(){
-  if(MODAL_FIRST_INPUT && FIRST_FIELD){
-    MODAL_FIRST_INPUT.value = FIRST_FIELD.value || '';
-  }
-  if(MODAL_LAST_INPUT && LAST_FIELD){
-    MODAL_LAST_INPUT.value = LAST_FIELD.value || '';
-  }
-}
-
-function openNameModal(){
-  if(!NAME_MODAL) return;
-  populateNameModalInputs();
-  NAME_MODAL.classList.add('visible');
-  requestAnimationFrame(() => {
-    if(MODAL_FIRST_INPUT){
-      MODAL_FIRST_INPUT.focus();
-    }
+function walkNodes(nodes, fn){
+  (nodes||[]).forEach(n => {
+    fn(n);
+    walkNodes(n.children, fn);
   });
 }
 
-function closeNameModal(){
-  if(!NAME_MODAL) return;
-  NAME_MODAL.classList.remove('visible');
+function findNodeById(nodes, id){
+  for(const node of nodes || []){
+    if(Number(node.id) === Number(id)) return node;
+    const child = findNodeById(node.children, id);
+    if(child) return child;
+  }
+  return null;
 }
 
-if(NAME_FORM){
-  NAME_FORM.addEventListener('submit', (evt) => {
-    evt.preventDefault();
-    const first = (MODAL_FIRST_INPUT && MODAL_FIRST_INPUT.value ? MODAL_FIRST_INPUT.value.trim() : '');
-    const last = (MODAL_LAST_INPUT && MODAL_LAST_INPUT.value ? MODAL_LAST_INPUT.value.trim() : '');
-    if(!first || !last){
-      if(NAME_MODAL_ERROR){
-        NAME_MODAL_ERROR.classList.remove('hidden');
+function collectParents(){
+  const options = [];
+  TREE_DATA.forEach(root => {
+    options.push({id: root.id, label: root.name || 'Parent'});
+    (root.children || []).forEach(child => {
+      if(child.type && child.type.toUpperCase() === 'GROUP'){
+        options.push({id: child.id, label: child.name || 'Sac'});
       }
-      return;
-    }
-    if(NAME_MODAL_ERROR){
-      NAME_MODAL_ERROR.classList.add('hidden');
-    }
-    if(FIRST_FIELD) FIRST_FIELD.value = first;
-    if(LAST_FIELD) LAST_FIELD.value = last;
-    updateFinishState();
-    closeNameModal();
+    });
+  });
+  return options;
+}
+
+function isItem(node){
+  if(!node) return false;
+  if(node.unique_parent) return true;
+  const type = (node.type || '').toUpperCase();
+  return type === 'ITEM' || (!!node.unique_item && !(node.children||[]).length);
+}
+
+function getInitialStatus(node){
+  const last = (node.last_status || '').toUpperCase();
+  if(last === 'OK' || last === 'NOT_OK') return last;
+  return 'TODO';
+}
+
+function ensureState(node){
+  if(!isItem(node)) return;
+  if(!STATE.has(node.id)){
+    STATE.set(node.id, {
+      status: getInitialStatus(node),
+      missing_qty: node.missing_qty ?? null,
+      comment: node.comment || ''
+    });
+  }
+}
+
+function renderBagOptions(){
+  const select = document.getElementById('bag-select');
+  if(!select) return;
+  select.innerHTML = '';
+  collectParents().forEach(opt => {
+    const o = document.createElement('option');
+    o.value = String(opt.id);
+    o.textContent = opt.label;
+    select.appendChild(o);
+  });
+  SELECTED_PARENT = select.options.length ? Number(select.options[0].value) : null;
+  select.addEventListener('change', () => {
+    SELECTED_PARENT = Number(select.value);
+    renderTree(TREE_DATA);
   });
 }
 
-if(EDIT_NAME_BTN){
-  EDIT_NAME_BTN.addEventListener('click', () => {
-    openNameModal();
-  });
+function setState(id, status){
+  const current = STATE.get(id) || {};
+  STATE.set(id, { ...current, status });
+  renderTree(TREE_DATA);
 }
 
-function restoreState(){
-  try{
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if(!raw) return;
-    const parsed = JSON.parse(raw);
-    if(parsed && typeof parsed === 'object'){
-      STATE.clear();
-      Object.entries(parsed).forEach(([k,v]) => {
-        STATE.set(Number(k), v);
-      });
-    }
-  }catch(e){}
+function setMissing(id, value){
+  const v = value === '' ? null : Math.max(0, Number(value) || 0);
+  const current = STATE.get(id) || {};
+  STATE.set(id, { ...current, missing_qty: v });
+  updateSummary();
 }
 
-function persistState(){
-  try{
-    const payload = {};
-    for(const [k,v] of STATE.entries()){
-      payload[k] = v;
-    }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  }catch(e){}
+function setComment(id, text){
+  const current = STATE.get(id) || {};
+  STATE.set(id, { ...current, comment: text || '' });
+  updateSummary();
 }
 
-function renderTree(tree){
+function renderTree(nodes){
   const wrap = document.getElementById('public-tree');
   if(!wrap) return;
   wrap.innerHTML = '';
   LAST_TOTAL = 0;
   LAST_OK = 0;
-  (tree||[]).forEach(node => wrap.appendChild(renderNode(node)));
+  LAST_BAD = 0;
+  const selected = SELECTED_PARENT ? findNodeById(nodes, SELECTED_PARENT) : null;
+  const toRender = selected ? [selected] : (nodes || []);
+  toRender.forEach(node => wrap.appendChild(renderNode(node)));
   updateProgress();
+  updateSummary();
 }
 
 function renderNode(node){
-  const status = STATE.get(node.id) || 'WAIT';
-  if(!node.children || !node.children.length){
+  const statusInfo = STATE.get(node.id) || {};
+  const status = (statusInfo.status || 'TODO').toUpperCase();
+  if(isItem(node)){
     LAST_TOTAL += 1;
     if(status === 'OK') LAST_OK += 1;
+    else if(status === 'NOT_OK') LAST_BAD += 1;
   }
   const card = document.createElement('div');
-  card.className = `node ${status === 'OK' ? 'state-ok' : 'state-wait'}`;
+  card.className = `node ${status === 'OK' ? 'state-ok' : status === 'NOT_OK' ? 'state-bad' : 'state-wait'}`;
   const header = document.createElement('div');
-  header.className = 'header';
+  header.className = 'header' + (node.children && node.children.length ? ' toggle' : '');
   const name = document.createElement('div');
   name.className = 'name';
   name.textContent = node.name || '—';
   header.appendChild(name);
-  if(node.unique_item){
-    const badge = document.createElement('span');
-    badge.className = 'chip';
-    badge.textContent = 'Objet unique';
-    header.appendChild(badge);
-  }
-  card.appendChild(header);
 
-  if(node.children && node.children.length){
-    const childWrap = document.createElement('div');
+  const hasChildren = node.children && node.children.length;
+  let childWrap = null;
+  if(hasChildren){
+    childWrap = document.createElement('div');
     childWrap.className = 'childs';
-    node.children.forEach(child => childWrap.appendChild(renderNode(child)));
-    card.appendChild(childWrap);
-  }else{
+    const meta = document.createElement('div');
+    meta.className = 'muted';
+    meta.textContent = `${node.children.length} sous-élément(s)`;
+    header.appendChild(meta);
+    header.addEventListener('click', () => {
+      if(childWrap){
+        childWrap.classList.toggle('collapsed');
+      }
+    });
+  } else {
     const actions = document.createElement('div');
     actions.className = 'item-actions';
     const okBtn = document.createElement('button');
@@ -241,35 +211,186 @@ function renderNode(node){
     okBtn.className = 'btn success xs';
     okBtn.textContent = 'OK';
     okBtn.addEventListener('click', () => setState(node.id, 'OK'));
+    const badBtn = document.createElement('button');
+    badBtn.type = 'button';
+    badBtn.className = 'btn danger xs';
+    badBtn.textContent = 'Manquant';
+    badBtn.addEventListener('click', () => setState(node.id, 'NOT_OK'));
     const waitBtn = document.createElement('button');
     waitBtn.type = 'button';
     waitBtn.className = 'btn ghost xs';
-    waitBtn.textContent = 'Réinitialiser';
-    waitBtn.addEventListener('click', () => setState(node.id, 'WAIT'));
+    waitBtn.textContent = 'Attente';
+    waitBtn.addEventListener('click', () => setState(node.id, 'TODO'));
     actions.appendChild(okBtn);
+    actions.appendChild(badBtn);
     actions.appendChild(waitBtn);
-    card.appendChild(actions);
+    header.appendChild(actions);
+  }
+
+  card.appendChild(header);
+
+  if(hasChildren && childWrap){
+    node.children.forEach(child => childWrap.appendChild(renderNode(child)));
+    card.appendChild(childWrap);
+  }else{
+    const detail = document.createElement('div');
+    detail.className = 'item-detail';
+    const qtyLabel = document.createElement('label');
+    qtyLabel.textContent = 'Quantité manquante (optionnel)';
+    const qtyInput = document.createElement('input');
+    qtyInput.type = 'number';
+    qtyInput.min = '0';
+    qtyInput.value = statusInfo.missing_qty ?? '';
+    qtyInput.addEventListener('input', () => setMissing(node.id, qtyInput.value));
+
+    const commentLabel = document.createElement('label');
+    commentLabel.textContent = 'Note (optionnel)';
+    const commentInput = document.createElement('textarea');
+    commentInput.value = statusInfo.comment || '';
+    commentInput.placeholder = 'Précision sur ce qui manque ou est défectueux';
+    commentInput.addEventListener('input', () => setComment(node.id, commentInput.value));
+
+    detail.appendChild(qtyLabel);
+    detail.appendChild(qtyInput);
+    detail.appendChild(commentLabel);
+    detail.appendChild(commentInput);
+    if(status !== 'NOT_OK'){
+      detail.classList.add('collapsed');
+    }
+    card.appendChild(detail);
   }
   return card;
-}
-
-function setState(id, status){
-  STATE.set(id, status);
-  persistState();
-  renderTree(TREE_DATA);
 }
 
 function updateProgress(){
   const bar = document.getElementById('public-progress-bar');
   const text = document.getElementById('public-progress-text');
+  const wait = Math.max(LAST_TOTAL - LAST_OK - LAST_BAD, 0);
   const pct = LAST_TOTAL === 0 ? 0 : Math.round((LAST_OK / LAST_TOTAL) * 100);
   if(bar){ bar.style.width = pct + '%'; }
   if(text){ text.textContent = `${LAST_OK} / ${LAST_TOTAL} vérifiés`; }
-  updateFinishState();
+  const okChip = document.getElementById('public-stat-ok');
+  const badChip = document.getElementById('public-stat-bad');
+  const waitChip = document.getElementById('public-stat-wait');
+  if(okChip) okChip.textContent = `OK : ${LAST_OK}`;
+  if(badChip) badChip.textContent = `Non conformes : ${LAST_BAD}`;
+  if(waitChip) waitChip.textContent = `En attente : ${wait}`;
 }
 
-restoreState();
-renderTree(TREE_DATA);
-updateFinishState();
+function updateSummary(){
+  const list = document.getElementById('issues-list');
+  if(!list) return;
+  list.innerHTML = '';
+  const problems = [];
+  walkNodes(TREE_DATA, n => {
+    if(!isItem(n)) return;
+    const s = (STATE.get(n.id)?.status || 'TODO').toUpperCase();
+    if(s === 'NOT_OK'){
+      problems.push({
+        id: n.id,
+        name: n.name || '—',
+        missing_qty: STATE.get(n.id)?.missing_qty,
+        comment: STATE.get(n.id)?.comment || ''
+      });
+    }
+  });
+  if(!problems.length){
+    list.classList.add('muted');
+    list.textContent = 'Aucune anomalie pour l’instant.';
+    return;
+  }
+  list.classList.remove('muted');
+  problems.forEach(p => {
+    const row = document.createElement('div');
+    row.className = 'issue-row';
+    const title = document.createElement('div');
+    title.className = 'issue-title';
+    title.textContent = p.name;
+    row.appendChild(title);
+    if(p.missing_qty !== null && p.missing_qty !== undefined && p.missing_qty !== ''){
+      const qty = document.createElement('div');
+      qty.className = 'issue-meta';
+      qty.textContent = `Manquant: ${p.missing_qty}`;
+      row.appendChild(qty);
+    }
+    if(p.comment){
+      const comment = document.createElement('div');
+      comment.className = 'issue-comment';
+      comment.textContent = p.comment;
+      row.appendChild(comment);
+    }
+    list.appendChild(row);
+  });
+}
+
+function buildPayload(){
+  const items = [];
+  STATE.forEach((state, id) => {
+    items.push({
+      node_id: id,
+      status: state.status || 'TODO',
+      missing_qty: state.missing_qty,
+      observed_qty: null,
+      comment: state.comment || null,
+    });
+  });
+  return items;
+}
+
+function submitForm(evt){
+  evt.preventDefault();
+  const first = (document.getElementById('first-name')?.value || '').trim();
+  const last = (document.getElementById('last-name')?.value || '').trim();
+  const comment = (document.getElementById('global-comment')?.value || '').trim();
+  const feedback = document.getElementById('feedback');
+  const btn = document.getElementById('finish-verification-btn');
+  if(!first || !last){
+    if(feedback){
+      feedback.innerHTML = '<div class="alert error">Merci de renseigner ton prénom et ton nom.</div>';
+    }
+    return;
+  }
+  if(btn){ btn.disabled = true; }
+  fetch(`/verification-periodique/public/${PUBLIC_TOKEN}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      first_name: first,
+      last_name: last,
+      comment,
+      items: buildPayload(),
+    })
+  }).then(async resp => {
+    const data = await resp.json().catch(() => ({}));
+    if(resp.ok){
+      if(feedback){
+        feedback.innerHTML = `<div class="alert success">✅ Vérification enregistrée pour ${first}. (${data.session?.missing_items || 0} anomalie(s))</div>`;
+      }
+    }else{
+      const message = data.error || 'Impossible d’enregistrer la vérification.';
+      if(feedback){
+        feedback.innerHTML = `<div class="alert error">${message}</div>`;
+      }
+    }
+  }).catch(() => {
+    if(feedback){
+      feedback.innerHTML = '<div class="alert error">Erreur réseau, merci de réessayer.</div>';
+    }
+  }).finally(() => {
+    if(btn){ btn.disabled = false; }
+  });
+}
+
+function init(){
+  walkNodes(TREE_DATA, ensureState);
+  renderBagOptions();
+  renderTree(TREE_DATA);
+  const form = document.getElementById('verification-form');
+  if(form){
+    form.addEventListener('submit', submitForm);
+  }
+}
+
+init();
 </script>
 {% endblock %}
