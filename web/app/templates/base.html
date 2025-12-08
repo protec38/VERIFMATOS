@@ -12,24 +12,24 @@
   <div class="app-layout">
     <header class="app-header">
       <button type="button" class="app-header__toggle" id="nav-toggle" aria-controls="app-nav" aria-expanded="false">
-        <span aria-hidden="true">☰</span>
-        <span class="visually-hidden">Menu</span>
+        <span aria-hidden="true">≡</span>
+        <span class="visually-hidden">Menu principal</span>
       </button>
       <div class="app-header__brand">
         <img src="{{ url_for('static', filename='pc_logo.webp') }}" alt="Protection Civile" class="app-header__logo" loading="lazy" onerror="this.style.display='none'">
         <div>
-          <div class="app-header__title">Protection Civile</div>
-          <div class="app-header__subtitle">Préparation du matériel</div>
+          <div class="app-header__title">Préparation du matériel</div>
+          <div class="app-header__subtitle">Interface Protection Civile</div>
         </div>
       </div>
       <div class="app-header__meta">
         <div class="app-header__quick">
-          <a class="chip-button" href="/dashboard">🏠 Tableau</a>
-          <a class="chip-button" href="/calendar">🗓️ Agenda</a>
-          <a class="chip-button" href="/templates">🧩 Lots</a>
+          <a class="chip-button" href="/dashboard">🏁 Tableau</a>
+          <a class="chip-button" href="/calendar">📅 Agenda</a>
+          <a class="chip-button" href="/templates">📦 Lots</a>
         </div>
         <div class="app-header__identity">
-          <span class="app-chip">Interface DPS</span>
+          <span class="app-chip">Interface simplifiée</span>
           {% if _cu and _cu.is_authenticated %}
             <span class="app-header__user">{{ _cu.username }}</span>
           {% else %}
@@ -37,38 +37,18 @@
           {% endif %}
         </div>
         <div class="app-header__cta">
-          <a class="btn primary" href="/dashboard">Nouveau dispositif</a>
+          <a class="btn primary" href="/dashboard">Nouveau dossier</a>
         </div>
       </div>
     </header>
-
-    <section class="app-ribbon">
-      <div class="app-ribbon__inner">
-        <article class="app-ribbon__item app-ribbon__item--primary">
-          <div class="app-ribbon__eyebrow">Navigation express</div>
-          <div class="app-ribbon__title">Organisation fluide sur mobile et ordinateur</div>
-          <p class="app-ribbon__hint">Accède d'un geste aux sections clés, quel que soit l'écran utilisé.</p>
-          <div class="app-ribbon__actions">
-            <a class="chip-button" href="/dashboard">Tableau de bord</a>
-            <a class="chip-button" href="/calendar">Calendrier</a>
-            <a class="chip-button" href="/templates">Templates &amp; lots</a>
-          </div>
-        </article>
-
-        <article class="app-ribbon__item app-ribbon__item--compact">
-          <div class="app-ribbon__eyebrow">Profil</div>
-          <div class="app-ribbon__title">{{ (_cu.username if _cu and _cu.is_authenticated else 'Invité') }}</div>
-          <p class="app-ribbon__hint">{{ 'Accès ' ~ (_cu.role.name if _cu and _cu.role else 'standard') if _cu else 'Connecte-toi pour accéder aux outils.' }}</p>
-          {% if _cu and _cu.is_authenticated %}
-            <div class="app-ribbon__actions">
-              <a class="chip-button chip-button--ghost" href="/logout">⇦ Déconnexion</a>
-            </div>
-          {% else %}
-            <div class="app-ribbon__actions">
-              <a class="chip-button chip-button--ghost" href="/login">Connexion</a>
-            </div>
-          {% endif %}
-        </article>
+    <section class="app-banner">
+      <div>
+        <p class="app-banner__title">Parcours clair, menus réorganisés</p>
+        <p class="app-banner__text">Tous les boutons, icônes et sections ont été simplifiés pour accéder rapidement aux actions essentielles.</p>
+      </div>
+      <div class="app-banner__actions">
+        <a class="chip-button" href="/dashboard">Créer un événement</a>
+        <a class="chip-button chip-button--ghost" href="/calendar">Suivre le planning</a>
       </div>
     </section>
 
@@ -88,7 +68,7 @@
           {% set _path = request.path if request is defined else '' %}
           <div class="app-nav__section">
             <a class="app-nav__link{% if _path.startswith('/dashboard') %} is-active{% endif %}" href="/dashboard">
-              <span class="app-nav__icon">🏠</span>
+              <span class="app-nav__icon">🧭</span>
               <span class="app-nav__text">Tableau de bord</span>
             </a>
           </div>
@@ -97,12 +77,12 @@
             <div class="app-nav__section">
               <div class="app-nav__title">Opérations</div>
               <a class="app-nav__link{% if _path.startswith('/calendar') %} is-active{% endif %}" href="/calendar">
-                <span class="app-nav__icon">🗓️</span>
+                <span class="app-nav__icon">📅</span>
                 <span class="app-nav__text">Calendrier</span>
               </a>
               {% if _cu.role and _cu.role.name in ['ADMIN', 'CHEF', 'VERIFICATIONPERIODIQUE'] %}
                 <a class="app-nav__link{% if _path.startswith('/verification-periodique') %} is-active{% endif %}" href="/verification-periodique">
-                  <span class="app-nav__icon">✅</span>
+                  <span class="app-nav__icon">🩺</span>
                   <span class="app-nav__text">Vérification périodique</span>
                 </a>
               {% endif %}
@@ -110,9 +90,9 @@
 
             {% if _cu.role and _cu.role.name in ['ADMIN', 'CHEF'] %}
               <div class="app-nav__section">
-                <div class="app-nav__title">Préparation</div>
-                <a class="app-nav__link{% if _path.startswith('/templates') %} is-active{% endif %}" href="/templates">
-                  <span class="app-nav__icon">🧩</span>
+              <div class="app-nav__title">Préparation</div>
+              <a class="app-nav__link{% if _path.startswith('/templates') %} is-active{% endif %}" href="/templates">
+                  <span class="app-nav__icon">📦</span>
                   <span class="app-nav__text">Templates &amp; lots</span>
                 </a>
               </div>
@@ -122,11 +102,11 @@
               <div class="app-nav__section">
                 <div class="app-nav__title">Administration</div>
                 <a class="app-nav__link{% if _path.startswith('/stock') %} is-active{% endif %}" href="/stock">
-                  <span class="app-nav__icon">🧰</span>
+                  <span class="app-nav__icon">🗄️</span>
                   <span class="app-nav__text">Stock</span>
                 </a>
                 <a class="app-nav__link{% if _path.startswith('/admin') %} is-active{% endif %}" href="/admin">
-                  <span class="app-nav__icon">🔧</span>
+                  <span class="app-nav__icon">👥</span>
                   <span class="app-nav__text">Gestion des comptes</span>
                 </a>
               </div>
@@ -134,7 +114,7 @@
 
             <div class="app-nav__section">
               <a class="app-nav__link app-nav__link--logout" href="/logout">
-                <span class="app-nav__icon">⇦</span>
+                <span class="app-nav__icon">↩</span>
                 <span class="app-nav__text">Déconnexion</span>
               </a>
             </div>
