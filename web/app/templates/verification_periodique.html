@@ -2,297 +2,593 @@
 {% set title = "Vérification périodique" %}
 {% block content %}
 <div class="verification-page">
-  <div class="verification-grid">
-    <section class="card verification-card">
-      <div class="verification-card__header">
-        <div>
-          <h2 class="verification-card__title">Vérification périodique du matériel</h2>
-          <p class="verification-card__subtitle">Sélectionne un parent racine pour afficher son contenu et enregistre les contrôles sans créer d’événement.</p>
+  <section class="card verification-hero">
+    <div>
+      <p class="eyebrow">Vérification périodique</p>
+      <h1>Contrôle rapide du matériel</h1>
+      <p class="verification-hero__subtitle">Choisis un parent, passe en revue chaque item et enregistre l’état sans créer d’événement.</p>
+      <p class="verification-hero__help">Rôles autorisés : ADMIN, CHEF et VERIFICATIONPERIODIQUE.</p>
+    </div>
+    <div class="verification-hero__actions">
+      <div class="pill pill-wait">En attente</div>
+      <div class="pill pill-ok">OK</div>
+      <div class="pill pill-bad">Non conforme</div>
+    </div>
+  </section>
+
+  <div class="verification-layout">
+    <aside class="verification-sidebar">
+      <section class="card">
+        <div class="card__title">Parents disponibles</div>
+        <div id="root-list" class="root-list"></div>
+      </section>
+
+      <section class="card">
+        <div class="card__title">Historique récent</div>
+        <div id="history-list" class="history-list history-list--empty">Sélectionne un parent pour voir les dernières sessions.</div>
+      </section>
+
+      <section class="card">
+        <div class="card__title">Lien public</div>
+        <div class="share-block">
+          <input id="share-link" class="share-block__input" type="text" readonly value="Aucun lien généré" />
+          <div class="share-block__actions">
+            <button id="refresh-share" class="btn sm">Obtenir / actualiser</button>
+            <button id="copy-share" class="btn sm ghost">Copier</button>
+          </div>
+          <p id="share-meta" class="share-block__meta"></p>
         </div>
-        <button class="btn" id="history-btn">Historique des vérifications</button>
-      </div>
-      <div class="verification-card__alert">
-        <p>Rôles autorisés : ADMIN, CHEF et VERIFICATIONPERIODIQUE.</p>
-        <p>Clique sur un parent dans la liste pour charger son arbre puis marque chaque item comme conforme ou non conforme.</p>
-      </div>
-    </section>
+      </section>
+    </aside>
 
-    <section class="card verification-card">
-      <div class="verification-card__header">
-        <h2 class="verification-card__title">Parents disponibles</h2>
-      </div>
-      <div id="root-buttons" class="parents-bar"></div>
-    </section>
+    <main class="verification-main">
+      <section class="card verification-summary">
+        <div>
+          <p class="eyebrow">Parent sélectionné</p>
+          <h2 id="current-root-name">Aucun parent choisi</h2>
+          <p class="verification-summary__subtitle" id="progress-text">0 / 0 vérifiés</p>
+          <p class="verification-summary__meta" id="last-refresh">—</p>
+        </div>
+        <div class="verification-summary__stats">
+          <div class="stat-pill pill-ok">OK : <span id="stat-ok">0</span></div>
+          <div class="stat-pill pill-bad">Non conformes : <span id="stat-bad">0</span></div>
+          <div class="stat-pill pill-wait">En attente : <span id="stat-wait">0</span></div>
+        </div>
+      </section>
+
+      <section class="card verification-toolbar">
+        <div class="toolbar-left">
+          <label class="input-label">Recherche
+            <input id="tree-search" class="input" type="search" placeholder="Nom d’item ou de groupe" />
+          </label>
+        </div>
+        <div class="toolbar-actions">
+          <button id="reset-root" class="btn ghost">Tout remettre en attente</button>
+          <div class="finish-controls">
+            <input id="finish-comment" class="input" type="text" placeholder="Commentaire global (facultatif)" />
+            <label class="checkbox-inline"><input type="checkbox" id="finish-reset" checked> Remettre en attente après enregistrement</label>
+            <button id="finish-btn" class="btn primary">Clôturer la vérification</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card tree-card">
+        <div id="message-area" class="message-area" role="status"></div>
+        <div id="tree" class="tree-list tree-list--empty">Sélectionne un parent pour afficher son contenu.</div>
+      </section>
+
+      <section class="card detail-card">
+        <div class="card__title">Fiche de contrôle</div>
+        <div id="detail-empty" class="detail-empty">Clique sur un item pour afficher les détails et enregistrer son état.</div>
+        <form id="detail-form" class="detail-form hidden">
+          <div class="detail-header">
+            <div>
+              <p class="eyebrow">Item</p>
+              <h3 id="detail-name"></h3>
+              <p class="detail-meta" id="detail-meta"></p>
+            </div>
+            <div class="status-badges">
+              <span id="detail-status" class="pill pill-wait">En attente</span>
+              <span id="detail-last" class="detail-meta"></span>
+            </div>
+          </div>
+
+          <div class="detail-grid">
+            <label class="input-label">Statut
+              <div class="status-options">
+                <label class="radio"><input type="radio" name="status" value="OK"> OK</label>
+                <label class="radio"><input type="radio" name="status" value="NOT_OK"> Non conforme</label>
+                <label class="radio"><input type="radio" name="status" value="TODO"> En attente</label>
+              </div>
+            </label>
+            <label class="input-label">Quantité constatée
+              <input id="detail-observed" class="input" type="number" min="0" placeholder="ex : 2" />
+            </label>
+            <label class="input-label">Nombre manquant
+              <input id="detail-missing" class="input" type="number" min="0" placeholder="ex : 1" />
+            </label>
+            <label class="input-label">Motif (si non conforme)
+              <select id="detail-issue" class="input">
+                <option value="">—</option>
+                <option value="MISSING">Manquant</option>
+                <option value="BROKEN">Cassé</option>
+                <option value="OTHER">Autre</option>
+              </select>
+            </label>
+            <label class="input-label input-label--wide">Commentaire
+              <textarea id="detail-comment" class="input" rows="3" placeholder="Note facultative"></textarea>
+            </label>
+          </div>
+
+          <div class="detail-actions">
+            <div class="quick-actions">
+              <button type="button" class="btn sm" data-quick="OK">Marquer OK</button>
+              <button type="button" class="btn sm danger" data-quick="NOT_OK">Signaler non conforme</button>
+              <button type="button" class="btn sm ghost" data-quick="TODO">Remettre en attente</button>
+            </div>
+            <button id="detail-save" type="submit" class="btn primary">Enregistrer</button>
+          </div>
+        </form>
+      </section>
+    </main>
   </div>
-
-  <section class="card verification-card">
-    <div class="verification-card__header">
-      <div>
-        <h2 class="verification-card__title" id="current-root-name">Sélectionne un parent</h2>
-        <p class="verification-card__subtitle" id="progress-text">0 / 0 vérifiés</p>
-      </div>
-      <div class="verification-stats">
-        <span class="chip chip--ok" id="stat-ok">OK : 0</span>
-        <span class="chip chip--danger" id="stat-bad">Non conformes : 0</span>
-        <span class="chip chip--pending" id="stat-wait">En attente : 0</span>
-      </div>
-    </div>
-    <div class="verification-progress">
-      <div class="verification-progress__track">
-        <div id="progress-bar" class="verification-progress__bar"></div>
-      </div>
-    </div>
-  </section>
-
-  <section class="card verification-card">
-    <div class="verification-card__header">
-      <h2 class="verification-card__title">Matériel à contrôler</h2>
-      <p class="verification-card__subtitle">Vert = tout OK • Rouge = au moins un non conforme • Bleu = en attente</p>
-    </div>
-    <div id="tree" class="tree"></div>
-  </section>
-
-  <section class="card verification-actions">
-    <div class="verification-actions__group">
-      <button class="btn" id="public-link-btn">Lien public</button>
-      <button class="btn primary" id="finish-verification-btn">Finir la vérification</button>
-    </div>
-  </section>
 </div>
 
 <script>
-const ROOTS = {{ (roots or [])|tojson }};
+const INITIAL_ROOTS = {{ (roots or [])|tojson }};
 const CURRENT_USER_NAME = {{ (current_user_name or '')|tojson }};
-let CURRENT_ROOT_ID = ROOTS.length ? ROOTS[0].id : null;
-let TREE = [];
-let CURRENT_SHARE_INFO = null;
 
-const NODE_MAP = new Map();
-const GROUP_EL = new Map();
-const ITEM_EL = new Map();
-const ITEM_STATUS_TXT = new Map();
-const ITEM_QTY_TXT = new Map();
-const ROOT_STATUS = new Map();
-function el(tag, attrs={}, ...children){
-  const e = document.createElement(tag);
-  for(const [k,v] of Object.entries(attrs||{})){
-    if(k==="class") e.className = v;
-    else if(k==="html") e.innerHTML = v;
-    else if(k.startsWith("on") && typeof v === "function") e.addEventListener(k.slice(2), v);
-    else e.setAttribute(k, v);
-  }
-  for(const c of children){
-    if(c == null) continue;
-    e.append(c.nodeType ? c : document.createTextNode(c));
-  }
-  return e;
-}
-
-function closeModal(){
-  const m = document.getElementById("modal-root");
-  if(m) m.remove();
-}
-
-function openModal(content){
-  closeModal();
-  const wrap = document.createElement("div");
-  wrap.id = "modal-root";
-  wrap.className = "modal-back";
-  const card = document.createElement("div");
-  card.className = "modal";
-  card.appendChild(content);
-  wrap.appendChild(card);
-  document.body.appendChild(wrap);
-}
-
-function indexTree(nodes){
-  NODE_MAP.clear();
-  (nodes||[]).forEach(function rec(n){
-    NODE_MAP.set(n.id, n);
-    (n.children||[]).forEach(rec);
-  });
-}
-
-const domSafeId = id => String(id).replace(/[^a-zA-Z0-9_-]/g, "-");
-const isItem = n => {
-  if(!n) return false;
-  if(n.unique_parent) return true;
-  const type = (n.type||"").toUpperCase();
-  return type === "ITEM" || (!!n.unique_item && !(n.children||[]).length);
+const state = {
+  roots: INITIAL_ROOTS || [],
+  rootStats: new Map(),
+  currentRootId: (INITIAL_ROOTS && INITIAL_ROOTS[0] && INITIAL_ROOTS[0].id) || null,
+  tree: [],
+  filteredTree: [],
+  stats: { total: 0, ok: 0, not_ok: 0, todo: 0 },
+  flatItems: new Map(),
+  selectedId: null,
+  share: null,
 };
-const isGroup = n => !isItem(n);
-const targetNodeId = n => (n && (n.target_node_id || n.id));
-function normStatus(s){
-  s = (s||"").toUpperCase();
-  if(s === "OK") return "OK";
-  if(s === "NOT_OK" || s === "NOT-OK" || s === "KO" || s === "NOK") return "NOT_OK";
-  return "PENDING";
+
+function el(tag, attrs = {}, ...children) {
+  const element = document.createElement(tag);
+  for (const [key, value] of Object.entries(attrs || {})) {
+    if (key === 'class') element.className = value;
+    else if (key === 'html') element.innerHTML = value;
+    else if (key.startsWith('on') && typeof value === 'function') element.addEventListener(key.slice(2), value);
+    else element.setAttribute(key, value);
+  }
+  for (const child of children) {
+    if (child == null) continue;
+    element.append(child.nodeType ? child : document.createTextNode(child));
+  }
+  return element;
 }
 
-function flattenItems(nodes){
-  const out = [];
-  (nodes||[]).forEach(function walk(n){
-    out.push(n);
-    (n.children||[]).forEach(walk);
-  });
-  return out;
+function normStatus(value) {
+  const s = (value || '').toString().toUpperCase();
+  if (s === 'OK') return 'OK';
+  if (s === 'NOT_OK' || s === 'NOT-OK' || s === 'KO' || s === 'NOK') return 'NOT_OK';
+  return 'TODO';
 }
 
-function statusLabel(status){
-  switch(status){
-    case "OK": return "OK";
-    case "NOT_OK": return "Non conforme";
-    default: return "En attente";
+function isItem(node) {
+  if (!node) return false;
+  if (node.unique_parent) return true;
+  const type = (node.type || '').toUpperCase();
+  return type === 'ITEM' || !!node.unique_item;
+}
+
+function formatDate(iso) {
+  if (!iso) return 'Jamais vérifié';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString();
+  } catch (err) {
+    return iso;
   }
 }
 
-function statusClass(status){
-  switch(status){
-    case "OK": return "pill-ok";
-    case "NOT_OK": return "pill-bad";
-    default: return "pill-wait";
-  }
+function flash(message, tone = 'info') {
+  const area = document.getElementById('message-area');
+  if (!area) return;
+  area.textContent = message || '';
+  area.className = `message-area${message ? ` message-${tone}` : ''}`;
+  area.style.display = message ? 'block' : 'none';
 }
 
-function computeRootStatus(items){
-  let ok = 0; let bad = 0; let wait = 0;
-  for(const item of items){
-    const s = normStatus(item.status);
-    if(s === "OK") ok += 1;
-    else if(s === "NOT_OK") bad += 1;
-    else wait += 1;
-  }
-  return { ok, bad, wait };
-}
-
-function updateProgress(){
-  let total = 0;
-  let ok = 0;
-  const nodes = TREE || [];
-  nodes.forEach(function walk(n){
-    if(isItem(n)){
-      total += 1;
-      if(normStatus(n.status) === "OK") ok += 1;
+function indexItems(nodes) {
+  state.flatItems.clear();
+  (nodes || []).forEach(function walk(node) {
+    if (!node) return;
+    if (isItem(node)) {
+      state.flatItems.set(node.id, node);
     }
-    (n.children||[]).forEach(walk);
+    (node.children || []).forEach((child) => walk(child));
   });
-  const bar = document.getElementById('progress-bar');
-  const text = document.getElementById('progress-text');
-  if(bar){
-    const pct = total === 0 ? 0 : Math.round((ok / total) * 100);
-    bar.style.width = pct + '%';
-  }
-  if(text){
-    text.textContent = `${ok} / ${total} vérifiés`;
-  }
 }
 
-function renderParents(){
-  const bar = document.getElementById('root-buttons');
-  if(!bar) return;
-  bar.innerHTML = '';
-  const roots = ROOTS || [];
-  roots.forEach(root => {
-    const status = ROOT_STATUS.get(root.id) || { ok: 0, bad: 0, wait: 0 };
-    const label = status.bad > 0 ? 'Non conforme' : (status.ok > 0 ? 'OK' : 'En attente');
-    const classes = ["parent-pill"];
-    if(status.bad > 0) classes.push('pill-bad');
-    else if(status.ok > 0 && status.wait === 0) classes.push('pill-ok');
-    else classes.push('pill-wait');
-    const pill = el('button', {
-      class: classes.join(' '),
-      onclick: () => loadRoot(root.id)
-    },
-      el('div', {class: 'parent-pill-left'},
-        el('span', {class: 'status-dot ' + (status.bad > 0 ? 'dot-bad' : (status.ok > 0 && status.wait === 0 ? 'dot-ok' : 'dot-wait'))}),
-        el('span', {class: 'parent-pill-name'}, root.name || 'Parent'),
-      ),
-      el('span', {class: 'parent-pill-status'}, label)
+function computeGroupStats(node) {
+  const counts = { ok: 0, bad: 0, todo: 0 };
+  (node.children || []).forEach((child) => {
+    if (isItem(child)) {
+      const status = normStatus(child.last_status || child.status);
+      if (status === 'OK') counts.ok += 1;
+      else if (status === 'NOT_OK') counts.bad += 1;
+      else counts.todo += 1;
+    } else {
+      const nested = computeGroupStats(child);
+      counts.ok += nested.ok;
+      counts.bad += nested.bad;
+      counts.todo += nested.todo;
+    }
+  });
+  return counts;
+}
+
+function renderRoots() {
+  const container = document.getElementById('root-list');
+  if (!container) return;
+  container.innerHTML = '';
+  if (!state.roots.length) {
+    container.textContent = 'Aucun parent disponible.';
+    return;
+  }
+  state.roots.forEach((root) => {
+    const stats = state.rootStats.get(root.id) || { ok: 0, bad: 0, todo: 0 };
+    const label = stats.bad > 0 ? 'Non conforme' : stats.ok > 0 && stats.todo === 0 ? 'OK' : 'En attente';
+    const btn = el(
+      'button',
+      {
+        class: `root-chip ${root.id === state.currentRootId ? 'is-active' : ''} ${stats.bad > 0 ? 'pill-bad' : stats.ok > 0 && stats.todo === 0 ? 'pill-ok' : 'pill-wait'}`,
+        onclick: () => loadRoot(root.id),
+      },
+      el('div', { class: 'root-chip__name' }, root.name || 'Parent'),
+      el('div', { class: 'root-chip__status' }, `${label} • OK ${stats.ok} / NOK ${stats.bad}`),
     );
-    if(root.id === CURRENT_ROOT_ID){
-      pill.classList.add('is-active');
-    }
-    bar.appendChild(pill);
+    container.appendChild(btn);
   });
 }
 
-function renderTree(nodes){
-  const treeEl = document.getElementById('tree');
-  if(!treeEl) return;
-  treeEl.innerHTML = '';
-  (nodes||[]).forEach(node => {
-    treeEl.appendChild(renderNode(node));
+function renderHistory(entries) {
+  const container = document.getElementById('history-list');
+  if (!container) return;
+  container.innerHTML = '';
+  if (!entries || !entries.length) {
+    container.classList.add('history-list--empty');
+    container.textContent = 'Aucune vérification récente.';
+    return;
+  }
+  container.classList.remove('history-list--empty');
+  entries.forEach((entry) => {
+    const row = el(
+      'div',
+      { class: 'history-row' },
+      el('div', { class: 'history-row__main' }, entry.verifier || 'Inconnu'),
+      el('div', { class: 'history-row__meta' }, `${entry.source_label || entry.source || ''} • ${formatDate(entry.timestamp)}`),
+      entry.comment ? el('div', { class: 'history-row__comment' }, entry.comment) : null,
+    );
+    container.appendChild(row);
   });
-  updateProgress();
 }
 
-function renderNode(node){
-  const status = normStatus(node.status);
-  const wrapper = el('div', {class: `node state-${status === 'NOT_OK' ? 'bad' : status.toLowerCase()}`});
-  const header = el('div', {class: 'header' + (isGroup(node) ? ' toggle' : '')});
-  const left = el('div', {class: 'left'},
-    el('span', {class: 'status-dot ' + (status === 'NOT_OK' ? 'dot-bad' : status === 'OK' ? 'dot-ok' : 'dot-wait')}),
-    el('span', {class: 'name'}, node.name || '—'),
+function renderShare() {
+  const input = document.getElementById('share-link');
+  const meta = document.getElementById('share-meta');
+  if (!input || !meta) return;
+  if (!state.share) {
+    input.value = 'Aucun lien généré';
+    meta.textContent = '';
+    return;
+  }
+  input.value = state.share.url;
+  const created = state.share.created_at ? `Créé le ${formatDate(state.share.created_at)}` : '';
+  const used = state.share.last_used_at ? ` • Dernière utilisation ${formatDate(state.share.last_used_at)}` : '';
+  meta.textContent = created + used;
+}
+
+function updateSummary(root, stats) {
+  document.getElementById('current-root-name').textContent = root?.name || 'Aucun parent choisi';
+  document.getElementById('stat-ok').textContent = stats.ok || 0;
+  document.getElementById('stat-bad').textContent = stats.not_ok || stats.bad || 0;
+  document.getElementById('stat-wait').textContent = stats.todo || 0;
+  const total = stats.total || 0;
+  const done = stats.ok || 0;
+  document.getElementById('progress-text').textContent = `${done} / ${total} vérifiés`;
+  document.getElementById('last-refresh').textContent = `Données mises à jour à ${formatDate(new Date().toISOString())}`;
+}
+
+function statusPill(status) {
+  const s = normStatus(status);
+  const span = el('span', { class: `pill ${s === 'OK' ? 'pill-ok' : s === 'NOT_OK' ? 'pill-bad' : 'pill-wait'}` },
+    s === 'OK' ? 'OK' : s === 'NOT_OK' ? 'Non conforme' : 'En attente');
+  return span;
+}
+
+function renderNode(node, level = 0) {
+  const isLeaf = isItem(node);
+  const status = normStatus(node.last_status || node.status);
+  const row = el('div', { class: `tree-row level-${level} ${isLeaf ? 'is-item' : 'is-group'}` });
+  const left = el('div', { class: 'tree-row__left' },
+    statusPill(status),
+    el('div', { class: 'tree-row__info' },
+      el('div', { class: 'tree-row__title' }, node.name || '—'),
+      !isLeaf && node.children?.length ? el('div', { class: 'tree-row__subtitle' }, `${node.children.length} élément(s)`) : null,
+      isLeaf && node.expiry_date ? el('div', { class: 'tree-row__subtitle' }, `Expiration la plus proche : ${node.expiry_date}`) : null,
+    ),
   );
-  header.appendChild(left);
+  row.appendChild(left);
 
-  if(isGroup(node)){
-    const meta = computeRootStatus(flattenItems(node.children));
-    const sub = el('div', {class: 'substats'},
-      el('span', {class: 'chip ok'}, `OK : ${meta.ok}`),
-      el('span', {class: 'chip wait'}, `En attente : ${meta.wait}`),
-      el('span', {class: 'chip bad'}, `Non conformes : ${meta.bad}`),
+  if (isLeaf) {
+    const actions = el('div', { class: 'tree-row__actions' },
+      el('button', { class: 'btn xs', onclick: () => quickUpdate(node.id, 'OK') }, 'OK'),
+      el('button', { class: 'btn xs danger', onclick: () => quickUpdate(node.id, 'NOT_OK') }, 'NOK'),
+      el('button', { class: 'btn xs ghost', onclick: () => quickUpdate(node.id, 'TODO') }, 'Attente'),
+      el('button', { class: 'btn xs ghost', onclick: () => selectItem(node.id) }, 'Détails'),
     );
-    header.appendChild(sub);
-    header.addEventListener('click', () => {
-      childWrap.classList.toggle('collapsed');
-    });
-  }else{
-    const actions = el('div', {class: 'actions'},
-      el('button', {class: 'btn sm success', onclick: () => setItemStatus(node.id, 'OK')}, 'OK'),
-      el('button', {class: 'btn sm danger', onclick: () => setItemStatus(node.id, 'NOT_OK')}, 'NOK'),
-      el('button', {class: 'btn sm ghost', onclick: () => setItemStatus(node.id, 'PENDING')}, 'Attente'),
+    row.appendChild(actions);
+  } else {
+    const counts = computeGroupStats(node);
+    const counter = el('div', { class: 'tree-row__actions group-counts' },
+      el('span', { class: 'chip ok' }, `OK : ${counts.ok}`),
+      el('span', { class: 'chip wait' }, `Attente : ${counts.todo}`),
+      el('span', { class: 'chip bad' }, `NOK : ${counts.bad}`),
     );
-    header.appendChild(actions);
+    row.appendChild(counter);
   }
 
-  wrapper.appendChild(header);
-
-  const childWrap = el('div', {class: 'childs'});
-  (node.children||[]).forEach(child => childWrap.appendChild(renderNode(child)));
-  wrapper.appendChild(childWrap);
+  const container = el('div', { class: 'tree-children' });
+  (node.children || []).forEach((child) => container.appendChild(renderNode(child, level + 1)));
+  const wrapper = el('div', { class: 'tree-block' }, row, container);
+  row.addEventListener('click', (evt) => {
+    if (isLeaf) return;
+    if (evt.target.closest('.btn')) return;
+    container.classList.toggle('is-collapsed');
+  });
   return wrapper;
 }
 
-function setItemStatus(id, status){
-  fetch(`/verification-periodique/api/item/${id}`, {
+function renderTree(tree) {
+  const container = document.getElementById('tree');
+  if (!container) return;
+  container.innerHTML = '';
+  if (!tree || !tree.length) {
+    container.classList.add('tree-list--empty');
+    container.textContent = 'Sélectionne un parent pour afficher son contenu.';
+    return;
+  }
+  container.classList.remove('tree-list--empty');
+  tree.forEach((node) => container.appendChild(renderNode(node)));
+}
+
+function filterTree(nodes, query) {
+  if (!query) return nodes;
+  const q = query.toLowerCase();
+  function visit(node) {
+    const matches = (node.name || '').toLowerCase().includes(q);
+    const filteredChildren = (node.children || []).map(visit).filter(Boolean);
+    if (matches || filteredChildren.length) {
+      const clone = { ...node, children: filteredChildren };
+      return clone;
+    }
+    return null;
+  }
+  return nodes.map(visit).filter(Boolean);
+}
+
+function selectItem(itemId) {
+  const node = state.flatItems.get(itemId);
+  state.selectedId = itemId;
+  const form = document.getElementById('detail-form');
+  const empty = document.getElementById('detail-empty');
+  if (!node || !form || !empty) return;
+  empty.classList.add('hidden');
+  form.classList.remove('hidden');
+  document.getElementById('detail-name').textContent = node.name || '—';
+  document.getElementById('detail-meta').textContent = node.quantity ? `Quantité cible : ${node.quantity}` : '';
+  const status = normStatus(node.last_status || node.status);
+  const statusTag = document.getElementById('detail-status');
+  statusTag.textContent = status === 'OK' ? 'OK' : status === 'NOT_OK' ? 'Non conforme' : 'En attente';
+  statusTag.className = `pill ${status === 'OK' ? 'pill-ok' : status === 'NOT_OK' ? 'pill-bad' : 'pill-wait'}`;
+  document.getElementById('detail-last').textContent = node.last_by ? `Dernier contrôle par ${node.last_by} • ${formatDate(node.last_at)}` : 'Jamais vérifié';
+
+  form.querySelectorAll('input[name="status"]').forEach((radio) => {
+    radio.checked = radio.value === status;
+  });
+  document.getElementById('detail-comment').value = node.comment || '';
+  document.getElementById('detail-issue').value = node.issue_code || '';
+  document.getElementById('detail-observed').value = node.observed_qty ?? '';
+  document.getElementById('detail-missing').value = node.missing_qty ?? '';
+}
+
+async function quickUpdate(itemId, status) {
+  await submitVerification({ node_id: itemId, status });
+}
+
+async function submitVerification(payload) {
+  if (!payload.node_id) return;
+  const resp = await fetch('/verification-periodique/verify', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ status })
-  }).then(resp => {
-    if(resp.ok){
-      loadRoot(CURRENT_ROOT_ID);
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (resp.ok) {
+    flash('Vérification enregistrée.', 'success');
+    await loadRoot(state.currentRootId, true);
+    if (state.selectedId) selectItem(state.selectedId);
+  } else {
+    const err = await resp.json().catch(() => ({}));
+    flash(err.error || 'Impossible d’enregistrer la vérification.', 'danger');
+  }
+}
+
+async function loadRoots() {
+  try {
+    const resp = await fetch('/verification-periodique/roots', { credentials: 'include' });
+    if (resp.ok) {
+      const data = await resp.json();
+      if (Array.isArray(data) && data.length) {
+        state.roots = data;
+        if (!state.currentRootId) state.currentRootId = data[0].id;
+      }
+    }
+  } catch (err) {
+    // ignore
+  }
+  renderRoots();
+}
+
+async function loadHistory(rootId) {
+  if (!rootId) return;
+  const resp = await fetch(`/verification-periodique/history/${rootId}`, { credentials: 'include' });
+  if (!resp.ok) return renderHistory([]);
+  const data = await resp.json();
+  renderHistory(data.records || []);
+}
+
+async function loadShare(rootId) {
+  if (!rootId) {
+    state.share = null;
+    renderShare();
+    return;
+  }
+  const resp = await fetch(`/verification-periodique/share/${rootId}`, { credentials: 'include' });
+  if (!resp.ok) {
+    state.share = null;
+    renderShare();
+    return;
+  }
+  const data = await resp.json();
+  state.share = data.link;
+  renderShare();
+}
+
+async function loadRoot(rootId, silent = false) {
+  if (!rootId) return;
+  state.currentRootId = rootId;
+  if (!silent) flash('Chargement du parent...', 'info');
+  const resp = await fetch(`/verification-periodique/tree/${rootId}`, { credentials: 'include' });
+  if (!resp.ok) {
+    flash('Impossible de charger le parent sélectionné', 'danger');
+    return;
+  }
+  const data = await resp.json();
+  state.tree = data.tree || [];
+  state.filteredTree = state.tree;
+  state.stats = data.stats || { total: 0, ok: 0, not_ok: 0, todo: 0 };
+  state.rootStats.set(rootId, { ok: state.stats.ok, bad: state.stats.not_ok, todo: state.stats.todo });
+  indexItems(state.tree);
+  renderRoots();
+  updateSummary(data.root, state.stats);
+  renderTree(state.filteredTree);
+  loadHistory(rootId);
+  loadShare(rootId);
+  if (!silent) flash('Parent chargé.', 'success');
+}
+
+async function resetRoot() {
+  if (!state.currentRootId) return;
+  const resp = await fetch('/verification-periodique/reset', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root_id: state.currentRootId }),
+  });
+  if (resp.ok) {
+    flash('Tous les items ont été remis en attente.', 'success');
+    loadRoot(state.currentRootId, true);
+  } else {
+    flash('Réinitialisation impossible.', 'danger');
+  }
+}
+
+async function finishSession() {
+  if (!state.currentRootId) return;
+  const comment = document.getElementById('finish-comment').value;
+  const reset = document.getElementById('finish-reset').checked;
+  const resp = await fetch('/verification-periodique/finish', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root_id: state.currentRootId, comment, reset }),
+  });
+  if (resp.ok) {
+    flash('Session enregistrée.', 'success');
+    document.getElementById('finish-comment').value = '';
+    await loadRoot(state.currentRootId, true);
+    await loadHistory(state.currentRootId);
+  } else {
+    const err = await resp.json().catch(() => ({}));
+    flash(err.error || 'Impossible de clôturer la vérification.', 'danger');
+  }
+}
+
+function bindEvents() {
+  const search = document.getElementById('tree-search');
+  if (search) {
+    search.addEventListener('input', (evt) => {
+      const value = evt.target.value || '';
+      state.filteredTree = filterTree(state.tree, value.trim());
+      renderTree(state.filteredTree);
+    });
+  }
+
+  const detailForm = document.getElementById('detail-form');
+  if (detailForm) {
+    detailForm.addEventListener('submit', async (evt) => {
+      evt.preventDefault();
+      if (!state.selectedId) return;
+      const status = detailForm.querySelector('input[name="status"]:checked')?.value || 'TODO';
+      const comment = document.getElementById('detail-comment').value;
+      const observed_qty = document.getElementById('detail-observed').value;
+      const missing_qty = document.getElementById('detail-missing').value;
+      const issue_code = status === 'NOT_OK' ? document.getElementById('detail-issue').value || null : null;
+      await submitVerification({
+        node_id: state.selectedId,
+        status,
+        comment,
+        observed_qty,
+        missing_qty,
+        issue_code,
+      });
+    });
+  }
+
+  document.querySelectorAll('[data-quick]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (!detailForm) return;
+      const status = btn.getAttribute('data-quick');
+      detailForm.querySelectorAll('input[name="status"]').forEach((radio) => {
+        radio.checked = radio.value === status;
+      });
+      detailForm.dispatchEvent(new Event('submit'));
+    });
+  });
+
+  const resetBtn = document.getElementById('reset-root');
+  if (resetBtn) resetBtn.addEventListener('click', resetRoot);
+
+  const finishBtn = document.getElementById('finish-btn');
+  if (finishBtn) finishBtn.addEventListener('click', finishSession);
+
+  const refreshShare = document.getElementById('refresh-share');
+  if (refreshShare) refreshShare.addEventListener('click', () => loadShare(state.currentRootId));
+
+  const copyShare = document.getElementById('copy-share');
+  if (copyShare) copyShare.addEventListener('click', async () => {
+    const input = document.getElementById('share-link');
+    if (input && input.value && navigator.clipboard) {
+      await navigator.clipboard.writeText(input.value);
+      flash('Lien copié dans le presse-papiers.', 'success');
     }
   });
 }
 
-function loadRoot(rootId){
-  CURRENT_ROOT_ID = rootId;
-  fetch(`/verification-periodique/api/root/${rootId}`, { credentials: 'include' })
-    .then(resp => resp.json())
-    .then(data => {
-      TREE = data.tree || [];
-      ROOT_STATUS.set(rootId, computeRootStatus(flattenItems(TREE)));
-      document.getElementById('current-root-name').textContent = data.root?.name || 'Parent';
-      renderParents();
-      renderTree(TREE);
-    });
-}
-
-renderParents();
-if(CURRENT_ROOT_ID){
-  loadRoot(CURRENT_ROOT_ID);
-}
+(async function init() {
+  bindEvents();
+  await loadRoots();
+  if (state.currentRootId) await loadRoot(state.currentRootId, true);
+})();
 </script>
 {% endblock %}
