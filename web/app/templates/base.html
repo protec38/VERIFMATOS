@@ -23,12 +23,22 @@
         </div>
       </div>
       <div class="app-header__meta">
-        <span class="app-chip">Interface DPS</span>
-        {% if _cu and _cu.is_authenticated %}
-          <span class="app-header__user">Connecté·e : {{ _cu.username }}</span>
-        {% else %}
-          <a class="app-chip app-chip--link" href="/login">Connexion</a>
-        {% endif %}
+        <div class="app-header__quick">
+          <a class="chip-button" href="/dashboard">🏠 Tableau</a>
+          <a class="chip-button" href="/calendar">🗓️ Agenda</a>
+          <a class="chip-button" href="/templates">🧩 Lots</a>
+        </div>
+        <div class="app-header__identity">
+          <span class="app-chip">Interface DPS</span>
+          {% if _cu and _cu.is_authenticated %}
+            <span class="app-header__user">{{ _cu.username }}</span>
+          {% else %}
+            <a class="app-chip app-chip--link" href="/login">Connexion</a>
+          {% endif %}
+        </div>
+        <div class="app-header__cta">
+          <a class="btn primary" href="/dashboard">Nouveau dispositif</a>
+        </div>
       </div>
     </header>
 
@@ -36,12 +46,12 @@
       <div class="app-ribbon__inner">
         <article class="app-ribbon__item app-ribbon__item--primary">
           <div class="app-ribbon__eyebrow">Navigation express</div>
-          <div class="app-ribbon__title">Tout organiser en un clin d'œil</div>
-          <p class="app-ribbon__hint">Accède directement aux sections les plus utilisées ou lance un nouvel événement.</p>
+          <div class="app-ribbon__title">Organisation fluide sur mobile et ordinateur</div>
+          <p class="app-ribbon__hint">Accède d'un geste aux sections clés, quel que soit l'écran utilisé.</p>
           <div class="app-ribbon__actions">
-            <a class="chip-button" href="/dashboard">🏠 Tableau de bord</a>
-            <a class="chip-button" href="/calendar">🗓️ Calendrier</a>
-            <a class="chip-button" href="/templates">🧩 Templates &amp; lots</a>
+            <a class="chip-button" href="/dashboard">Tableau de bord</a>
+            <a class="chip-button" href="/calendar">Calendrier</a>
+            <a class="chip-button" href="/templates">Templates &amp; lots</a>
           </div>
         </article>
 
@@ -64,6 +74,16 @@
 
     <div class="app-layout__body">
       <nav class="app-nav" id="app-nav" data-open="false">
+        <div class="app-nav__header">
+          <div class="app-nav__brand">
+            <div class="app-nav__logo">🚑</div>
+            <div>
+              <div class="app-nav__brand-title">Protection Civile</div>
+              <div class="app-nav__brand-subtitle">Matériel &amp; DPS</div>
+            </div>
+          </div>
+          <button class="app-nav__close" id="nav-close" type="button" aria-label="Fermer">×</button>
+        </div>
         <div class="app-nav__scroll">
           {% set _path = request.path if request is defined else '' %}
           <div class="app-nav__section">
@@ -131,6 +151,8 @@
       </main>
     </div>
 
+    <a class="fab" href="/dashboard" aria-label="Créer un dispositif rapide">＋</a>
+
     <footer class="footer">
       {% set _now = now() if now is defined else None %}
       © {{ (_now.year if _now else '—') }} Protection Civile — Interface de préparation (DPS)
@@ -146,6 +168,7 @@
       var nav = document.getElementById('app-nav');
       var toggle = document.getElementById('nav-toggle');
       var backdrop = document.getElementById('nav-backdrop');
+      var navClose = document.getElementById('nav-close');
 
       var setState = function(open){
         var state = open ? 'true' : 'false';
@@ -163,6 +186,10 @@
 
       if(backdrop){
         backdrop.addEventListener('click', function(){ setState(false); });
+      }
+
+      if(navClose){
+        navClose.addEventListener('click', function(){ setState(false); });
       }
 
       var mq = window.matchMedia('(min-width: 960px)');
