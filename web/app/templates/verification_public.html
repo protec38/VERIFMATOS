@@ -15,48 +15,70 @@
 </style>
 
 <div class="public-wrap">
-  <section class="card tree-card">
-    <div class="title">Choisir un sac à vérifier</div>
-    <p class="tree-note">Ce lien permet de contrôler le matériel sans compte. Sélectionne un sac puis marque chaque item en OK ou manquant.</p>
-    <div class="bag-picker">
-      <label for="bag-select">Sac / parent</label>
-      <select id="bag-select"></select>
+  <section class="card public-hero">
+    <div>
+      <p class="eyebrow">Vérification publique</p>
+      <h1 class="public-hero__title">Sélectionne un objet, lance la vérification</h1>
+      <p class="public-hero__subtitle">Choisis le sac ou le parent à contrôler, clique sur « Vérifier » pour afficher tous les sous-éléments puis coche leur statut.</p>
     </div>
-    <div class="chipbar">
-      <span class="chip ok" id="public-stat-ok">OK : 0</span>
-      <span class="chip danger" id="public-stat-bad">Non conformes : 0</span>
-      <span class="chip wait" id="public-stat-wait">En attente : 0</span>
+    <div class="public-hero__note">Ajoute tes remarques en fin de page pour que l’équipe voie immédiatement ce qui a été constaté.</div>
+  </section>
+
+  <section class="card public-selector">
+    <div>
+      <div class="title">Choisir un sac / parent</div>
+      <p class="tree-note">Cette page fonctionne sans compte. Sélectionne un objet puis lance la vérification pour afficher ses sous-éléments.</p>
     </div>
-    <div class="progress"><div id="public-progress-bar"></div></div>
-    <div class="muted tree-hint" id="public-progress-text">0 / 0 vérifiés</div>
+    <div class="selector-grid">
+      <label for="bag-select" class="input-label">Objet à vérifier
+        <select id="bag-select"></select>
+      </label>
+      <button id="start-public-verification" class="btn primary">Vérifier</button>
+    </div>
   </section>
 
-  <section class="card tree-card">
-    <div class="title">Matériel à vérifier</div>
-    <div class="muted tree-hint">Vert = OK • Rouge = manquant/non conforme • Bleu = en attente</div>
-    <div id="public-tree" class="tree"></div>
-  </section>
-
-  <section class="card tree-card">
-    <div class="title">Résumé des anomalies</div>
-    <p class="muted tree-hint">Les items en rouge apparaissent ici avec leurs notes et quantités manquantes.</p>
-    <div id="issues-list" class="issues-list muted">Aucune anomalie pour l’instant.</div>
-  </section>
-
-  <section class="card finish-card">
-    <div class="title">Finaliser la vérification</div>
-    <div id="feedback"></div>
-    <form id="verification-form" class="finish-form">
-      <div class="identity-row">
-        <input id="first-name" placeholder="Prénom" autocomplete="given-name" value="{{ first_prefill or '' }}" required>
-        <input id="last-name" placeholder="Nom" autocomplete="family-name" value="{{ last_prefill or '' }}" required>
+  <div id="public-panels" class="public-grid hidden">
+    <section class="card tree-card">
+      <div class="title">Progression</div>
+      <div class="chipbar">
+        <span class="chip ok" id="public-stat-ok">OK : 0</span>
+        <span class="chip danger" id="public-stat-bad">Non conformes : 0</span>
+        <span class="chip wait" id="public-stat-wait">En attente : 0</span>
       </div>
-      <textarea id="global-comment" placeholder="Notes globales (optionnel)">{{ comment_prefill or '' }}</textarea>
-      <div class="finish-actions">
-        <button class="btn primary" type="submit" id="finish-verification-btn">Enregistrer la vérification</button>
-      </div>
-    </form>
-  </section>
+      <div class="progress"><div id="public-progress-bar"></div></div>
+      <div class="muted tree-hint" id="public-progress-text">0 / 0 vérifiés</div>
+    </section>
+
+    <section class="card tree-card">
+      <div class="title">Sous-éléments à vérifier</div>
+      <div class="muted tree-hint">Clique sur un sous-élément puis marque son statut. Vert = OK • Rouge = manquant/non conforme • Bleu = en attente</div>
+      <div id="public-tree" class="tree"></div>
+    </section>
+
+    <section class="card tree-card">
+      <div class="title">Résumé des anomalies</div>
+      <p class="muted tree-hint">Les items en rouge apparaissent ici avec leurs notes et quantités manquantes.</p>
+      <div id="issues-list" class="issues-list muted">Aucune anomalie pour l’instant.</div>
+    </section>
+
+    <section class="card finish-card">
+      <div class="title">Finaliser la vérification</div>
+      <p class="tree-note">Saisis tes informations et ajoute une note générale si besoin.</p>
+      <div id="feedback"></div>
+      <form id="verification-form" class="finish-form">
+        <div class="identity-row">
+          <input id="first-name" placeholder="Prénom" autocomplete="given-name" value="{{ first_prefill or '' }}" required>
+          <input id="last-name" placeholder="Nom" autocomplete="family-name" value="{{ last_prefill or '' }}" required>
+        </div>
+        <label class="input-label">Notes générales
+          <textarea id="global-comment" placeholder="Ajoute un commentaire global (optionnel)">{{ comment_prefill or '' }}</textarea>
+        </label>
+        <div class="finish-actions">
+          <button class="btn primary" type="submit" id="finish-verification-btn">Enregistrer la vérification</button>
+        </div>
+      </form>
+    </section>
+  </div>
 </div>
 
 <script>
@@ -68,6 +90,7 @@ let LAST_TOTAL = 0;
 let LAST_OK = 0;
 let LAST_BAD = 0;
 let SELECTED_PARENT = null;
+let VERIFICATION_STARTED = false;
 
 function walkNodes(nodes, fn){
   (nodes||[]).forEach(n => {
@@ -135,7 +158,9 @@ function renderBagOptions(){
   SELECTED_PARENT = select.options.length ? Number(select.options[0].value) : null;
   select.addEventListener('change', () => {
     SELECTED_PARENT = Number(select.value);
-    renderTree(TREE_DATA);
+    if(VERIFICATION_STARTED){
+      renderTree(TREE_DATA);
+    }
   });
 }
 
@@ -161,6 +186,10 @@ function setComment(id, text){
 function renderTree(nodes){
   const wrap = document.getElementById('public-tree');
   if(!wrap) return;
+  if(!VERIFICATION_STARTED){
+    wrap.innerHTML = '<div class="muted">Clique sur « Vérifier » pour afficher le contenu sélectionné.</div>';
+    return;
+  }
   wrap.innerHTML = '';
   LAST_TOTAL = 0;
   LAST_OK = 0;
@@ -384,11 +413,21 @@ function submitForm(evt){
 function init(){
   walkNodes(TREE_DATA, ensureState);
   renderBagOptions();
-  renderTree(TREE_DATA);
   const form = document.getElementById('verification-form');
   if(form){
     form.addEventListener('submit', submitForm);
   }
+  const startBtn = document.getElementById('start-public-verification');
+  if(startBtn){
+    startBtn.addEventListener('click', () => {
+      VERIFICATION_STARTED = true;
+      document.getElementById('public-panels')?.classList.remove('hidden');
+      renderTree(TREE_DATA);
+      updateProgress();
+      updateSummary();
+    });
+  }
+  renderTree(TREE_DATA);
 }
 
 init();
