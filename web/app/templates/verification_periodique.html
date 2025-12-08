@@ -5,8 +5,8 @@
   <section class="card verification-hero">
     <div>
       <p class="eyebrow">Vérification périodique</p>
-      <h1>Contrôle rapide du matériel</h1>
-      <p class="verification-hero__subtitle">Choisis un parent, passe en revue chaque item et enregistre l’état sans créer d’événement.</p>
+      <h1>Suivi en direct et historique</h1>
+      <p class="verification-hero__subtitle">Choisis un parent, consulte les dernières vérifications puis contrôle chaque sous-élément en un coup d’œil.</p>
       <p class="verification-hero__help">Rôles autorisés : ADMIN, CHEF et VERIFICATIONPERIODIQUE.</p>
     </div>
     <div class="verification-hero__actions">
@@ -21,11 +21,6 @@
       <section class="card">
         <div class="card__title">Parents disponibles</div>
         <div id="root-list" class="root-list"></div>
-      </section>
-
-      <section class="card">
-        <div class="card__title">Historique récent</div>
-        <div id="history-list" class="history-list history-list--empty">Sélectionne un parent pour voir les dernières sessions.</div>
       </section>
 
       <section class="card">
@@ -75,6 +70,34 @@
       <section class="card tree-card">
         <div id="message-area" class="message-area" role="status"></div>
         <div id="tree" class="tree-list tree-list--empty">Sélectionne un parent pour afficher son contenu.</div>
+      </section>
+
+      <section class="card status-card">
+        <div class="card__title">Historique & sous-éléments</div>
+        <div class="status-grid">
+          <div>
+            <p class="eyebrow">Historique des vérifications</p>
+            <div id="history-list" class="history-list history-list--empty">Sélectionne un parent pour voir les dernières sessions.</div>
+          </div>
+          <div>
+            <p class="eyebrow">Tableau des sous-éléments</p>
+            <div class="table-wrapper">
+              <table class="status-table">
+                <thead>
+                  <tr>
+                    <th>Élément</th>
+                    <th>Statut</th>
+                    <th>Dernier contrôle</th>
+                    <th>Dernière note</th>
+                  </tr>
+                </thead>
+                <tbody id="status-table-body">
+                  <tr id="status-empty"><td colspan="4">Sélectionne un parent pour afficher les sous-éléments.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section class="card detail-card">
@@ -361,6 +384,29 @@ function renderTree(tree) {
   tree.forEach((node) => container.appendChild(renderNode(node)));
 }
 
+function renderStatusTable() {
+  const body = document.getElementById('status-table-body');
+  if (!body) return;
+  body.innerHTML = '';
+  const items = Array.from(state.flatItems.values());
+  items.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  if (!items.length) {
+    body.appendChild(el('tr', {}, el('td', { colspan: '4' }, 'Aucun sous-élément.')));
+    return;
+  }
+  items.forEach((item) => {
+    const status = normStatus(item.last_status || item.status);
+    const label = status === 'OK' ? 'OK' : status === 'NOT_OK' ? 'Non conforme' : 'En attente';
+    const row = el('tr', {},
+      el('td', {}, item.name || '—'),
+      el('td', {}, el('span', { class: `pill ${status === 'OK' ? 'pill-ok' : status === 'NOT_OK' ? 'pill-bad' : 'pill-wait'}` }, label)),
+      el('td', {}, item.last_by ? `${formatDate(item.last_at)} • ${item.last_by}` : formatDate(item.last_at)),
+      el('td', {}, item.comment || '—'),
+    );
+    body.appendChild(row);
+  });
+}
+
 function filterTree(nodes, query) {
   if (!query) return nodes;
   const q = query.toLowerCase();
@@ -482,6 +528,7 @@ async function loadRoot(rootId, silent = false) {
   renderRoots();
   updateSummary(data.root, state.stats);
   renderTree(state.filteredTree);
+  renderStatusTable();
   loadHistory(rootId);
   loadShare(rootId);
   if (!silent) flash('Parent chargé.', 'success');
@@ -589,6 +636,7 @@ function bindEvents() {
   bindEvents();
   await loadRoots();
   if (state.currentRootId) await loadRoot(state.currentRootId, true);
+  renderStatusTable();
 })();
 </script>
 {% endblock %}
