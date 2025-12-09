@@ -21,6 +21,7 @@
         </div>
       </div>
       <nav class="header-nav" aria-label="Navigation rapide">
+        <a class="header-link{% if _path.startswith('/verification-periodique/public') %} is-active{% endif %}" href="/verification-periodique/public">Lien public</a>
         <a class="header-link{% if _path.startswith('/dashboard') %} is-active{% endif %}" href="/dashboard">Tableau</a>
         <a class="header-link{% if _path.startswith('/calendar') %} is-active{% endif %}" href="/calendar">Agenda</a>
         <a class="header-link{% if _path.startswith('/templates') %} is-active{% endif %}" href="/templates">Lots</a>
@@ -43,6 +44,7 @@
           <button class="nav-close" id="nav-close" type="button" aria-label="Fermer">×</button>
         </div>
         <div class="nav-drawer__content">
+          <a class="nav-item{% if _path.startswith('/verification-periodique/public') %} is-active{% endif %}" href="/verification-periodique/public">Vérification publique</a>
           <a class="nav-item{% if _path.startswith('/dashboard') %} is-active{% endif %}" href="/dashboard">Tableau de bord</a>
           {% if _cu and _cu.is_authenticated %}
             <div class="nav-label">Opérations</div>

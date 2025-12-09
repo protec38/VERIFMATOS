@@ -29,6 +29,7 @@ from .models import (
     User,
     AuditLog,
     PeriodicVerificationLink,
+    PeriodicVerificationSession,
 )
 from .tree_query import build_event_tree
 from .stock.service import list_roots
@@ -474,7 +475,52 @@ def admin_page():
         abort(400, description="Action inconnue")
 
     users = User.query.order_by(User.username.asc()).all()
-    return render_template("admin.html", users=users, Role=Role)
+
+    try:
+        PeriodicVerificationSession.__table__.create(bind=db.engine, checkfirst=True)
+    except Exception:
+        db.session.rollback()
+
+    recent_sessions = (
+        PeriodicVerificationSession.query
+        .order_by(PeriodicVerificationSession.created_at.desc())
+        .limit(8)
+        .all()
+    )
+
+    recent_verifications = []
+    for session in recent_sessions:
+        timestamp = session.created_at
+        display_name = (
+            session.verifier_name
+            or (
+                f"{(session.verifier_first_name or '').strip()} {(session.verifier_last_name or '').strip()}".strip()
+            )
+            or getattr(getattr(session, "verifier", None), "username", None)
+            or None
+        )
+        if display_name:
+            display_name = " ".join(display_name.split())
+        source = (session.source or "internal").lower()
+        source_label = "Lien public" if source.startswith("public") else "Interne"
+        recent_verifications.append(
+            {
+                "id": session.id,
+                "verifier": display_name or "Inconnu",
+                "timestamp": timestamp.isoformat() if timestamp else None,
+                "source": source,
+                "source_label": source_label,
+                "comment": session.comment,
+                "root_name": getattr(getattr(session, "root", None), "name", None) or "Parent non trouvé",
+            }
+        )
+
+    return render_template(
+        "admin.html",
+        users=users,
+        Role=Role,
+        recent_verifications=recent_verifications,
+    )
 
 
 @bp.get("/admin/logins")
