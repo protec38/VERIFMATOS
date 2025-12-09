@@ -77,6 +77,31 @@
       </div>
     </div>
 
+    <div class="users-card">
+      <div class="title">Dernières vérifications</div>
+      <p class="subtitle">Surveille les contrôles récents issus du lien public ou de l’espace interne.</p>
+      {% if recent_verifications %}
+        <div class="verification-feed">
+          {% for verif in recent_verifications %}
+            <div class="verif-row">
+              <div class="verif-row__title">{{ verif.root_name }}</div>
+              <div class="verif-row__meta">
+                <span>#{{ verif.id }}</span>
+                <span>{{ verif.verifier }}</span>
+                <span>{{ verif.source_label }}</span>
+                <span>{{ verif.timestamp.replace('T', ' ')[:16] if verif.timestamp else '—' }}</span>
+              </div>
+              {% if verif.comment %}
+                <div class="verif-row__comment">{{ verif.comment }}</div>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="muted" style="margin-top:8px;">Aucune vérification enregistrée pour l’instant.</div>
+      {% endif %}
+    </div>
+
     <div class="users-card" id="users-table">
       <div class="title">Utilisateurs enregistrés</div>
       <p class="subtitle">Réinitialise un mot de passe, ajuste les rôles ou désactive un compte inactif.</p>

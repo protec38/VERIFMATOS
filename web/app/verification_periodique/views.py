@@ -295,6 +295,19 @@ def _build_tree(root: StockNode) -> List[Dict[str, Any]]:
     return [_serialize(root, latest, exp_map)]
 
 
+def _build_forest(roots: List[StockNode]) -> List[Dict[str, Any]]:
+    forest: List[Dict[str, Any]] = []
+    for root in roots:
+        try:
+            tree = _build_tree(root)
+        except Exception:
+            db.session.rollback()
+            continue
+        if tree:
+            forest.extend(tree)
+    return forest
+
+
 def _safe_int(value: Any) -> int | None:
     if value is None or value == "":
         return None
@@ -444,6 +457,136 @@ def tree(root_id: int):
         "tree": tree_payload,
         "stats": stats,
     })
+
+
+@bp.get("/public")
+def public_catalog():
+    _ensure_link_table()
+    _ensure_session_table()
+    _ensure_table()
+    _ensure_expiry_table()
+
+    roots = (
+        StockNode.query
+        .filter(StockNode.parent_id.is_(None))
+        .order_by(StockNode.name.asc())
+        .all()
+    )
+
+    forest = _build_forest(roots)
+
+    return render_template(
+        "verification_public.html",
+        root=None,
+        link=None,
+        error=None,
+        success=False,
+        recorded_name=None,
+        tree_data=forest,
+        token=None,
+        first_prefill="",
+        last_prefill="",
+        comment_prefill="",
+        public_submit_url=url_for("verification_periodique.public_catalog_submit"),
+    )
+
+
+@bp.post("/public/submit")
+def public_catalog_submit():
+    _ensure_session_table()
+    _ensure_table()
+    _ensure_expiry_table()
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        root_id = int(payload.get("root_id") or 0)
+    except Exception:
+        return jsonify(error="root_id invalide"), 400
+
+    if not root_id:
+        return jsonify(error="root_id manquant"), 400
+
+    root = _resolve_root(root_id)
+    if not root:
+        return jsonify(error="Parent introuvable"), 404
+
+    items_payload = payload.get("items") or []
+    if not isinstance(items_payload, list) or not items_payload:
+        return jsonify(error="Aucun item fourni"), 400
+
+    first = (payload.get("first_name") or "").strip()
+    last = (payload.get("last_name") or "").strip()
+    comment_raw = (payload.get("comment") or "").strip()
+    full_name = " ".join(f for f in [first, last] if f).strip()
+
+    if not first or not last:
+        return jsonify(error="Merci d’indiquer un prénom et un nom."), 400
+
+    allowed_ids: List[int] = []
+    _collect_item_ids(root, allowed_ids)
+    allowed_set = set(allowed_ids)
+
+    created = 0
+    missing_count = 0
+    for entry in items_payload:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            node_id = int(entry.get("node_id") or 0)
+        except Exception:
+            continue
+        if node_id not in allowed_set:
+            continue
+        status_raw = (entry.get("status") or "").strip().upper()
+        status = {"OK": ItemStatus.OK, "NOT_OK": ItemStatus.NOT_OK, "TODO": ItemStatus.TODO}.get(status_raw)
+        if status is None:
+            continue
+        comment = (entry.get("comment") or "").strip() or None
+        observed_qty = _safe_int(entry.get("observed_qty"))
+        missing_qty = _safe_int(entry.get("missing_qty"))
+        issue_code = IssueCode.MISSING if missing_qty not in (None, 0) else None
+        if status == ItemStatus.NOT_OK:
+            missing_count += 1
+        rec = PeriodicVerificationRecord(
+            node_id=node_id,
+            status=status,
+            verifier_name=full_name or None,
+            comment=comment,
+            issue_code=issue_code,
+            observed_qty=observed_qty,
+            missing_qty=missing_qty,
+        )
+        db.session.add(rec)
+        created += 1
+
+    session = PeriodicVerificationSession(
+        root_id=root.id,
+        verifier_name=full_name or None,
+        verifier_first_name=first or None,
+        verifier_last_name=last or None,
+        comment=comment_raw or None,
+        source="public_catalog",
+    )
+    db.session.add(session)
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify(error="Impossible d’enregistrer la vérification. Merci de réessayer."), 500
+
+    return jsonify(
+        {
+            "ok": True,
+            "created": created,
+            "session": {
+                "id": session.id,
+                "verifier": full_name or "Inconnu",
+                "missing_items": missing_count,
+            },
+            "root": {"id": root.id, "name": root.name},
+        }
+    )
 
 
 @bp.get("/history/<int:root_id>")
@@ -851,6 +994,7 @@ def public_share(token: str):
         first_prefill=first_prefill,
         last_prefill=last_prefill,
         comment_prefill=comment_prefill,
+        public_submit_url=url_for("verification_periodique.public_share", token=token),
     )
 
 

@@ -1,45 +1,54 @@
 {% extends "base.html" %}
 {% set title = "Vérification publique" %}
 {% block content %}
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<style>
-.bag-picker{margin:8px 0;display:flex;flex-direction:column;gap:6px;}
-.bag-picker select{padding:8px;border-radius:6px;border:1px solid #e0e0e0;}
-.issues-list{display:flex;flex-direction:column;gap:12px;}
-.issue-row{border:1px solid #f3d2d2;border-radius:8px;padding:10px;background:#fff5f5;}
-.issue-title{font-weight:600;}
-.issue-meta{font-size:13px;color:#a10000;}
-.issue-comment{margin-top:4px;font-size:13px;}
-.item-detail{display:flex;flex-direction:column;gap:6px;padding:10px;background:#f6f9ff;border:1px solid #d9e5ff;border-radius:8px;margin:8px 0;}
-.item-detail.collapsed{display:none;}
-</style>
-
-<div class="public-wrap">
+<div class="public-page">
   <section class="card public-hero">
     <div>
-      <p class="eyebrow">Vérification publique</p>
-      <h1 class="public-hero__title">Sélectionne un objet, lance la vérification</h1>
-      <p class="public-hero__subtitle">Choisis le sac ou le parent à contrôler, clique sur « Vérifier » pour afficher tous les sous-éléments puis coche leur statut.</p>
+      <p class="eyebrow">Lien public</p>
+      <h1 class="public-hero__title">Vérifie tout le matériel sur une seule page</h1>
+      <p class="public-hero__subtitle">Catalogue complet, menu compact et interface qui s’adapte à tous les écrans.</p>
+      <div class="public-hero__tags">
+        <span class="chip chip--ghost">Catalogue global</span>
+        <span class="chip chip--ghost">Responsive</span>
+        <span class="chip chip--ghost">Menu compact</span>
+      </div>
     </div>
-    <div class="public-hero__note">Ajoute tes remarques en fin de page pour que l’équipe voie immédiatement ce qui a été constaté.</div>
+    <div class="public-hero__cta">
+      <div class="cta-card">
+        <div class="cta-card__title">Comment ça marche ?</div>
+        <ol>
+          <li>Choisis le sac ou parent à contrôler.</li>
+          <li>Déploie son contenu puis coche les statuts.</li>
+          <li>Ajoute tes remarques et valide : elles arrivent côté admin.</li>
+        </ol>
+      </div>
+    </div>
   </section>
 
   <section class="card public-selector">
     <div>
       <div class="title">Choisir un sac / parent</div>
-      <p class="tree-note">Cette page fonctionne sans compte. Sélectionne un objet puis lance la vérification pour afficher ses sous-éléments.</p>
+      <p class="tree-note">Ce lien public liste tous les objets disponibles. Sélectionne ce que tu veux contrôler puis lance la vérification.</p>
     </div>
     <div class="selector-grid">
       <label for="bag-select" class="input-label">Objet à vérifier
         <select id="bag-select"></select>
       </label>
-      <button id="start-public-verification" class="btn primary">Vérifier</button>
+      <div class="selector-actions">
+        <button id="start-public-verification" class="btn primary">Déployer la vérification</button>
+        <div class="muted selector-actions__hint">Tout tient sur une page compacte et adaptée mobile.</div>
+      </div>
     </div>
   </section>
 
-  <div id="public-panels" class="public-grid hidden">
-    <section class="card tree-card">
-      <div class="title">Progression</div>
+  <div id="public-panels" class="public-grid is-hidden">
+    <section class="card public-card public-card--accent">
+      <div class="public-card__header">
+        <div>
+          <div class="title">Progression</div>
+          <p class="muted" id="public-selected-object">Objet sélectionné : —</p>
+        </div>
+      </div>
       <div class="chipbar">
         <span class="chip ok" id="public-stat-ok">OK : 0</span>
         <span class="chip danger" id="public-stat-bad">Non conformes : 0</span>
@@ -49,21 +58,27 @@
       <div class="muted tree-hint" id="public-progress-text">0 / 0 vérifiés</div>
     </section>
 
-    <section class="card tree-card">
-      <div class="title">Sous-éléments à vérifier</div>
-      <div class="muted tree-hint">Clique sur un sous-élément puis marque son statut. Vert = OK • Rouge = manquant/non conforme • Bleu = en attente</div>
+    <section class="card public-card public-card--tree">
+      <div class="public-card__header">
+        <div class="title">Sous-éléments à vérifier</div>
+        <p class="muted tree-hint">Coche chaque item : vert = OK • rouge = manquant / non conforme • bleu = en attente.</p>
+      </div>
       <div id="public-tree" class="tree"></div>
     </section>
 
-    <section class="card tree-card">
-      <div class="title">Résumé des anomalies</div>
-      <p class="muted tree-hint">Les items en rouge apparaissent ici avec leurs notes et quantités manquantes.</p>
+    <section class="card public-card">
+      <div class="public-card__header">
+        <div class="title">Résumé des anomalies</div>
+        <p class="muted tree-hint">Les items en rouge sont listés ici avec quantités et commentaires.</p>
+      </div>
       <div id="issues-list" class="issues-list muted">Aucune anomalie pour l’instant.</div>
     </section>
 
-    <section class="card finish-card">
-      <div class="title">Finaliser la vérification</div>
-      <p class="tree-note">Saisis tes informations et ajoute une note générale si besoin.</p>
+    <section class="card public-card finish-card">
+      <div class="public-card__header">
+        <div class="title">Finaliser</div>
+        <p class="tree-note">Signe la vérification et laisse un message pour l’équipe.</p>
+      </div>
       <div id="feedback"></div>
       <form id="verification-form" class="finish-form">
         <div class="identity-row">
@@ -84,7 +99,7 @@
 <script>
 const RAW_TREE = {{ tree_data|tojson }};
 const TREE_DATA = Array.isArray(RAW_TREE) ? RAW_TREE : [];
-const PUBLIC_TOKEN = {{ token|tojson }};
+const PUBLIC_SUBMIT_URL = {{ public_submit_url|tojson }} || window.location.pathname;
 const STATE = new Map();
 let LAST_TOTAL = 0;
 let LAST_OK = 0;
@@ -108,17 +123,37 @@ function findNodeById(nodes, id){
   return null;
 }
 
+function findRootIdForSelection(id){
+  for(const root of TREE_DATA){
+    const found = findNodeById([root], id);
+    if(found){
+      return Number(root.id);
+    }
+  }
+  return null;
+}
+
 function collectParents(){
   const options = [];
   TREE_DATA.forEach(root => {
-    options.push({id: root.id, label: root.name || 'Parent'});
-    (root.children || []).forEach(child => {
-      if(child.type && child.type.toUpperCase() === 'GROUP'){
-        options.push({id: child.id, label: child.name || 'Sac'});
+    walkNodes([root], node => {
+      const type = (node.type || '').toUpperCase();
+      const hasChildren = (node.children || []).length > 0;
+      const isContainer = type !== 'ITEM' || node.unique_parent || hasChildren;
+      if(isContainer){
+        options.push({ id: node.id, label: node.name || 'Objet' });
       }
     });
   });
   return options;
+}
+
+function collectScopedItems(){
+  const allowed = [];
+  const target = SELECTED_PARENT ? findNodeById(TREE_DATA, SELECTED_PARENT) : null;
+  const scope = target ? [target] : TREE_DATA;
+  scope.forEach(node => walkNodes([node], child => { if(isItem(child)) allowed.push(Number(child.id)); }));
+  return allowed;
 }
 
 function isItem(node){
@@ -156,12 +191,22 @@ function renderBagOptions(){
     select.appendChild(o);
   });
   SELECTED_PARENT = select.options.length ? Number(select.options[0].value) : null;
+  updateSelectionLabel();
   select.addEventListener('change', () => {
     SELECTED_PARENT = Number(select.value);
+    updateSelectionLabel();
     if(VERIFICATION_STARTED){
       renderTree(TREE_DATA);
     }
   });
+}
+
+function updateSelectionLabel(){
+  const target = document.getElementById('public-selected-object');
+  const select = document.getElementById('bag-select');
+  if(!target || !select) return;
+  const text = select.options[select.selectedIndex]?.textContent || '—';
+  target.textContent = `Objet sélectionné : ${text}`;
 }
 
 function setState(id, status){
@@ -196,6 +241,12 @@ function renderTree(nodes){
   LAST_BAD = 0;
   const selected = SELECTED_PARENT ? findNodeById(nodes, SELECTED_PARENT) : null;
   const toRender = selected ? [selected] : (nodes || []);
+  if(!toRender.length){
+    wrap.innerHTML = '<div class="muted">Aucun contenu pour cet objet.</div>';
+    updateProgress();
+    updateSummary();
+    return;
+  }
   toRender.forEach(node => wrap.appendChild(renderNode(node)));
   updateProgress();
   updateSummary();
@@ -354,9 +405,12 @@ function updateSummary(){
 
 function buildPayload(){
   const items = [];
+  const allowedIds = new Set(collectScopedItems());
   STATE.forEach((state, id) => {
+    const numId = Number(id);
+    if(allowedIds.size && !allowedIds.has(numId)) return;
     items.push({
-      node_id: id,
+      node_id: numId,
       status: state.status || 'TODO',
       missing_qty: state.missing_qty,
       observed_qty: null,
@@ -373,6 +427,13 @@ function submitForm(evt){
   const comment = (document.getElementById('global-comment')?.value || '').trim();
   const feedback = document.getElementById('feedback');
   const btn = document.getElementById('finish-verification-btn');
+  const rootId = findRootIdForSelection(SELECTED_PARENT);
+  if(!rootId){
+    if(feedback){
+      feedback.innerHTML = '<div class="alert error">Choisis un objet à vérifier avant d’enregistrer.</div>';
+    }
+    return;
+  }
   if(!first || !last){
     if(feedback){
       feedback.innerHTML = '<div class="alert error">Merci de renseigner ton prénom et ton nom.</div>';
@@ -380,10 +441,11 @@ function submitForm(evt){
     return;
   }
   if(btn){ btn.disabled = true; }
-  fetch(`/verification-periodique/public/${PUBLIC_TOKEN}`, {
+  fetch(PUBLIC_SUBMIT_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      root_id: rootId,
       first_name: first,
       last_name: last,
       comment,
@@ -420,8 +482,12 @@ function init(){
   const startBtn = document.getElementById('start-public-verification');
   if(startBtn){
     startBtn.addEventListener('click', () => {
+      if(!SELECTED_PARENT){
+        document.getElementById('public-tree').innerHTML = '<div class="muted">Aucun objet n’est disponible pour l’instant.</div>';
+        return;
+      }
       VERIFICATION_STARTED = true;
-      document.getElementById('public-panels')?.classList.remove('hidden');
+      document.getElementById('public-panels')?.classList.remove('is-hidden');
       renderTree(TREE_DATA);
       updateProgress();
       updateSummary();
