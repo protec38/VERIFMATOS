@@ -4,157 +4,88 @@
   <meta charset="utf-8">
   <title>{{ title or "Protection Civile — Préparation Matériel" }}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#2b6be6">
+  <meta name="theme-color" content="#1f6feb">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
 <body>
   {% set _cu = current_user if current_user is defined else None %}
-  <div class="app-layout">
-    <header class="app-header">
-      <div class="app-header__strip">
-        <button type="button" class="app-header__toggle" id="nav-toggle" aria-controls="app-nav" aria-expanded="false">
-          <span aria-hidden="true">≡</span>
-          <span class="visually-hidden">Menu principal</span>
-        </button>
-        <div class="app-header__brand">
-          <img src="{{ url_for('static', filename='pc_logo.webp') }}" alt="Protection Civile" class="app-header__logo" loading="lazy" onerror="this.style.display='none'">
-          <div>
-            <div class="app-header__title">Protection Civile · Isère</div>
-            <div class="app-header__subtitle">Préparation du matériel &amp; interventions</div>
-          </div>
-        </div>
-        <div class="app-header__meta">
-          <div class="app-header__quick">
-            <a class="chip-button" href="/dashboard">🏁 Tableau</a>
-            <a class="chip-button" href="/calendar">📅 Agenda</a>
-            <a class="chip-button" href="/templates">📦 Lots</a>
-          </div>
-          <div class="app-header__identity">
-            <span class="app-chip">Portail opérationnel</span>
-            {% if _cu and _cu.is_authenticated %}
-              <span class="app-header__user">{{ _cu.username }}</span>
-            {% else %}
-              <a class="app-chip app-chip--link" href="/login">Connexion</a>
-            {% endif %}
-          </div>
-          <div class="app-header__cta">
-            <a class="btn primary" href="/dashboard">Nouveau dossier</a>
-          </div>
+  {% set _path = request.path if request is defined else '' %}
+  <div class="site-shell">
+    <header class="site-header">
+      <button class="nav-toggle" id="nav-toggle" type="button" aria-label="Ouvrir le menu" aria-controls="nav-drawer" aria-expanded="false">☰</button>
+      <div class="brand">
+        <img src="{{ url_for('static', filename='pc_logo.webp') }}" alt="Protection Civile" class="brand__logo" loading="lazy" onerror="this.style.display='none'">
+        <div class="brand__text">
+          <span class="brand__title">Protection Civile</span>
+          <span class="brand__subtitle">Matériel &amp; interventions</span>
         </div>
       </div>
-
-      <div class="app-banner">
-        <div>
-          <p class="app-banner__eyebrow">Aider · Secourir · Former</p>
-          <p class="app-banner__title">Une interface pensée pour les équipes terrain</p>
-          <p class="app-banner__text">Navigation épurée, accès directs aux événements, au stock et aux vérifications périodiques. Chaque module reprend le code couleur Protection Civile pour se repérer en un coup d'œil.</p>
-          <div class="app-banner__actions">
-            <a class="chip-button" href="/dashboard">Créer un dispositif</a>
-            <a class="chip-button chip-button--ghost" href="/calendar">Suivre le planning</a>
-            <a class="chip-button chip-button--outline" href="/stock">Contrôler le stock</a>
-          </div>
-        </div>
-        <div class="app-banner__badge">
-          <span class="app-banner__badge-title">Protection Civile</span>
-          <span class="app-banner__badge-meta">Identité visuelle corporate</span>
-        </div>
+      <nav class="header-nav" aria-label="Navigation rapide">
+        <a class="header-link{% if _path.startswith('/dashboard') %} is-active{% endif %}" href="/dashboard">Tableau</a>
+        <a class="header-link{% if _path.startswith('/calendar') %} is-active{% endif %}" href="/calendar">Agenda</a>
+        <a class="header-link{% if _path.startswith('/templates') %} is-active{% endif %}" href="/templates">Lots</a>
+      </nav>
+      <div class="header-actions">
+        {% if _cu and _cu.is_authenticated %}
+          <div class="user-chip">{{ _cu.username }}</div>
+          <a class="btn" href="/logout">Déconnexion</a>
+        {% else %}
+          <a class="btn" href="/login">Connexion</a>
+        {% endif %}
+        <a class="btn primary" href="/dashboard">Nouveau</a>
       </div>
     </header>
 
-    <div class="app-layout__body">
-      <nav class="app-nav" id="app-nav" data-open="false">
-        <div class="app-nav__header">
-          <div class="app-nav__brand">
-            <div class="app-nav__logo">🚑</div>
-            <div>
-              <div class="app-nav__brand-title">Protection Civile</div>
-              <div class="app-nav__brand-subtitle">Matériel &amp; DPS</div>
-            </div>
-          </div>
-          <button class="app-nav__close" id="nav-close" type="button" aria-label="Fermer">×</button>
+    <div class="site-body">
+      <aside class="nav-drawer" id="nav-drawer" data-open="false" aria-label="Menu principal">
+        <div class="nav-drawer__header">
+          <span class="nav-drawer__title">Navigation</span>
+          <button class="nav-close" id="nav-close" type="button" aria-label="Fermer">×</button>
         </div>
-        <div class="app-nav__scroll">
-          {% set _path = request.path if request is defined else '' %}
-          <div class="app-nav__section">
-            <a class="app-nav__link{% if _path.startswith('/dashboard') %} is-active{% endif %}" href="/dashboard">
-              <span class="app-nav__icon">🧭</span>
-              <span class="app-nav__text">Tableau de bord</span>
-            </a>
-          </div>
-
+        <div class="nav-drawer__content">
+          <a class="nav-item{% if _path.startswith('/dashboard') %} is-active{% endif %}" href="/dashboard">Tableau de bord</a>
           {% if _cu and _cu.is_authenticated %}
-            <div class="app-nav__section">
-              <div class="app-nav__title">Opérations</div>
-              <a class="app-nav__link{% if _path.startswith('/calendar') %} is-active{% endif %}" href="/calendar">
-                <span class="app-nav__icon">📅</span>
-                <span class="app-nav__text">Calendrier</span>
-              </a>
-              {% if _cu.role and _cu.role.name in ['ADMIN', 'CHEF', 'VERIFICATIONPERIODIQUE'] %}
-                <a class="app-nav__link{% if _path.startswith('/verification-periodique') %} is-active{% endif %}" href="/verification-periodique">
-                  <span class="app-nav__icon">🩺</span>
-                  <span class="app-nav__text">Vérification périodique</span>
-                </a>
-              {% endif %}
-            </div>
-
+            <div class="nav-label">Opérations</div>
+            <a class="nav-item{% if _path.startswith('/calendar') %} is-active{% endif %}" href="/calendar">Calendrier</a>
+            {% if _cu.role and _cu.role.name in ['ADMIN', 'CHEF', 'VERIFICATIONPERIODIQUE'] %}
+              <a class="nav-item{% if _path.startswith('/verification-periodique') %} is-active{% endif %}" href="/verification-periodique">Vérification périodique</a>
+            {% endif %}
             {% if _cu.role and _cu.role.name in ['ADMIN', 'CHEF'] %}
-              <div class="app-nav__section">
-              <div class="app-nav__title">Préparation</div>
-              <a class="app-nav__link{% if _path.startswith('/templates') %} is-active{% endif %}" href="/templates">
-                  <span class="app-nav__icon">📦</span>
-                  <span class="app-nav__text">Templates &amp; lots</span>
-                </a>
-              </div>
+              <div class="nav-label">Préparation</div>
+              <a class="nav-item{% if _path.startswith('/templates') %} is-active{% endif %}" href="/templates">Templates &amp; lots</a>
             {% endif %}
-
             {% if _cu.role and _cu.role.name == 'ADMIN' %}
-              <div class="app-nav__section">
-                <div class="app-nav__title">Administration</div>
-                <a class="app-nav__link{% if _path.startswith('/stock') %} is-active{% endif %}" href="/stock">
-                  <span class="app-nav__icon">🗄️</span>
-                  <span class="app-nav__text">Stock</span>
-                </a>
-                <a class="app-nav__link{% if _path.startswith('/admin') %} is-active{% endif %}" href="/admin">
-                  <span class="app-nav__icon">👥</span>
-                  <span class="app-nav__text">Gestion des comptes</span>
-                </a>
-              </div>
+              <div class="nav-label">Administration</div>
+              <a class="nav-item{% if _path.startswith('/stock') %} is-active{% endif %}" href="/stock">Stock</a>
+              <a class="nav-item{% if _path.startswith('/admin') %} is-active{% endif %}" href="/admin">Comptes</a>
             {% endif %}
-
-            <div class="app-nav__section">
-              <a class="app-nav__link app-nav__link--logout" href="/logout">
-                <span class="app-nav__icon">↩</span>
-                <span class="app-nav__text">Déconnexion</span>
-              </a>
-            </div>
+            <a class="nav-item" href="/logout">Déconnexion</a>
           {% else %}
-            <div class="app-nav__section">
-              <a class="app-nav__link app-nav__link--primary" href="/login">Connexion</a>
-            </div>
+            <a class="nav-item{% if _path.startswith('/login') %} is-active{% endif %}" href="/login">Connexion</a>
           {% endif %}
         </div>
-      </nav>
+      </aside>
 
-      <main class="app-content page" id="main-content">
-        {% block content %}{% endblock %}
-      </main>
+      <div class="site-content">
+        <main class="page" id="main-content">
+          {% block content %}{% endblock %}
+        </main>
+        <footer class="footer">
+          {% set _now = now() if now is defined else None %}
+          <span>© {{ (_now.year if _now else '—') }} Protection Civile</span>
+          <span class="footer__meta">Interface simplifiée pour le matériel et les événements</span>
+        </footer>
+      </div>
     </div>
-
-    <a class="fab" href="/dashboard" aria-label="Créer un dispositif rapide">＋</a>
-
-    <footer class="footer">
-      {% set _now = now() if now is defined else None %}
-      © {{ (_now.year if _now else '—') }} Protection Civile — Interface de préparation (DPS)
-    </footer>
   </div>
 
-  <div class="app-nav__backdrop" id="nav-backdrop" data-open="false"></div>
+  <div class="nav-backdrop" id="nav-backdrop" data-open="false"></div>
 
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
   {% macro icon(name) -%}<span class="ico">{{ name }}</span>{%- endmacro %}
   <script>
     (function(){
-      var nav = document.getElementById('app-nav');
+      var nav = document.getElementById('nav-drawer');
       var toggle = document.getElementById('nav-toggle');
       var backdrop = document.getElementById('nav-backdrop');
       var navClose = document.getElementById('nav-close');
@@ -172,11 +103,9 @@
           setState(!open);
         });
       }
-
       if(backdrop){
         backdrop.addEventListener('click', function(){ setState(false); });
       }
-
       if(navClose){
         navClose.addEventListener('click', function(){ setState(false); });
       }

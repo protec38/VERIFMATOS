@@ -15,15 +15,14 @@
   <section class="dashboard-hero">
     <div class="dashboard-hero__copy">
       <span class="eyebrow">Protection Civile Isère</span>
-      <h1 class="dashboard-hero__title">Tableau de bord corporate et opérationnel</h1>
+      <h1 class="dashboard-hero__title">Tableau de bord simplifié</h1>
       <p class="dashboard-hero__subtitle">
-        Un parcours resserré pour déclencher un dispositif, vérifier les lots et suivre les péremptions.
-        L'interface reprend les codes couleurs bleu / orange pour rester alignée sur l'identité Protection Civile.
+        Accède en quelques clics aux événements, aux lots et aux vérifications. Tout est regroupé dans une interface claire.
       </p>
       <div class="dashboard-hero__actions">
-        <button class="btn primary" id="btn-open-wizard">Nouveau dossier guidé</button>
-        <a class="btn" href="/calendar">Voir le planning</a>
-        <a class="btn ghost" href="/templates">Configurer les lots</a>
+        <button class="btn primary" id="btn-open-wizard">Nouvel événement guidé</button>
+        <a class="btn" href="/calendar">Agenda</a>
+        <a class="btn ghost" href="/templates">Lots</a>
       </div>
     </div>
     <div class="dashboard-hero__stats">
@@ -35,12 +34,12 @@
       <div class="stat-card">
         <span class="stat-card__label">Templates disponibles</span>
         <span class="stat-card__value">{{ template_count }}</span>
-        <span class="stat-card__hint">Prépare des modèles réutilisables</span>
+        <span class="stat-card__hint">Prêts à réutiliser</span>
       </div>
       <div class="stat-card">
         <span class="stat-card__label">Lots enregistrés</span>
         <span class="stat-card__value">{{ lot_count }}</span>
-        <span class="stat-card__hint">Complète tes interventions rapidement</span>
+        <span class="stat-card__hint">Matériel déjà préparé</span>
       </div>
     </div>
   </section>
