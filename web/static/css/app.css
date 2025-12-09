@@ -371,8 +371,11 @@ button { font-family: inherit; }
 
 .verification-feed { display: flex; flex-direction: column; gap: 10px; }
 .verif-row { border: 1px solid var(--border); border-radius: 10px; padding: 10px; background: #f8fafc; }
+.verif-row.has-issues { border-color: #ef4444; background: #fff1f2; }
 .verif-row__title { font-weight: 700; }
 .verif-row__meta { font-size: 13px; color: var(--muted); margin-top: 4px; display: flex; gap: 8px; flex-wrap: wrap; }
+.verif-row__status { padding: 2px 8px; border-radius: 999px; font-weight: 600; color: #065f46; background: #ecfdf3; }
+.verif-row__status.is-bad { color: #991b1b; background: #fee2e2; border: 1px solid #fca5a5; }
 .verif-row__comment { margin-top: 6px; color: var(--text); }
 
 @media (max-width: 960px){

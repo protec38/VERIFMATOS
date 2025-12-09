@@ -407,6 +407,7 @@ class PeriodicVerificationSession(db.Model):
     verifier_last_name = db.Column(db.String(120), nullable=True)
     source = db.Column(db.String(32), nullable=False, default="internal")
     comment = db.Column(db.Text, nullable=True)
+    missing_count = db.Column(db.Integer, nullable=False, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     link_id = db.Column(db.Integer, db.ForeignKey("periodic_verification_links.id"), nullable=True, index=True)
 

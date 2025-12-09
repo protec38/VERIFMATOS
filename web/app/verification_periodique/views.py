@@ -566,6 +566,7 @@ def public_catalog_submit():
         verifier_last_name=last or None,
         comment=comment_raw or None,
         source="public_catalog",
+        missing_count=missing_count,
     )
     db.session.add(session)
 
@@ -582,7 +583,7 @@ def public_catalog_submit():
             "session": {
                 "id": session.id,
                 "verifier": full_name or "Inconnu",
-                "missing_items": missing_count,
+                "missing_items": session.missing_count,
             },
             "root": {"id": root.id, "name": root.name},
         }
@@ -767,6 +768,7 @@ def finish_root():
         verifier_name=actor_name,
         comment=comment_raw or None,
         source="internal",
+        missing_count=0,
     )
     db.session.add(session)
 
@@ -918,6 +920,7 @@ def public_share(token: str):
             comment=comment_raw or None,
             source="public",
             link_id=link.id,
+            missing_count=missing_count,
         )
         db.session.add(session)
 
@@ -939,7 +942,7 @@ def public_share(token: str):
                 "session": {
                     "id": session.id,
                     "verifier": full_name or "Inconnu",
-                    "missing_items": missing_count,
+                    "missing_items": session.missing_count,
                 },
                 "root": {"id": root.id, "name": root.name},
             }
@@ -961,6 +964,7 @@ def public_share(token: str):
                 comment=comment_raw or None,
                 source="public",
                 link_id=link.id,
+                missing_count=0,
             )
             db.session.add(session)
             try:
