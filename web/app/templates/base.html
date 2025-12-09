@@ -11,46 +11,55 @@
   {% set _cu = current_user if current_user is defined else None %}
   <div class="app-layout">
     <header class="app-header">
-      <button type="button" class="app-header__toggle" id="nav-toggle" aria-controls="app-nav" aria-expanded="false">
-        <span aria-hidden="true">≡</span>
-        <span class="visually-hidden">Menu principal</span>
-      </button>
-      <div class="app-header__brand">
-        <img src="{{ url_for('static', filename='pc_logo.webp') }}" alt="Protection Civile" class="app-header__logo" loading="lazy" onerror="this.style.display='none'">
-        <div>
-          <div class="app-header__title">Préparation du matériel</div>
-          <div class="app-header__subtitle">Interface Protection Civile</div>
+      <div class="app-header__strip">
+        <button type="button" class="app-header__toggle" id="nav-toggle" aria-controls="app-nav" aria-expanded="false">
+          <span aria-hidden="true">≡</span>
+          <span class="visually-hidden">Menu principal</span>
+        </button>
+        <div class="app-header__brand">
+          <img src="{{ url_for('static', filename='pc_logo.webp') }}" alt="Protection Civile" class="app-header__logo" loading="lazy" onerror="this.style.display='none'">
+          <div>
+            <div class="app-header__title">Protection Civile · Isère</div>
+            <div class="app-header__subtitle">Préparation du matériel &amp; interventions</div>
+          </div>
+        </div>
+        <div class="app-header__meta">
+          <div class="app-header__quick">
+            <a class="chip-button" href="/dashboard">🏁 Tableau</a>
+            <a class="chip-button" href="/calendar">📅 Agenda</a>
+            <a class="chip-button" href="/templates">📦 Lots</a>
+          </div>
+          <div class="app-header__identity">
+            <span class="app-chip">Portail opérationnel</span>
+            {% if _cu and _cu.is_authenticated %}
+              <span class="app-header__user">{{ _cu.username }}</span>
+            {% else %}
+              <a class="app-chip app-chip--link" href="/login">Connexion</a>
+            {% endif %}
+          </div>
+          <div class="app-header__cta">
+            <a class="btn primary" href="/dashboard">Nouveau dossier</a>
+          </div>
         </div>
       </div>
-      <div class="app-header__meta">
-        <div class="app-header__quick">
-          <a class="chip-button" href="/dashboard">🏁 Tableau</a>
-          <a class="chip-button" href="/calendar">📅 Agenda</a>
-          <a class="chip-button" href="/templates">📦 Lots</a>
+
+      <div class="app-banner">
+        <div>
+          <p class="app-banner__eyebrow">Aider · Secourir · Former</p>
+          <p class="app-banner__title">Une interface pensée pour les équipes terrain</p>
+          <p class="app-banner__text">Navigation épurée, accès directs aux événements, au stock et aux vérifications périodiques. Chaque module reprend le code couleur Protection Civile pour se repérer en un coup d'œil.</p>
+          <div class="app-banner__actions">
+            <a class="chip-button" href="/dashboard">Créer un dispositif</a>
+            <a class="chip-button chip-button--ghost" href="/calendar">Suivre le planning</a>
+            <a class="chip-button chip-button--outline" href="/stock">Contrôler le stock</a>
+          </div>
         </div>
-        <div class="app-header__identity">
-          <span class="app-chip">Interface simplifiée</span>
-          {% if _cu and _cu.is_authenticated %}
-            <span class="app-header__user">{{ _cu.username }}</span>
-          {% else %}
-            <a class="app-chip app-chip--link" href="/login">Connexion</a>
-          {% endif %}
-        </div>
-        <div class="app-header__cta">
-          <a class="btn primary" href="/dashboard">Nouveau dossier</a>
+        <div class="app-banner__badge">
+          <span class="app-banner__badge-title">Protection Civile</span>
+          <span class="app-banner__badge-meta">Identité visuelle corporate</span>
         </div>
       </div>
     </header>
-    <section class="app-banner">
-      <div>
-        <p class="app-banner__title">Parcours clair, menus réorganisés</p>
-        <p class="app-banner__text">Tous les boutons, icônes et sections ont été simplifiés pour accéder rapidement aux actions essentielles.</p>
-      </div>
-      <div class="app-banner__actions">
-        <a class="chip-button" href="/dashboard">Créer un événement</a>
-        <a class="chip-button chip-button--ghost" href="/calendar">Suivre le planning</a>
-      </div>
-    </section>
 
     <div class="app-layout__body">
       <nav class="app-nav" id="app-nav" data-open="false">
