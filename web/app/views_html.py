@@ -1,7 +1,6 @@
 # app/views_html.py — Pages HTML (Jinja)
 from __future__ import annotations
 from datetime import datetime, date
-import secrets
 
 from flask import (
     Blueprint,
@@ -28,7 +27,6 @@ from .models import (
     event_stock,
     User,
     AuditLog,
-    PeriodicVerificationLink,
     PeriodicVerificationSession,
 )
 from .tree_query import build_event_tree
@@ -52,14 +50,6 @@ def can_view() -> bool:
 
 def can_manage_event() -> bool:
     return current_user.is_authenticated and current_user.role in (Role.ADMIN, Role.CHEF)
-
-
-def can_periodic_verify() -> bool:
-    return current_user.is_authenticated and current_user.role in (
-        Role.ADMIN,
-        Role.CHEF,
-        getattr(Role, "VERIFICATIONPERIODIQUE", Role.CHEF),
-    )
 
 
 def _serialize_template(tpl: EventTemplate) -> dict:
@@ -503,6 +493,7 @@ def admin_page():
             display_name = " ".join(display_name.split())
         source = (session.source or "internal").lower()
         source_label = "Lien public" if source.startswith("public") else "Interne"
+        missing_count = getattr(session, "missing_count", 0) or 0
         recent_verifications.append(
             {
                 "id": session.id,
@@ -512,6 +503,7 @@ def admin_page():
                 "source_label": source_label,
                 "comment": session.comment,
                 "root_name": getattr(getattr(session, "root", None), "name", None) or "Parent non trouvé",
+                "missing_count": missing_count,
             }
         )
 
@@ -544,74 +536,11 @@ def admin_login_logs():
     return render_template("admin_login_logs.html", logs=logs)
 
 @bp.get("/verification-periodique")
-@login_required
 def verification_periodique_page():
-    if not can_periodic_verify():
-        abort(403)
+    return redirect(url_for("verification_periodique.public_catalog"))
 
-    roots = (
-        StockNode.query
-        .filter(StockNode.parent_id.is_(None))
-        .order_by(StockNode.name.asc())
-        .all()
-    )
 
-    try:
-        PeriodicVerificationLink.__table__.create(bind=db.engine, checkfirst=True)
-    except Exception:
-        db.session.rollback()
-
-    def _generate_link_token() -> str | None:
-        for _ in range(10):
-            token = secrets.token_urlsafe(16)
-            if not PeriodicVerificationLink.query.filter_by(token=token).first():
-                return token
-        return None
-
-    created_links = False
-    for root in roots:
-        existing = (
-            PeriodicVerificationLink.query
-            .filter_by(root_id=root.id, active=True)
-            .order_by(PeriodicVerificationLink.created_at.desc())
-            .first()
-        )
-        if existing:
-            continue
-        token = _generate_link_token()
-        if not token:
-            current_app.logger.warning(
-                "Impossible de générer un lien public pour le parent %s", root.id
-            )
-            continue
-        link = PeriodicVerificationLink(
-            token=token,
-            root_id=root.id,
-            active=True,
-            created_by_id=getattr(current_user, "id", None),
-        )
-        db.session.add(link)
-        created_links = True
-
-    if created_links:
-        try:
-            db.session.commit()
-        except Exception as exc:
-            db.session.rollback()
-            current_app.logger.warning(
-                "Impossible d'enregistrer automatiquement les liens publics : %s", exc
-            )
-
-    root_payload = [
-        {
-            "id": root.id,
-            "name": root.name,
-        }
-        for root in roots
-    ]
-    current_user_name = getattr(current_user, "username", None)
-    return render_template(
-        "verification_periodique.html",
-        roots=root_payload,
-        current_user_name=current_user_name,
-    )
+@bp.get("/verification-publique")
+def verification_publique():
+    """Alias lisible et accessible sans connexion vers la vérification publique."""
+    return redirect(url_for("verification_periodique.public_catalog"))

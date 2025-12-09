@@ -72,7 +72,7 @@
           <li>Crée un compte nominatif par personne et désactive les accès en fin de mission.</li>
           <li>Ne te désactive pas toi-même 😉.</li>
           <li>Le rôle <strong>CHEF</strong> prépare les événements et partage les liens de vérification.</li>
-          <li>Le rôle <strong>VERIFICATIONPERIODIQUE</strong> donne accès à la page de contrôle sans modifier le stock.</li>
+          <li>La vérification publique est accessible sans compte ; surveille ici les retours et anomalies.</li>
         </ul>
       </div>
     </div>
@@ -83,13 +83,20 @@
       {% if recent_verifications %}
         <div class="verification-feed">
           {% for verif in recent_verifications %}
-            <div class="verif-row">
+            <div class="verif-row{% if verif.missing_count %} has-issues{% endif %}">
               <div class="verif-row__title">{{ verif.root_name }}</div>
               <div class="verif-row__meta">
                 <span>#{{ verif.id }}</span>
                 <span>{{ verif.verifier }}</span>
                 <span>{{ verif.source_label }}</span>
                 <span>{{ verif.timestamp.replace('T', ' ')[:16] if verif.timestamp else '—' }}</span>
+                <span class="verif-row__status{% if verif.missing_count %} is-bad{% else %} is-ok{% endif %}">
+                  {% if verif.missing_count %}
+                    {{ verif.missing_count }} anomalie(s)
+                  {% else %}
+                    Conforme
+                  {% endif %}
+                </span>
               </div>
               {% if verif.comment %}
                 <div class="verif-row__comment">{{ verif.comment }}</div>
