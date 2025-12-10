@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% set title = "Suivi des vérifications" %}
+{% block content %}
+<div class="verif-admin-page">
+  <section class="card verif-admin-hero">
+    <div>
+      <p class="eyebrow">Surveillance</p>
+      <h1>Suivre les vérifications enregistrées</h1>
+      <p class="verif-admin-hero__subtitle">Accès réservé aux administrateurs pour contrôler les derniers retours, repérer les anomalies et relancer des actions correctives.</p>
+      <div class="verif-admin-hero__actions">
+        <a class="btn ghost" href="/verification-publique">Aller au lien public</a>
+        <a class="btn primary" href="/dashboard">Ouvrir le tableau</a>
+      </div>
+    </div>
+    <div class="verif-admin-hero__stats">
+      <div class="stat-block">
+        <span class="stat-label">Sessions récentes</span>
+        <span class="stat-value">{{ sessions|length }}</span>
+        <span class="stat-hint">20 dernières vérifications</span>
+      </div>
+      <div class="stat-block">
+        <span class="stat-label">Anomalies signalées</span>
+        <span class="stat-value">{{ missing_items|length }}</span>
+        <span class="stat-hint">Signaux non conformes les plus récents</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="verif-admin-grid">
+    <section class="card verif-admin-card">
+      <div class="verif-admin-card__head">
+        <div>
+          <div class="title">Dernières vérifications</div>
+          <p class="muted">Sources internes et liens publics avec nombre d'anomalies.</p>
+        </div>
+      </div>
+      {% if sessions %}
+        <div class="verification-feed">
+          {% for verif in sessions %}
+            <div class="verif-row{% if verif.missing_count %} has-issues{% endif %}">
+              <div class="verif-row__title">{{ verif.root_name }}</div>
+              <div class="verif-row__meta">
+                <span>#{{ verif.id }}</span>
+                <span>{{ verif.verifier }}</span>
+                <span>{{ verif.source_label }}</span>
+                <span>{{ verif.timestamp.replace('T', ' ')[:16] if verif.timestamp else '—' }}</span>
+                <span class="verif-row__status{% if verif.missing_count %} is-bad{% else %} is-ok{% endif %}">
+                  {% if verif.missing_count %}
+                    {{ verif.missing_count }} anomalie(s)
+                  {% else %}
+                    Conforme
+                  {% endif %}
+                </span>
+              </div>
+              {% if verif.comment %}
+                <div class="verif-row__comment">{{ verif.comment }}</div>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted">Aucune vérification récente.</p>
+      {% endif %}
+    </section>
+
+    <section class="card verif-admin-card">
+      <div class="verif-admin-card__head">
+        <div>
+          <div class="title">Anomalies signalées</div>
+          <p class="muted">Items marqués non conformes avec quantité manquante et commentaires.</p>
+        </div>
+      </div>
+      {% if missing_items %}
+        <div class="missing-list">
+          {% for item in missing_items %}
+            <div class="missing-row">
+              <div class="missing-row__header">
+                <div>
+                  <div class="missing-row__title">{{ item.item_name }}</div>
+                  <div class="missing-row__meta">{{ item.root_name }}</div>
+                </div>
+                <span class="pill pill-bad">Non conforme</span>
+              </div>
+              <div class="missing-row__details">
+                <span class="missing-row__badge">#{{ item.id }}</span>
+                <span class="missing-row__badge">{{ item.verifier }}</span>
+                <span class="missing-row__badge">{{ item.created_at.replace('T', ' ')[:16] if item.created_at else '—' }}</span>
+                {% if item.issue %}
+                  <span class="missing-row__badge">Motif : {{ item.issue }}</span>
+                {% endif %}
+                {% if item.missing_qty not in (None, '') %}
+                  <span class="missing-row__badge">Manquant : {{ item.missing_qty }}</span>
+                {% endif %}
+              </div>
+              {% if item.comment %}
+                <div class="missing-row__comment">{{ item.comment }}</div>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted">Aucune anomalie non conforme enregistrée.</p>
+      {% endif %}
+    </section>
+  </div>
+</div>
+{% endblock %}
