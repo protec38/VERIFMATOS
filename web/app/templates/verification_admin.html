@@ -20,7 +20,7 @@
       </div>
       <div class="stat-block">
         <span class="stat-label">Anomalies signalées</span>
-        <span class="stat-value">{{ missing_items|length }}</span>
+        <span class="stat-value" id="missing-count">{{ missing_items|length }}</span>
         <span class="stat-hint">Signaux non conformes les plus récents</span>
       </div>
     </div>
@@ -79,7 +79,12 @@
                   <div class="missing-row__title">{{ item.item_name }}</div>
                   <div class="missing-row__meta">{{ item.root_name }}</div>
                 </div>
-                <span class="pill pill-bad">Non conforme</span>
+                <div class="missing-row__actions">
+                  <span class="pill pill-bad">Non conforme</span>
+                  {% if can_delete %}
+                    <button class="btn ghost xs js-delete-issue" data-id="{{ item.id }}">Supprimer</button>
+                  {% endif %}
+                </div>
               </div>
               <div class="missing-row__details">
                 <span class="missing-row__badge">#{{ item.id }}</span>
@@ -104,4 +109,44 @@
     </section>
   </div>
 </div>
+{% if can_delete and missing_items %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const counter = document.getElementById('missing-count');
+  const list = document.querySelector('.missing-list');
+  const buttons = document.querySelectorAll('.js-delete-issue');
+
+  const updateCounter = () => {
+    const remaining = document.querySelectorAll('.missing-row').length;
+    if(counter){ counter.textContent = String(Math.max(0, remaining)); }
+    if(remaining === 0 && list){
+      list.innerHTML = '<p class="muted">Aucune anomalie non conforme enregistrée.</p>';
+    }
+  };
+
+  buttons.forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const recordId = btn.dataset.id;
+      if(!recordId) return;
+      if(!confirm('Supprimer cette anomalie ?')) return;
+      btn.disabled = true;
+      const resp = await fetch(`/verification-periodique/records/${recordId}/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }).catch(() => null);
+      let data = {};
+      try{ data = await resp?.json(); }catch(_){ data = {}; }
+      if(resp && resp.ok){
+        const row = btn.closest('.missing-row');
+        if(row){ row.remove(); }
+        updateCounter();
+      } else {
+        alert(data.error || 'Suppression impossible.');
+        btn.disabled = false;
+      }
+    });
+  });
+});
+</script>
+{% endif %}
 {% endblock %}

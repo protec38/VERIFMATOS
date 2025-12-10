@@ -600,6 +600,7 @@ def verification_admin_view():
         "verification_admin.html",
         sessions=session_feed,
         missing_items=missing_payload,
+        can_delete=can_manage_event(),
     )
 
 
