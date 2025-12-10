@@ -84,7 +84,8 @@ def public_verify_item(token: str):
     """
     Enregistre une vérification d’ITEM.
     Body JSON: { node_id:int, status:"ok"|"not_ok"|"todo", verifier_name:str, comment?:str,
-                 issue_code?:"broken"|"missing"|"other", observed_qty?:int, missing_qty?:int }
+                 issue_code?:"broken"|"missing"|"other", observed_qty?:int, missing_qty?:int,
+                 expiry_id?:int, expiry_date?:"YYYY-MM-DD" }
     """
     link = EventShareLink.query.filter_by(token=token, active=True).first()
     if not link or not link.event:
@@ -99,6 +100,19 @@ def public_verify_item(token: str):
     except Exception:
         abort(400, description="node_id invalide")
 
+    expiry_id: Optional[int] = None
+    expiry_date: Optional[date] = None
+    if "expiry_id" in data and data.get("expiry_id") not in (None, ""):
+        try:
+            expiry_id = int(data.get("expiry_id"))
+        except Exception:
+            abort(400, description="expiry_id invalide")
+    if "expiry_date" in data and data.get("expiry_date"):
+        try:
+            expiry_date = date.fromisoformat(str(data.get("expiry_date")))
+        except Exception:
+            abort(400, description="expiry_date invalide")
+
     # status
     status_map = {"ok": ItemStatus.OK, "not_ok": ItemStatus.NOT_OK, "todo": ItemStatus.TODO}
     status_str = (data.get("status") or "").strip().lower()
@@ -111,8 +125,32 @@ def public_verify_item(token: str):
     if not verifier_name:
         abort(400, description="Nom du vérificateur requis")
 
-    # item
-    node = db.session.get(StockNode, node_id)
+    # item ou lot (lié à un item)
+    node = db.session.get(StockNode, node_id) if node_id else None
+
+    expiry: Optional[StockItemExpiry] = None
+    if expiry_id or expiry_date:
+        _ensure_expiry_table()
+        if expiry_id:
+            expiry = db.session.get(StockItemExpiry, expiry_id)
+            if not expiry:
+                abort(404, description="Lot introuvable")
+        if expiry is None and node_id and expiry_date:
+            expiry = (
+                StockItemExpiry.query
+                .filter_by(node_id=node_id, expiry_date=expiry_date)
+                .order_by(StockItemExpiry.id.asc())
+                .first()
+            )
+        if expiry is None and expiry_id:
+            abort(404, description="Lot introuvable")
+        if node is None:
+            source_node_id = expiry.node_id if expiry else node_id
+            node = db.session.get(StockNode, source_node_id) if source_node_id else None
+            node_id = node.id if node else None
+        elif expiry and expiry.node_id != node.id:
+            abort(400, description="Ce lot n'appartient pas à l'objet indiqué")
+
     if not node:
         abort(404, description="Item introuvable")
     if node.type != NodeType.ITEM and not getattr(node, "unique_item", False):
@@ -120,6 +158,19 @@ def public_verify_item(token: str):
 
     # optionnels
     comment = (data.get("comment") or "").strip() or None
+    if expiry is not None:
+        parts = []
+        if expiry.lot:
+            parts.append(f"Lot {expiry.lot}")
+        if expiry.expiry_date:
+            parts.append(f"péremption {expiry.expiry_date.isoformat()}")
+        if expiry.note:
+            parts.append(expiry.note)
+        lot_label = " | ".join(parts) or f"Lot #{expiry.id}"
+        comment = f"{lot_label} | {comment}" if comment else lot_label
+    elif expiry_date is not None:
+        exp_label = expiry_date.isoformat()
+        comment = f"Péremption {exp_label} | {comment}" if comment else f"Péremption {exp_label}"
 
     issue_code = None
     if "issue_code" in data and data["issue_code"]:

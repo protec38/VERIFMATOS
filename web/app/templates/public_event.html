@@ -300,7 +300,10 @@ function renderItem(n){
 
   const right = el("div",{class:"right"},
     el("button",{class:"btn xs success", onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(targetId,"OK"); }},"OK"),
-    el("button",{class:"btn xs ghost",   onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(targetId,"NOT_OK", {issue_code:'OTHER'}); }},"Non conforme")
+    el("button",{class:"btn xs ghost",   onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(targetId,"NOT_OK", {issue_code:'OTHER'}); }},"Non conforme"),
+    (Array.isArray(n.expiries) && n.expiries.length)
+      ? el("button",{class:"btn xs secondary", onclick:()=>{ if(!ensureOperatorOrAsk()) return; openLotVerificationModal(targetId); }},"Vérifier un lot")
+      : null
   );
 
   const wrap = el("div",{class:"item "+(s==="OK"?"state-ok":(s==="NOT_OK"?"state-bad":"state-wait")), id:`item-${safeId}`}, left, right);
@@ -742,6 +745,32 @@ function buildExpiryChoices(item){
     });
   }
   return out;
+}
+
+function openLotVerificationModal(itemId){
+  const item = NODE_MAP.get(itemId);
+  if(!item){ return; }
+  const choices = buildExpiryChoices(item);
+  if(!choices.length){ alert("Aucun lot enregistré pour cet objet."); return; }
+
+  const rows = choices.map(choice => {
+    const label = el("div",{class:"lot-label"}, choice.label);
+    const actions = el("div",{class:"lot-actions"},
+      el("button",{class:"btn xs success", onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(itemId,"OK", {expiry_id: choice.expiry_id, expiry_date: choice.date}).then(closeModal); }},"OK"),
+      el("button",{class:"btn xs ghost", onclick:()=>{ if(!ensureOperatorOrAsk()) return; verify(itemId,"NOT_OK", {issue_code:'OTHER', expiry_id: choice.expiry_id, expiry_date: choice.date}).then(closeModal); }},"Non conforme")
+    );
+    return el("div",{class:"lot-row"}, label, actions);
+  });
+
+  const card = el("div",{class:"modal-card"},
+    el("div",{class:"title", style:"margin-bottom:10px"},"Vérifier un lot"),
+    el("div",{class:"muted", style:"margin-bottom:10px"},"Sélectionnez le lot concerné."),
+    ...rows,
+    el("div",{class:"modal-actions"},
+      el("button",{class:"btn ghost", onclick:closeModal},"Fermer")
+    )
+  );
+  openModal(card);
 }
 
 /* ===== Charger (racine) ===== */
