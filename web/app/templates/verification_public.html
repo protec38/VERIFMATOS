@@ -25,6 +25,8 @@
     </div>
   </section>
 
+  <div id="public-flash" class="public-flash is-hidden"></div>
+
   <section class="card public-selector">
     <div>
       <div class="title">Choisir un sac / parent</div>
@@ -53,6 +55,10 @@
         <span class="chip ok" id="public-stat-ok">OK : 0</span>
         <span class="chip danger" id="public-stat-bad">Non conformes : 0</span>
         <span class="chip wait" id="public-stat-wait">En attente : 0</span>
+      </div>
+      <div class="public-progress-meta">
+        <span id="public-total-required">0 élément(s) à vérifier</span>
+        <span id="public-remaining-count">Encore 0 à traiter</span>
       </div>
       <div class="progress"><div id="public-progress-bar"></div></div>
       <div class="muted tree-hint" id="public-progress-text">0 / 0 vérifiés</div>
@@ -100,12 +106,38 @@
 const RAW_TREE = {{ tree_data|tojson }};
 const TREE_DATA = Array.isArray(RAW_TREE) ? RAW_TREE : [];
 const PUBLIC_SUBMIT_URL = {{ public_submit_url|tojson }} || window.location.pathname;
+const PUBLIC_RETURN_URL = {{ url_for('verification_periodique.public_catalog')|tojson }} || window.location.pathname;
 const STATE = new Map();
 let LAST_TOTAL = 0;
 let LAST_OK = 0;
 let LAST_BAD = 0;
+let LAST_SCOPE_TOTAL = 0;
 let SELECTED_PARENT = null;
 let VERIFICATION_STARTED = false;
+
+function showFlash(message, tone = 'success'){
+  const zone = document.getElementById('public-flash');
+  if(!zone) return;
+  zone.innerHTML = `<div class="alert ${tone}">${message}</div>`;
+  zone.classList.remove('is-hidden');
+}
+
+function handleSavedBanner(){
+  const params = new URLSearchParams(window.location.search || '');
+  if(params.get('saved') !== '1') return;
+  const verifier = params.get('verifier') || 'Vérification enregistrée';
+  const rootName = params.get('root') || 'objet sélectionné';
+  const missing = Number(params.get('missing') || 0);
+  const detail = missing > 0 ? `${missing} anomalie(s) signalée(s).` : 'Aucune anomalie signalée.';
+  showFlash(`Vérification enregistrée pour ${verifier} sur ${rootName}. ${detail}`);
+  params.delete('saved');
+  params.delete('verifier');
+  params.delete('root');
+  params.delete('missing');
+  const cleaned = params.toString();
+  const target = window.location.pathname + (cleaned ? `?${cleaned}` : '') + window.location.hash;
+  window.history.replaceState({}, document.title, target);
+}
 
 function walkNodes(nodes, fn){
   (nodes||[]).forEach(n => {
@@ -210,9 +242,7 @@ function renderBagOptions(){
   select.addEventListener('change', () => {
     SELECTED_PARENT = Number(select.value);
     updateSelectionLabel();
-    if(VERIFICATION_STARTED){
-      renderTree(TREE_DATA);
-    }
+    renderTree(TREE_DATA);
   });
 }
 
@@ -246,8 +276,11 @@ function setComment(id, text){
 function renderTree(nodes){
   const wrap = document.getElementById('public-tree');
   if(!wrap) return;
+  LAST_SCOPE_TOTAL = collectScopedItems().length;
   if(!VERIFICATION_STARTED){
     wrap.innerHTML = '<div class="muted">Clique sur « Vérifier » pour afficher le contenu sélectionné.</div>';
+    updateProgress();
+    updateSummary();
     return;
   }
   wrap.innerHTML = '';
@@ -365,16 +398,25 @@ function renderNode(node){
 function updateProgress(){
   const bar = document.getElementById('public-progress-bar');
   const text = document.getElementById('public-progress-text');
-  const wait = Math.max(LAST_TOTAL - LAST_OK - LAST_BAD, 0);
-  const pct = LAST_TOTAL === 0 ? 0 : Math.round((LAST_OK / LAST_TOTAL) * 100);
+  const total = LAST_SCOPE_TOTAL || LAST_TOTAL;
+  const wait = Math.max(total - LAST_OK - LAST_BAD, 0);
+  const pct = total === 0 ? 0 : Math.round((LAST_OK / total) * 100);
   if(bar){ bar.style.width = pct + '%'; }
-  if(text){ text.textContent = `${LAST_OK} / ${LAST_TOTAL} vérifiés`; }
+  if(text){ text.textContent = `${LAST_OK} / ${total} vérifiés`; }
   const okChip = document.getElementById('public-stat-ok');
   const badChip = document.getElementById('public-stat-bad');
   const waitChip = document.getElementById('public-stat-wait');
   if(okChip) okChip.textContent = `OK : ${LAST_OK}`;
   if(badChip) badChip.textContent = `Non conformes : ${LAST_BAD}`;
   if(waitChip) waitChip.textContent = `En attente : ${wait}`;
+  const totalLabel = document.getElementById('public-total-required');
+  const remainLabel = document.getElementById('public-remaining-count');
+  if(totalLabel){
+    totalLabel.textContent = `${total} élément${total > 1 ? 's' : ''} à vérifier`;
+  }
+  if(remainLabel){
+    remainLabel.textContent = wait === 0 ? 'Tout est traité' : `${wait} à terminer`;
+  }
 }
 
 function updateSummary(){
@@ -474,9 +516,12 @@ function submitForm(evt){
   }).then(async resp => {
     const data = await resp.json().catch(() => ({}));
     if(resp.ok){
-      if(feedback){
-        feedback.innerHTML = `<div class="alert success">✅ Vérification enregistrée pour ${first}. (${data.session?.missing_items || 0} anomalie(s))</div>`;
-      }
+      const redirect = new URL(PUBLIC_RETURN_URL || window.location.pathname, window.location.origin);
+      redirect.searchParams.set('saved', '1');
+      redirect.searchParams.set('verifier', `${first} ${last}`.trim());
+      redirect.searchParams.set('root', data.root?.name || '');
+      redirect.searchParams.set('missing', data.session?.missing_items || 0);
+      window.location.href = redirect.toString();
     }else{
       const message = data.error || 'Impossible d’enregistrer la vérification.';
       if(feedback){
@@ -494,6 +539,7 @@ function submitForm(evt){
 
 function init(){
   walkNodes(TREE_DATA, ensureState);
+  handleSavedBanner();
   renderBagOptions();
   const form = document.getElementById('verification-form');
   if(form){

@@ -28,6 +28,8 @@ from .models import (
     User,
     AuditLog,
     PeriodicVerificationSession,
+    PeriodicVerificationRecord,
+    ItemStatus,
 )
 from .tree_query import build_event_tree
 from .stock.service import list_roots
@@ -512,6 +514,92 @@ def admin_page():
         users=users,
         Role=Role,
         recent_verifications=recent_verifications,
+    )
+
+
+def _resolve_root_name(node: StockNode | None) -> str | None:
+    current = node
+    guard = 0
+    while current is not None and current.parent_id is not None and guard < 50:
+        current = current.parent
+        guard += 1
+    return getattr(current, "name", None)
+
+
+@bp.get("/suivi-verifications")
+@login_required
+def verification_admin_view():
+    if not is_admin():
+        abort(403)
+
+    try:
+        PeriodicVerificationSession.__table__.create(bind=db.engine, checkfirst=True)
+        PeriodicVerificationRecord.__table__.create(bind=db.engine, checkfirst=True)
+    except Exception:
+        db.session.rollback()
+
+    sessions = (
+        PeriodicVerificationSession.query
+        .order_by(PeriodicVerificationSession.created_at.desc())
+        .limit(20)
+        .all()
+    )
+
+    session_feed = []
+    for session in sessions:
+        timestamp = session.created_at
+        display_name = (
+            session.verifier_name
+            or (
+                f"{(session.verifier_first_name or '').strip()} {(session.verifier_last_name or '').strip()}".strip()
+            )
+            or getattr(getattr(session, "verifier", None), "username", None)
+            or None
+        )
+        if display_name:
+            display_name = " ".join(display_name.split())
+        source = (session.source or "internal").lower()
+        source_label = "Lien public" if source.startswith("public") else "Interne"
+        session_feed.append(
+            {
+                "id": session.id,
+                "verifier": display_name or "Inconnu",
+                "timestamp": timestamp.isoformat() if timestamp else None,
+                "source_label": source_label,
+                "comment": session.comment,
+                "root_name": getattr(getattr(session, "root", None), "name", None) or "Parent non trouvé",
+                "missing_count": getattr(session, "missing_count", 0) or 0,
+            }
+        )
+
+    missing_records = (
+        PeriodicVerificationRecord.query
+        .filter(PeriodicVerificationRecord.status == ItemStatus.NOT_OK)
+        .order_by(PeriodicVerificationRecord.created_at.desc())
+        .limit(30)
+        .all()
+    )
+
+    missing_payload = []
+    for rec in missing_records:
+        node = getattr(rec, "node", None)
+        missing_payload.append(
+            {
+                "id": rec.id,
+                "item_name": getattr(node, "name", None) or f"Item #{rec.node_id}",
+                "root_name": _resolve_root_name(node) or "Parent inconnu",
+                "missing_qty": rec.missing_qty,
+                "comment": rec.comment,
+                "issue": getattr(rec.issue_code, "name", None),
+                "verifier": rec.verifier_name or getattr(getattr(rec, "verifier", None), "username", None) or "Inconnu",
+                "created_at": rec.created_at.isoformat() if rec.created_at else None,
+            }
+        )
+
+    return render_template(
+        "verification_admin.html",
+        sessions=session_feed,
+        missing_items=missing_payload,
     )
 
 

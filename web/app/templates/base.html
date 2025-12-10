@@ -29,6 +29,9 @@
           <p class="header-rail__hint">Menus regroupés, actions essentielles en un coup d'œil.</p>
           <nav class="header-nav" aria-label="Navigation principale">
             <a class="header-link{% if _path.startswith('/verification-publique') or _path.startswith('/verification-periodique/public') %} is-active{% endif %}" href="/verification-publique">Vérification publique</a>
+            {% if _cu and _cu.is_authenticated and _cu.role and _cu.role.name == 'ADMIN' %}
+              <a class="header-link{% if _path.startswith('/suivi-verifications') %} is-active{% endif %}" href="/suivi-verifications">Suivi vérifs</a>
+            {% endif %}
             <a class="header-link{% if _path.startswith('/dashboard') %} is-active{% endif %}" href="/dashboard">Tableau</a>
             <a class="header-link{% if _path.startswith('/calendar') %} is-active{% endif %}" href="/calendar">Agenda</a>
             <a class="header-link{% if _path.startswith('/templates') %} is-active{% endif %}" href="/templates">Lots &amp; modèles</a>
@@ -88,6 +91,10 @@
             {% if _cu.role and _cu.role.name == 'ADMIN' %}
               <div class="nav-section">
                 <div class="nav-label">Administration</div>
+                <a class="nav-item{% if _path.startswith('/suivi-verifications') %} is-active{% endif %}" href="/suivi-verifications">
+                  <span class="nav-item__label">Suivi vérifs</span>
+                  <span class="nav-item__hint">Derniers contrôles et anomalies signalées.</span>
+                </a>
                 <a class="nav-item{% if _path.startswith('/stock') %} is-active{% endif %}" href="/stock">
                   <span class="nav-item__label">Stock</span>
                   <span class="nav-item__hint">Suivi des consommables et des équipements.</span>
