@@ -795,7 +795,9 @@ def finish_root():
     actor_id = getattr(current_user, "id", None)
     actor_name = getattr(current_user, "username", None)
     comment_raw = (payload.get("comment") or "").strip()
-    reset_requested = payload.get("reset", True)
+    # Toujours remettre les éléments en attente après validation afin que
+    # le lien public propose une nouvelle vérification complète.
+    reset_requested = True
 
     session = PeriodicVerificationSession(
         root_id=root.id,
