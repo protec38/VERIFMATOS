@@ -169,10 +169,24 @@ function collectParents(){
   return TREE_DATA.map(root => ({ id: root.id, label: root.name || 'Objet' }));
 }
 
+function expectedQuantity(node){
+  if(!node) return 0;
+  const rawQty = (node.selected_quantity ?? node.quantity ?? node.unique_quantity ?? 1);
+  const qty = Number(rawQty);
+  if(Number.isFinite(qty) && qty > 0){
+    return qty;
+  }
+  return 1;
+}
+
 function countChildItems(node){
   if(!node) return 0;
   let total = 0;
-  walkNodes(node.children, child => { if(isItem(child)) total += 1; });
+  walkNodes(node.children, child => {
+    if(isItem(child)){
+      total += expectedQuantity(child);
+    }
+  });
   return total;
 }
 
@@ -337,7 +351,7 @@ function renderNode(node){
     const meta = document.createElement('div');
     meta.className = 'muted';
     const expectedCount = countChildItems(node);
-    meta.textContent = `${expectedCount} sous-élément(s) attendus`;
+    meta.textContent = `${expectedCount} élément${expectedCount > 1 ? 's' : ''} requis`;
     header.appendChild(meta);
     header.addEventListener('click', () => {
       if(childWrap){
@@ -345,6 +359,12 @@ function renderNode(node){
       }
     });
   } else {
+    const qty = expectedQuantity(node);
+    const qtyLabel = document.createElement('div');
+    qtyLabel.className = 'muted';
+    qtyLabel.textContent = `Quantité requise : ${qty}`;
+    header.appendChild(qtyLabel);
+
     const actions = document.createElement('div');
     actions.className = 'item-actions';
     const okBtn = document.createElement('button');

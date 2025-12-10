@@ -45,6 +45,13 @@ def _can_access() -> bool:
     )
 
 
+def _can_manage_records() -> bool:
+    return current_user.is_authenticated and current_user.role in (
+        Role.ADMIN,
+        Role.CHEF,
+    )
+
+
 def _ensure_table() -> None:
     try:
         PeriodicVerificationRecord.__table__.create(bind=db.engine, checkfirst=True)
@@ -570,6 +577,9 @@ def public_catalog_submit():
     )
     db.session.add(session)
 
+    db.session.flush()
+    reset_count = _reset_items_to_todo(root, actor_id=None, actor_name=full_name or None)
+
     try:
         db.session.commit()
     except Exception:
@@ -586,6 +596,7 @@ def public_catalog_submit():
                 "missing_items": session.missing_count,
             },
             "root": {"id": root.id, "name": root.name},
+            "reset": reset_count,
         }
     )
 
@@ -698,6 +709,30 @@ def verify_item():
     db.session.commit()
 
     return jsonify({"ok": True, "record_id": rec.id})
+
+
+@bp.post("/records/<int:record_id>/delete")
+@bp.delete("/records/<int:record_id>")
+@login_required
+def delete_record(record_id: int):
+    if not _can_manage_records():
+        return jsonify(error="Forbidden"), 403
+
+    _ensure_table()
+
+    rec = db.session.get(PeriodicVerificationRecord, record_id)
+    if not rec:
+        return jsonify(error="Enregistrement introuvable"), 404
+
+    db.session.delete(rec)
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify(error="Suppression impossible"), 500
+
+    return jsonify(ok=True, deleted=record_id)
 
 
 @bp.post("/reset")
@@ -929,6 +964,9 @@ def public_share(token: str):
         except Exception:
             pass
 
+        db.session.flush()
+        reset_count = _reset_items_to_todo(root, actor_id=None, actor_name=full_name or None)
+
         try:
             db.session.commit()
         except Exception:
@@ -945,6 +983,7 @@ def public_share(token: str):
                     "missing_items": session.missing_count,
                 },
                 "root": {"id": root.id, "name": root.name},
+                "reset": reset_count,
             }
         )
 
