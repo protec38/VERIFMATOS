@@ -394,6 +394,23 @@ button { font-family: inherit; }
 .public-card__header { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
 .public-card--tree { grid-column: span 2; }
 .public-card .progress { margin-top: 6px; }
+.tree { display: flex; flex-direction: column; gap: 10px; }
+.node { border: 1px solid var(--border); border-radius: 12px; padding: 12px; background: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.04); }
+.node .header { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: space-between; }
+.node .name { font-weight: 700; flex: 1; }
+.node.state-ok { border-color: #16a34a; box-shadow: 0 0 0 2px #dcfce7; }
+.node.state-bad { border-color: #dc2626; box-shadow: 0 0 0 2px #fee2e2; }
+.node.state-wait { border-color: #2563eb; box-shadow: 0 0 0 2px #dbeafe; }
+.node .childs { margin-top: 10px; border-left: 2px dashed var(--border); padding-left: 12px; display: flex; flex-direction: column; gap: 10px; }
+.node .childs.collapsed { display: none; }
+.node .item-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.node .item-detail { margin-top: 10px; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.node .item-detail.collapsed { display: none; }
+.node .item-detail label { font-weight: 600; font-size: 13px; color: var(--muted); }
+.status-pill { padding: 4px 10px; border-radius: 999px; font-weight: 700; font-size: 12px; border: 1px solid var(--border); background: #f8fafc; color: var(--muted); }
+.status-pill.is-ok { background: #dcfce7; color: #166534; border-color: #16a34a; }
+.status-pill.is-bad { background: #fee2e2; color: #991b1b; border-color: #dc2626; }
+.status-pill.is-wait { background: #e0f2fe; color: #1d4ed8; border-color: #2563eb; }
 
 .issues-list { display: flex; flex-direction: column; gap: 12px; }
 .issue-row { border: 1px solid #fecdd3; border-radius: 10px; padding: 10px; background: #fff1f2; }

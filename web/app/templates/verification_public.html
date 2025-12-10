@@ -134,18 +134,7 @@ function findRootIdForSelection(id){
 }
 
 function collectParents(){
-  const options = [];
-  TREE_DATA.forEach(root => {
-    walkNodes([root], node => {
-      const type = (node.type || '').toUpperCase();
-      const hasChildren = (node.children || []).length > 0;
-      const isContainer = type !== 'ITEM' || node.unique_parent || hasChildren;
-      if(isContainer){
-        options.push({ id: node.id, label: node.name || 'Objet' });
-      }
-    });
-  });
-  return options;
+  return TREE_DATA.map(root => ({ id: root.id, label: root.name || 'Objet' }));
 }
 
 function collectScopedItems(){
@@ -156,11 +145,37 @@ function collectScopedItems(){
   return allowed;
 }
 
+function getScopedNodes(){
+  const selected = SELECTED_PARENT ? findNodeById(TREE_DATA, SELECTED_PARENT) : null;
+  return selected ? [selected] : TREE_DATA;
+}
+
 function isItem(node){
   if(!node) return false;
   if(node.unique_parent) return true;
   const type = (node.type || '').toUpperCase();
   return type === 'ITEM' || (!!node.unique_item && !(node.children||[]).length);
+}
+
+function getNodeStatus(node){
+  if(!node) return 'TODO';
+  if(isItem(node)){
+    return (STATE.get(node.id)?.status || 'TODO').toUpperCase();
+  }
+  const children = node.children || [];
+  if(!children.length) return 'TODO';
+  let hasBad = false;
+  let hasWait = false;
+  let hasOk = false;
+  children.forEach(child => {
+    const status = getNodeStatus(child);
+    if(status === 'NOT_OK') hasBad = true;
+    else if(status === 'OK') hasOk = true;
+    else hasWait = true;
+  });
+  if(hasBad) return 'NOT_OK';
+  if(hasWait) return 'TODO';
+  return hasOk ? 'OK' : 'TODO';
 }
 
 function getInitialStatus(node){
@@ -254,7 +269,7 @@ function renderTree(nodes){
 
 function renderNode(node){
   const statusInfo = STATE.get(node.id) || {};
-  const status = (statusInfo.status || 'TODO').toUpperCase();
+  const status = getNodeStatus(node);
   if(isItem(node)){
     LAST_TOTAL += 1;
     if(status === 'OK') LAST_OK += 1;
@@ -268,6 +283,11 @@ function renderNode(node){
   name.className = 'name';
   name.textContent = node.name || '—';
   header.appendChild(name);
+
+  const badge = document.createElement('span');
+  badge.className = `status-pill ${status === 'OK' ? 'is-ok' : status === 'NOT_OK' ? 'is-bad' : 'is-wait'}`;
+  badge.textContent = status === 'OK' ? 'Validé' : status === 'NOT_OK' ? 'Anomalie' : 'À vérifier';
+  header.appendChild(badge);
 
   const hasChildren = node.children && node.children.length;
   let childWrap = null;
@@ -362,7 +382,7 @@ function updateSummary(){
   if(!list) return;
   list.innerHTML = '';
   const problems = [];
-  walkNodes(TREE_DATA, n => {
+  getScopedNodes().forEach(root => walkNodes([root], n => {
     if(!isItem(n)) return;
     const s = (STATE.get(n.id)?.status || 'TODO').toUpperCase();
     if(s === 'NOT_OK'){
@@ -373,7 +393,7 @@ function updateSummary(){
         comment: STATE.get(n.id)?.comment || ''
       });
     }
-  });
+  }));
   if(!problems.length){
     list.classList.add('muted');
     list.textContent = 'Aucune anomalie pour l’instant.';
