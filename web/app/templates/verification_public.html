@@ -169,6 +169,13 @@ function collectParents(){
   return TREE_DATA.map(root => ({ id: root.id, label: root.name || 'Objet' }));
 }
 
+function countChildItems(node){
+  if(!node) return 0;
+  let total = 0;
+  walkNodes(node.children, child => { if(isItem(child)) total += 1; });
+  return total;
+}
+
 function collectScopedItems(){
   const allowed = [];
   const target = SELECTED_PARENT ? findNodeById(TREE_DATA, SELECTED_PARENT) : null;
@@ -329,7 +336,8 @@ function renderNode(node){
     childWrap.className = 'childs';
     const meta = document.createElement('div');
     meta.className = 'muted';
-    meta.textContent = `${node.children.length} sous-élément(s)`;
+    const expectedCount = countChildItems(node);
+    meta.textContent = `${expectedCount} sous-élément(s) attendus`;
     header.appendChild(meta);
     header.addEventListener('click', () => {
       if(childWrap){
@@ -349,14 +357,8 @@ function renderNode(node){
     badBtn.className = 'btn danger xs';
     badBtn.textContent = 'Manquant';
     badBtn.addEventListener('click', () => setState(node.id, 'NOT_OK'));
-    const waitBtn = document.createElement('button');
-    waitBtn.type = 'button';
-    waitBtn.className = 'btn ghost xs';
-    waitBtn.textContent = 'Attente';
-    waitBtn.addEventListener('click', () => setState(node.id, 'TODO'));
     actions.appendChild(okBtn);
     actions.appendChild(badBtn);
-    actions.appendChild(waitBtn);
     header.appendChild(actions);
   }
 
