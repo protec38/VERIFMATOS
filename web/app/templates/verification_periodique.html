@@ -61,7 +61,7 @@
           <button id="reset-root" class="btn ghost">Tout remettre en attente</button>
           <div class="finish-controls">
             <input id="finish-comment" class="input" type="text" placeholder="Commentaire global (facultatif)" />
-            <label class="checkbox-inline"><input type="checkbox" id="finish-reset" checked> Remettre en attente après enregistrement</label>
+            <p class="muted finish-note">Les items seront remis en attente après enregistrement.</p>
             <button id="finish-btn" class="btn primary">Clôturer la vérification</button>
           </div>
         </div>
@@ -553,7 +553,7 @@ async function resetRoot() {
 async function finishSession() {
   if (!state.currentRootId) return;
   const comment = document.getElementById('finish-comment').value;
-  const reset = document.getElementById('finish-reset').checked;
+  const reset = true;
   const resp = await fetch('/verification-periodique/finish', {
     method: 'POST',
     credentials: 'include',
