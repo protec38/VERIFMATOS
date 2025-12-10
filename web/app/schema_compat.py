@@ -172,6 +172,21 @@ def _ensure_periodic_session_tables(conn: Connection) -> None:
         except Exception as exc:  # pragma: no cover - garde-fou
             current_app.logger.warning("Unable to ensure %s table: %s", model.__tablename__, exc)
 
+    try:
+        inspector = inspect(conn)
+        columns = {col["name"] for col in inspector.get_columns("periodic_verification_sessions")}
+    except Exception as exc:  # pragma: no cover - garde-fou
+        current_app.logger.warning("Unable to inspect periodic_verification_sessions columns: %s", exc)
+        return
+
+    if "missing_count" not in columns:
+        current_app.logger.info("Adding column periodic_verification_sessions.missing_count")
+        _execute_ignore_duplicate(
+            conn,
+            "ALTER TABLE periodic_verification_sessions "
+            "ADD COLUMN missing_count INTEGER NOT NULL DEFAULT 0",
+        )
+
 
 def _ensure_audit_table(conn: Connection) -> None:
     try:
