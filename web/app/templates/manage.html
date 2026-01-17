@@ -10,9 +10,8 @@
       <div class="title">Pilote ton arborescence de matériel</div>
       <p class="subtitle">Structure les parents racines, organise les sous-ensembles et prépare les items pour les événements ou les contrôles périodiques.</p>
       <div class="hero-actions">
-        <a class="btn primary" href="#roots">Ajouter un parent</a>
+        <button class="btn primary" type="button" onclick="openAddModal(null,'GROUP')">➕ Créer un parent racine</button>
         <a class="btn" href="#tree">Accéder à l’arbre</a>
-        <a class="btn" href="/stock/export.json" download>⬇ Export JSON</a>
       </div>
     </div>
     <div class="stat-box">
@@ -544,33 +543,21 @@ function nodeEl(n){
   head.append(name);
 
   // Actions
-  const right = h('div', {style:'margin-left:auto; display:flex; gap:6px; align-items:center'});
+  const right = h('div', {style:'margin-left:auto; display:flex; gap:6px; align-items:center; flex-wrap:wrap'});
 
-  // Ajouter ▾ (GROUP)
   if(n.type==='GROUP'){
-    const ddAdd = h('div', {class:'dd'});
-    const btnAdd = h('button', {class:'btn', onclick: (e)=>{ e.stopPropagation(); ddAdd.classList.toggle('show'); }}, 'Ajouter ▾');
-    const menuAdd = h('div', {class:'dd-menu'});
-    menuAdd.append(
-      h('button', {onclick: ()=>{ ddAdd.classList.remove('show'); openAddModal(n.id, 'GROUP'); }}, '➕ Sous-parent'),
-      h('button', {onclick: ()=>{ ddAdd.classList.remove('show'); openAddModal(n.id, 'ITEM'); }}, '➕ Item'),
+    right.append(
+      h('button', {class:'btn', onclick: ()=> openAddModal(n.id, 'GROUP')}, '➕ Sous-parent'),
+      h('button', {class:'btn', onclick: ()=> openAddModal(n.id, 'ITEM')}, '➕ Item'),
     );
-    ddAdd.append(btnAdd, menuAdd);
-    right.append(ddAdd);
   }
 
-  // ⋯ Ops
-  const ddOps = h('div', {class:'dd dd-ops'});
-  const btnOps = h('button', {class:'btn', onclick: (e)=>{ e.stopPropagation(); ddOps.classList.toggle('show'); }}, '⋯');
-  const menuOps = h('div', {class:'dd-menu'});
-  menuOps.append(
-    h('button', {onclick: ()=>{ ddOps.classList.remove('show'); openEditModal(n.id); }}, 'Éditer…'),
-    h('button', {onclick: ()=>{ ddOps.classList.remove('show'); openDupModal(n.id); }}, 'Dupliquer…'),
-    h('button', {onclick: ()=>{ ddOps.classList.remove('show'); openMoveModal(n.id); }}, 'Déplacer…'),
-    h('button', {onclick: ()=>{ ddOps.classList.remove('show'); confirmDelete(n.id); }}, 'Supprimer…'),
+  right.append(
+    h('button', {class:'btn', onclick: ()=> openEditModal(n.id)}, 'Éditer'),
+    h('button', {class:'btn', onclick: ()=> openMoveModal(n.id)}, 'Déplacer'),
+    h('button', {class:'btn', onclick: ()=> openDupModal(n.id)}, 'Dupliquer'),
+    h('button', {class:'btn danger', onclick: ()=> confirmDelete(n.id)}, 'Supprimer'),
   );
-  ddOps.append(btnOps, menuOps);
-  right.append(ddOps);
 
   head.append(right);
 
@@ -1006,7 +993,19 @@ let ADD_PARENT_ID = null;
 function openAddModal(parentId, defaultType){
   ADD_PARENT_ID = parentId || null;
   const typeSel = document.getElementById('add-type');
+  const groupOption = typeSel.querySelector('option[value="GROUP"]');
+  const itemOption = typeSel.querySelector('option[value="ITEM"]');
+  const isRootCreate = ADD_PARENT_ID === null;
+  if(groupOption){
+    groupOption.textContent = isRootCreate ? 'Parent racine' : 'Sous-parent';
+  }
+  if(itemOption){
+    itemOption.disabled = isRootCreate;
+  }
   typeSel.value = (defaultType || 'GROUP');
+  if(isRootCreate){
+    typeSel.value = 'GROUP';
+  }
   document.getElementById('add-name').value = '';
   document.getElementById('add-qty').value = 1;
   document.getElementById('add-expiry').value = '';
@@ -1040,11 +1039,23 @@ function closeAddModal(){
   ADD_PARENT_ID = null;
   const addCatField = document.getElementById('add-root-category-field');
   const addCatSelect = document.getElementById('add-root-category');
+  const typeSel = document.getElementById('add-type');
+  const groupOption = typeSel?.querySelector('option[value="GROUP"]');
+  const itemOption = typeSel?.querySelector('option[value="ITEM"]');
+  if(groupOption){
+    groupOption.textContent = 'Sous-parent';
+  }
+  if(itemOption){
+    itemOption.disabled = false;
+  }
   if(addCatField) addCatField.style.display = 'none';
   if(addCatSelect) addCatSelect.value = '';
 }
 document.addEventListener('change', (e)=>{
   if(e.target && e.target.id === 'add-type'){
+    if(ADD_PARENT_ID === null && e.target.value === 'ITEM'){
+      e.target.value = 'GROUP';
+    }
     const isItem = (e.target.value === 'ITEM');
     const addItemFields = document.getElementById('add-item-fields');
     const addGroupFields = document.getElementById('add-group-fields');
@@ -1075,6 +1086,10 @@ async function confirmAdd(){
   const type = document.getElementById('add-type').value;
   const name = (document.getElementById('add-name').value || '').trim();
   if(!name){ alert('Nom requis'); return; }
+  if(ADD_PARENT_ID === null && type !== 'GROUP'){
+    alert('Un parent racine doit être de type groupe.');
+    return;
+  }
   const payload = { name, type, parent_id: ADD_PARENT_ID };
   if(type === 'ITEM'){
     let q = parseInt(document.getElementById('add-qty').value || '0', 10);
@@ -1156,9 +1171,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
 document.addEventListener('DOMContentLoaded', ()=>{
   // Buttons
   document.getElementById('btn-import').onclick = doImport;
-document.getElementById('btn-root-add').onclick = ()=> openAddModal(null,'GROUP');
-const btnCatAdd = document.getElementById('btn-root-cat-add');
-if(btnCatAdd){ btnCatAdd.onclick = createCategoryPrompt; }
+  document.getElementById('btn-root-add').onclick = ()=> openAddModal(null,'GROUP');
+  const btnCatAdd = document.getElementById('btn-root-cat-add');
+  if(btnCatAdd){ btnCatAdd.onclick = createCategoryPrompt; }
   const expAddBtn = document.getElementById('edit-exp-add');
   if(expAddBtn){
     expAddBtn.addEventListener('click', async ()=>{
@@ -1197,11 +1212,6 @@ if(btnCatAdd){ btnCatAdd.onclick = createCategoryPrompt; }
       }
     });
   }
-
-  // Close dropdowns on outside click
-  document.addEventListener('click', (e)=>{
-    document.querySelectorAll('.dd.show').forEach(dd=>{ if(!dd.contains(e.target)) dd.classList.remove('show'); });
-  });
 
   // Global search
   const g = document.getElementById('global-search');
