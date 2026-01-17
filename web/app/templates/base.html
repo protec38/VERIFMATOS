@@ -14,7 +14,6 @@
     <header class="site-header">
       <div class="header-inner">
         <div class="header-group">
-          <button class="nav-toggle" id="nav-toggle" type="button" aria-label="Ouvrir le menu" aria-controls="nav-drawer" aria-expanded="false">☰</button>
           <div class="brand">
             <img src="{{ url_for('static', filename='pc_logo.webp') }}" alt="Protection Civile" class="brand__logo" loading="lazy" onerror="this.style.display='none'">
             <div class="brand__text">
@@ -22,20 +21,6 @@
               <span class="brand__subtitle">Matériel &amp; interventions</span>
             </div>
           </div>
-          <span class="brand-chip">Navigation claire</span>
-        </div>
-
-        <div class="header-rail">
-          <p class="header-rail__hint">Menus regroupés, actions essentielles en un coup d'œil.</p>
-          <nav class="header-nav" aria-label="Navigation principale">
-            <a class="header-link{% if _path.startswith('/verification-publique') or _path.startswith('/verification-periodique/public') %} is-active{% endif %}" href="/verification-publique">Vérification publique</a>
-            {% if _cu and _cu.is_authenticated and _cu.role and _cu.role.name == 'ADMIN' %}
-              <a class="header-link{% if _path.startswith('/suivi-verifications') %} is-active{% endif %}" href="/suivi-verifications">Suivi vérifs</a>
-            {% endif %}
-            <a class="header-link{% if _path.startswith('/dashboard') %} is-active{% endif %}" href="/dashboard">Tableau</a>
-            <a class="header-link{% if _path.startswith('/calendar') %} is-active{% endif %}" href="/calendar">Agenda</a>
-            <a class="header-link{% if _path.startswith('/templates') %} is-active{% endif %}" href="/templates">Lots &amp; modèles</a>
-          </nav>
         </div>
 
         <div class="header-actions">
@@ -45,88 +30,25 @@
           {% else %}
             <a class="btn" href="/login">Connexion</a>
           {% endif %}
-          <a class="btn primary" href="/dashboard">Action rapide</a>
         </div>
       </div>
+      <nav class="header-nav" aria-label="Navigation principale">
+        <a class="header-link{% if _path.startswith('/verification-publique') or _path.startswith('/verification-periodique/public') %} is-active{% endif %}" href="/verification-publique">Vérification publique</a>
+        {% if _cu and _cu.is_authenticated %}
+          <a class="header-link{% if _path.startswith('/dashboard') %} is-active{% endif %}" href="/dashboard">Tableau</a>
+          <a class="header-link{% if _path.startswith('/stock') %} is-active{% endif %}" href="/stock">Stock</a>
+          <a class="header-link{% if _path.startswith('/calendar') %} is-active{% endif %}" href="/calendar">Agenda</a>
+          {% if _cu.role and _cu.role.name in ['ADMIN', 'CHEF'] %}
+            <a class="header-link{% if _path.startswith('/templates') %} is-active{% endif %}" href="/templates">Lots &amp; modèles</a>
+          {% endif %}
+          {% if _cu.role and _cu.role.name == 'ADMIN' %}
+            <a class="header-link{% if _path.startswith('/suivi-verifications') %} is-active{% endif %}" href="/suivi-verifications">Suivi vérifs</a>
+          {% endif %}
+        {% endif %}
+      </nav>
     </header>
 
     <div class="site-body">
-      <aside class="nav-drawer" id="nav-drawer" data-open="false" aria-label="Menu principal">
-        <div class="nav-drawer__header">
-          <span class="nav-drawer__title">Navigation</span>
-          <button class="nav-close" id="nav-close" type="button" aria-label="Fermer">×</button>
-        </div>
-        <div class="nav-drawer__content">
-          <div class="nav-section">
-            <div class="nav-label">Entrées rapides</div>
-            <a class="nav-item{% if _path.startswith('/verification-publique') or _path.startswith('/verification-periodique/public') %} is-active{% endif %}" href="/verification-publique">
-              <span class="nav-item__label">Vérification publique</span>
-              <span class="nav-item__hint">Suivi des contrôles sans compte.</span>
-            </a>
-            <a class="nav-item{% if _path.startswith('/dashboard') %} is-active{% endif %}" href="/dashboard">
-              <span class="nav-item__label">Tableau de bord</span>
-              <span class="nav-item__hint">Vue synthèse du matériel et des actions.</span>
-            </a>
-          </div>
-
-          {% if _cu and _cu.is_authenticated %}
-            <div class="nav-section">
-              <div class="nav-label">Opérations</div>
-              <a class="nav-item{% if _path.startswith('/calendar') %} is-active{% endif %}" href="/calendar">
-                <span class="nav-item__label">Calendrier</span>
-                <span class="nav-item__hint">Planifier les gardes et les vérifications.</span>
-              </a>
-            </div>
-
-            {% if _cu.role and _cu.role.name in ['ADMIN', 'CHEF'] %}
-              <div class="nav-section">
-                <div class="nav-label">Préparation</div>
-                <a class="nav-item{% if _path.startswith('/templates') %} is-active{% endif %}" href="/templates">
-                  <span class="nav-item__label">Lots &amp; modèles</span>
-                  <span class="nav-item__hint">Construire et vérifier les lots prêts à partir.</span>
-                </a>
-              </div>
-            {% endif %}
-
-            {% if _cu.role and _cu.role.name == 'ADMIN' %}
-              <div class="nav-section">
-                <div class="nav-label">Administration</div>
-                <a class="nav-item{% if _path.startswith('/suivi-verifications') %} is-active{% endif %}" href="/suivi-verifications">
-                  <span class="nav-item__label">Suivi vérifs</span>
-                  <span class="nav-item__hint">Derniers contrôles et anomalies signalées.</span>
-                </a>
-                <a class="nav-item{% if _path.startswith('/stock') %} is-active{% endif %}" href="/stock">
-                  <span class="nav-item__label">Stock</span>
-                  <span class="nav-item__hint">Suivi des consommables et des équipements.</span>
-                </a>
-                <a class="nav-item{% if _path.startswith('/admin') %} is-active{% endif %}" href="/admin">
-                  <span class="nav-item__label">Comptes</span>
-                  <span class="nav-item__hint">Gestion des profils et des accès.</span>
-                </a>
-              </div>
-            {% endif %}
-
-            <div class="nav-section nav-section--cta">
-              <div class="nav-item">
-                <div class="nav-item__label">Session</div>
-                <div class="nav-item__actions">
-                  <span class="nav-item__hint">Déconnexion rapide</span>
-                  <a class="btn ghost" href="/logout">Quitter</a>
-                </div>
-              </div>
-            </div>
-          {% else %}
-            <div class="nav-section">
-              <div class="nav-label">Compte</div>
-              <a class="nav-item{% if _path.startswith('/login') %} is-active{% endif %}" href="/login">
-                <span class="nav-item__label">Connexion</span>
-                <span class="nav-item__hint">Accéder aux outils internes sécurisés.</span>
-              </a>
-            </div>
-          {% endif %}
-        </div>
-      </aside>
-
       <div class="site-content">
         <main class="page" id="main-content">
           {% block content %}{% endblock %}
@@ -140,52 +62,7 @@
     </div>
   </div>
 
-  <div class="nav-backdrop" id="nav-backdrop" data-open="false"></div>
-
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
   {% macro icon(name) -%}<span class="ico">{{ name }}</span>{%- endmacro %}
-  <script>
-    (function(){
-      var nav = document.getElementById('nav-drawer');
-      var toggle = document.getElementById('nav-toggle');
-      var backdrop = document.getElementById('nav-backdrop');
-      var navClose = document.getElementById('nav-close');
-
-      var setState = function(open){
-        var state = open ? 'true' : 'false';
-        if(nav){ nav.setAttribute('data-open', state); }
-        if(toggle){ toggle.setAttribute('aria-expanded', state); }
-        if(backdrop){ backdrop.setAttribute('data-open', state); }
-      };
-
-      if(toggle){
-        toggle.addEventListener('click', function(){
-          var open = nav && nav.getAttribute('data-open') === 'true';
-          setState(!open);
-        });
-      }
-      if(backdrop){
-        backdrop.addEventListener('click', function(){ setState(false); });
-      }
-      if(navClose){
-        navClose.addEventListener('click', function(){ setState(false); });
-      }
-
-      var mq = window.matchMedia('(min-width: 960px)');
-      var sync = function(e){
-        if(e.matches){
-          setState(true);
-        }else{
-          setState(false);
-        }
-      };
-      sync(mq);
-      if(mq.addEventListener){
-        mq.addEventListener('change', sync);
-      }else if(mq.addListener){
-        mq.addListener(sync);
-      }
-    })();
-  </script>
 </body>
 </html>
